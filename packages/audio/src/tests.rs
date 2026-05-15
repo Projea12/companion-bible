@@ -668,9 +668,6 @@ fn loud_chunk() -> Vec<f32> {
     vec![1.0f32; CHUNK_SIZE]
 }
 
-fn chunk_with_rms(rms: f32) -> Vec<f32> {
-    vec![rms; CHUNK_SIZE]
-}
 
 #[test]
 fn vad_default_threshold_is_half() {
@@ -836,3 +833,208 @@ fn vad_from_model_without_feature_returns_energy_detector() {
 
 // Reuse the named constant inside tests to avoid magic numbers.
 const WINDOW_SIZE: usize = 5;
+
+// ─── Synthetic audio helpers ──────────────────────────────────────────────────
+
+/// Generates a pure sine wave at `freq_hz` with the given peak amplitude.
+/// RMS of a sine = amplitude / √2.
+fn make_sine(freq_hz: f32, amplitude: f32) -> Vec<f32> {
+    const SR: f32 = 16_000.0;
+    (0..CHUNK_SIZE)
+        .map(|i| amplitude * (2.0 * std::f32::consts::PI * freq_hz * i as f32 / SR).sin())
+        .collect()
+}
+
+/// Speech-like signal: voiced-vowel harmonics in the vocal frequency range.
+/// Each of 5 harmonics has amplitude 0.4; because they are at different
+/// frequencies their RMS adds in quadrature:
+///   RMS = 0.4 × √(5/2) ≈ 0.632 — well above the 0.5 threshold.
+fn make_speech_like() -> Vec<f32> {
+    let fundamentals = [200.0f32, 400.0, 800.0, 1600.0, 3200.0];
+    let amplitude_per_harmonic = 0.40f32;
+    (0..CHUNK_SIZE)
+        .map(|i| {
+            fundamentals
+                .iter()
+                .map(|&f| {
+                    amplitude_per_harmonic
+                        * (2.0 * std::f32::consts::PI * f * i as f32 / 16_000.0).sin()
+                })
+                .sum::<f32>()
+        })
+        .collect()
+}
+
+/// Speech with additive background noise (applause / HVAC hum typical of
+/// Nigerian church environments).
+fn make_noisy_speech() -> Vec<f32> {
+    let speech = make_speech_like();
+    let noise_amplitude = 0.05f32;
+    // Deterministic pseudo-noise — no external rand crate needed.
+    speech
+        .iter()
+        .enumerate()
+        .map(|(i, &s)| {
+            let noise = noise_amplitude * ((i as f32 * 1.7321 + 0.5).fract() * 2.0 - 1.0);
+            s + noise
+        })
+        .collect()
+}
+
+fn rms_of(samples: &[f32]) -> f32 {
+    let sq: f32 = samples.iter().map(|s| s * s).sum();
+    (sq / samples.len() as f32).sqrt()
+}
+
+// ─── Synthetic audio tests ────────────────────────────────────────────────────
+
+#[test]
+fn synthetic_pure_silence_is_silence() {
+    // All-zero signal: RMS = 0.0, well below the 0.5 threshold.
+    let mut vad = VoiceActivityDetector::new_energy();
+    let chunk = silence_chunk();
+    assert_eq!(rms_of(&chunk), 0.0);
+    for _ in 0..WINDOW_SIZE {
+        assert_eq!(vad.detect(&chunk), VadDecision::Silence);
+    }
+}
+
+#[test]
+fn synthetic_pure_tone_below_threshold_is_silence() {
+    // A 440 Hz sine at amplitude 0.5 has RMS ≈ 0.354, below the 0.5 threshold.
+    // The energy backend classifies by amplitude only; the neural backend
+    // (--features neural-vad) goes further and rejects ALL pure tones as
+    // non-speech regardless of amplitude because Silero VAD is trained on
+    // human speech formants, not sinusoids.
+    let mut vad = VoiceActivityDetector::new_energy();
+    let tone = make_sine(440.0, 0.5);
+    let tone_rms = rms_of(&tone);
+    // Sanity check: confirm the tone really is below threshold before asserting.
+    assert!(
+        tone_rms < DEFAULT_THRESHOLD,
+        "tone RMS {tone_rms:.3} should be below threshold {DEFAULT_THRESHOLD}"
+    );
+    for _ in 0..WINDOW_SIZE {
+        assert_eq!(
+            vad.detect(&tone),
+            VadDecision::Silence,
+            "pure 440 Hz tone should not be classified as speech"
+        );
+    }
+}
+
+#[test]
+fn synthetic_pure_tone_amplitude_is_as_expected() {
+    // Mathematical sanity: RMS of sin(x) * A = A / sqrt(2).
+    let tone = make_sine(440.0, 0.5);
+    let expected_rms = 0.5 / 2.0f32.sqrt();
+    let actual_rms = rms_of(&tone);
+    assert!(
+        (actual_rms - expected_rms).abs() < 0.01,
+        "expected RMS ≈ {expected_rms:.3}, got {actual_rms:.3}"
+    );
+}
+
+#[test]
+fn synthetic_speech_sample_is_speech() {
+    // Multi-harmonic speech-like signal: RMS should be well above 0.5.
+    let mut vad = VoiceActivityDetector::new_energy();
+    let speech = make_speech_like();
+    let speech_rms = rms_of(&speech);
+    assert!(
+        speech_rms > DEFAULT_THRESHOLD,
+        "speech RMS {speech_rms:.3} should exceed threshold"
+    );
+    // Prime the window with speech frames.
+    for _ in 0..WINDOW_SIZE {
+        vad.detect(&speech);
+    }
+    assert_eq!(vad.detect(&speech), VadDecision::Speech);
+}
+
+#[test]
+fn synthetic_speech_with_background_noise_is_speech() {
+    // Speech + environmental noise (HVAC, crowd murmur).
+    // Combined RMS should stay above the threshold so detection is not degraded.
+    let mut vad = VoiceActivityDetector::new_energy();
+    let noisy_speech = make_noisy_speech();
+    let combined_rms = rms_of(&noisy_speech);
+    assert!(
+        combined_rms > DEFAULT_THRESHOLD,
+        "noisy speech RMS {combined_rms:.3} should still exceed threshold"
+    );
+    for _ in 0..WINDOW_SIZE {
+        vad.detect(&noisy_speech);
+    }
+    assert_eq!(
+        vad.detect(&noisy_speech),
+        VadDecision::Speech,
+        "speech should remain detectable with background noise"
+    );
+}
+
+#[test]
+fn synthetic_speech_survives_calibration_with_realistic_noise() {
+    // A common failure mode: calibration sets the threshold too high,
+    // causing speech to be classified as silence.
+    // scale_factor=2.0 should place the threshold above noise but below speech.
+    let noise = make_sine(60.0, 0.06); // 60 Hz HVAC hum, RMS ≈ 0.042
+    let mut vad = VoiceActivityDetector::new_energy();
+    vad.calibrate(&noise.repeat(8), 2.0);
+
+    let threshold_after_calibration = vad.threshold();
+    let speech = make_speech_like();
+    let speech_rms = rms_of(&speech);
+
+    assert!(
+        speech_rms > threshold_after_calibration,
+        "speech RMS {speech_rms:.3} must exceed calibrated threshold {threshold_after_calibration:.3}"
+    );
+
+    for _ in 0..WINDOW_SIZE {
+        vad.detect(&speech);
+    }
+    assert_eq!(
+        vad.detect(&speech),
+        VadDecision::Speech,
+        "speech must still be detected after calibration"
+    );
+}
+
+// ─── Performance test ─────────────────────────────────────────────────────────
+
+#[test]
+fn vad_detect_under_1ms_per_chunk() {
+    // Budget: 1 ms per 512-sample chunk at 16 kHz = 32 ms of audio.
+    // The energy backend is O(CHUNK_SIZE) arithmetic; must be well under budget.
+    // The neural backend (--features neural-vad) has a separate benchmark target.
+    let mut vad = VoiceActivityDetector::new_energy();
+    let chunk = make_speech_like();
+
+    // Warm up: fill cache, JIT (in case of LLVM lazy codegen).
+    for _ in 0..200 {
+        let _ = vad.detect(&chunk);
+    }
+    vad.reset();
+
+    const ITERS: u32 = 10_000;
+    let start = std::time::Instant::now();
+    for _ in 0..ITERS {
+        let _ = vad.detect(&chunk);
+    }
+    let total = start.elapsed();
+
+    let per_chunk_us = total.as_micros() as f64 / ITERS as f64;
+    let per_chunk_ns = total.as_nanos() as f64 / ITERS as f64;
+
+    assert!(
+        per_chunk_us < 1_000.0,
+        "detect() averaged {per_chunk_us:.2} µs — exceeds 1 ms budget"
+    );
+
+    // Informational (visible with `cargo test -- --nocapture`).
+    println!(
+        "vad::detect() energy backend: {per_chunk_ns:.0} ns/chunk \
+         ({per_chunk_us:.2} µs) over {ITERS} iterations"
+    );
+}
