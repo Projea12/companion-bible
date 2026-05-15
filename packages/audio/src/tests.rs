@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use crate::device::{infer_device_type, AudioDevice, DeviceType};
@@ -428,4 +429,229 @@ fn ring_buffer_capacity_reported_correctly() {
 #[should_panic]
 fn ring_buffer_non_power_of_two_panics() {
     let _rb: RingBuffer<f32> = RingBuffer::new(100);
+}
+
+// ─── Overflow tests ───────────────────────────────────────────────────────────
+
+#[test]
+fn overflow_fill_exact_capacity_saturates_available() {
+    let cap = 8;
+    let rb: RingBuffer<i32> = RingBuffer::new(cap);
+    let samples: Vec<i32> = (0..cap as i32).collect();
+    rb.write(&samples);
+    assert_eq!(rb.available(), cap, "available should equal capacity when full");
+    assert!(!rb.is_empty());
+}
+
+#[test]
+fn overflow_one_extra_drops_oldest_not_newest() {
+    let rb: RingBuffer<i32> = RingBuffer::new(4);
+    rb.write(&[10, 20, 30, 40]); // fills buffer
+    rb.write(&[50]);              // one overflow: drops 10
+
+    let out = rb.read(4);
+    assert_eq!(out, vec![20, 30, 40, 50], "oldest sample (10) must be dropped, not newest (50)");
+}
+
+#[test]
+fn overflow_two_extra_drops_two_oldest() {
+    let rb: RingBuffer<i32> = RingBuffer::new(4);
+    rb.write(&[1, 2, 3, 4]);
+    rb.write(&[5, 6]); // overwrites 1 and 2
+
+    let out = rb.read(4);
+    assert_eq!(out, vec![3, 4, 5, 6]);
+}
+
+#[test]
+fn overflow_2x_capacity_keeps_only_last_capacity_samples() {
+    let cap = 8;
+    let rb: RingBuffer<i32> = RingBuffer::new(cap);
+    let all: Vec<i32> = (0..cap as i32 * 2).collect(); // 0..16
+    rb.write(&all);
+
+    assert_eq!(rb.available(), cap);
+    let out = rb.read(cap);
+    // Only the last `cap` values should survive.
+    assert_eq!(out, vec![8, 9, 10, 11, 12, 13, 14, 15]);
+}
+
+#[test]
+fn overflow_progressive_wave_always_keeps_newest() {
+    // Write in waves that each overflow by half; after each wave the buffer
+    // should hold the last `capacity` samples of that wave.
+    let cap = 8usize;
+    let rb: RingBuffer<i32> = RingBuffer::new(cap);
+
+    for wave in 0..4_i32 {
+        let base = wave * cap as i32 * 2;
+        let samples: Vec<i32> = (base..base + cap as i32 * 2).collect();
+        rb.write(&samples);
+
+        let expected_start = base + cap as i32; // newest cap samples
+        let out = rb.read(cap);
+        let expected: Vec<i32> = (expected_start..expected_start + cap as i32).collect();
+        assert_eq!(out, expected, "wave {wave}");
+    }
+}
+
+#[test]
+fn overflow_available_never_exceeds_capacity_under_heavy_writes() {
+    let rb: RingBuffer<f32> = RingBuffer::new(16);
+    for _ in 0..10 {
+        rb.write(&[1.0; 20]); // 20 > 16
+        assert!(rb.available() <= rb.capacity());
+    }
+}
+
+// ─── Concurrency tests ────────────────────────────────────────────────────────
+//
+// Guarantees that hold under concurrent SPSC use:
+//   1. No deadlock — lock-free atomics cannot deadlock by construction.
+//   2. Values read are always within the set of values actually written.
+//   3. When the buffer is large enough to prevent lapping, FIFO order is
+//      strictly preserved.
+//
+// What is NOT guaranteed when the producer laps the consumer:
+//   - Strict monotonic ordering (the post-read guard returns empty on a
+//     concurrent lap, so the reader retries without exposing corrupt data,
+//     but gaps in the sequence are expected).
+
+use std::sync::atomic::AtomicBool;
+
+fn done_flag() -> Arc<AtomicBool> {
+    Arc::new(AtomicBool::new(false))
+}
+
+#[test]
+fn concurrent_spsc_completes_without_deadlock() {
+    // All-atomic implementation cannot deadlock; verify both threads terminate.
+    // The buffer is large enough to hold all written data without any lapping,
+    // which means the reader will eventually drain everything.
+    let rb = Arc::new(RingBuffer::<i32>::new(65536));
+    let writer_rb = Arc::clone(&rb);
+    let reader_rb = Arc::clone(&rb);
+    let done = done_flag();
+    let done_r = Arc::clone(&done);
+
+    const TOTAL: i32 = 10_000;
+
+    let writer = std::thread::spawn(move || {
+        for batch_start in (0..TOTAL).step_by(16) {
+            let end = (batch_start + 16).min(TOTAL);
+            let batch: Vec<i32> = (batch_start..end).collect();
+            writer_rb.write(&batch);
+        }
+        done.store(true, Ordering::Release);
+    });
+
+    let reader = std::thread::spawn(move || {
+        let mut consumed = 0usize;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            assert!(std::time::Instant::now() < deadline, "timed out — possible livelock");
+            let out = reader_rb.read(64);
+            consumed += out.len();
+            if out.is_empty() {
+                if done_r.load(Ordering::Acquire) && reader_rb.is_empty() { break; }
+                std::hint::spin_loop();
+            }
+        }
+        consumed
+    });
+
+    writer.join().unwrap();
+    let consumed = reader.join().unwrap();
+    assert_eq!(consumed, TOTAL as usize, "every written sample must be read when no lapping occurs");
+}
+
+#[test]
+fn concurrent_spsc_no_lapping_preserves_fifo_order() {
+    // With a buffer large enough to never lap, every value read must be
+    // strictly greater than the previous (FIFO order is a hard guarantee
+    // in the no-overwrite path).
+    let rb = Arc::new(RingBuffer::<i32>::new(65536));
+    let writer_rb = Arc::clone(&rb);
+    let reader_rb = Arc::clone(&rb);
+    let done = done_flag();
+    let done_r = Arc::clone(&done);
+
+    const TOTAL: i32 = 10_000;
+
+    let writer = std::thread::spawn(move || {
+        for i in 0..TOTAL {
+            writer_rb.write(&[i]);
+        }
+        done.store(true, Ordering::Release);
+    });
+
+    let reader = std::thread::spawn(move || {
+        let mut last: Option<i32> = None;
+        let mut reads = 0usize;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            assert!(std::time::Instant::now() < deadline, "timed out");
+            let out = reader_rb.read(16);
+            for &v in &out {
+                if let Some(prev) = last {
+                    assert!(v > prev, "FIFO violation: got {v} after {prev}");
+                }
+                last = Some(v);
+                reads += 1;
+            }
+            if out.is_empty() {
+                if done_r.load(Ordering::Acquire) && reader_rb.is_empty() { break; }
+                std::hint::spin_loop();
+            }
+        }
+        reads
+    });
+
+    writer.join().unwrap();
+    let reads = reader.join().unwrap();
+    assert_eq!(reads, TOTAL as usize);
+}
+
+#[test]
+fn concurrent_spsc_all_read_values_within_written_range() {
+    // Every value returned by read() must be a value that was actually written.
+    // The post-read guard in read() discards any batch where the writer lapped
+    // us mid-read, so the consumer never sees a torn or phantom value.
+    let rb = Arc::new(RingBuffer::<i32>::new(256));
+    let writer_rb = Arc::clone(&rb);
+    let reader_rb = Arc::clone(&rb);
+    let done = done_flag();
+    let done_r = Arc::clone(&done);
+
+    const TOTAL: i32 = 20_000;
+
+    let writer = std::thread::spawn(move || {
+        for batch_start in (0..TOTAL).step_by(16) {
+            let end = (batch_start + 16).min(TOTAL);
+            let batch: Vec<i32> = (batch_start..end).collect();
+            writer_rb.write(&batch);
+        }
+        done.store(true, Ordering::Release);
+    });
+
+    let reader = std::thread::spawn(move || {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            assert!(std::time::Instant::now() < deadline, "timed out");
+            let out = reader_rb.read(32);
+            for &v in &out {
+                assert!(
+                    v >= 0 && v < TOTAL,
+                    "value {v} outside [0, {TOTAL}) — was never written"
+                );
+            }
+            if out.is_empty() {
+                if done_r.load(Ordering::Acquire) && reader_rb.is_empty() { break; }
+                std::hint::spin_loop();
+            }
+        }
+    });
+
+    writer.join().unwrap();
+    reader.join().unwrap();
 }

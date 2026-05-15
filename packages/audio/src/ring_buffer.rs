@@ -124,6 +124,18 @@ impl<T: Copy + Default> RingBuffer<T> {
     /// If the producer has lapped the consumer (overwritten unread data),
     /// the read cursor is silently advanced to the oldest valid position
     /// before reading.
+    /// Remove and return up to `count` samples.
+    ///
+    /// Returns however many samples are actually available, up to `count`.
+    /// If the producer has lapped the consumer (overwritten unread data),
+    /// the read cursor is silently advanced to the oldest valid position
+    /// before reading.
+    ///
+    /// If the producer laps the consumer **during** the read (i.e. the
+    /// producer wrote `capacity` more samples between the initial
+    /// `write_head` snapshot and the end of the copy loop), the partially
+    /// read data is discarded and an empty `Vec` is returned.  The caller
+    /// should retry immediately; the buffer will contain fresh data.
     pub fn read(&self, count: usize) -> Vec<T> {
         // Acquire-load so we see all samples written before write_head was stored.
         let wh = self.write_head.load(Ordering::Acquire);
@@ -148,6 +160,17 @@ impl<T: Copy + Default> RingBuffer<T> {
             // Safety: write_head was Acquire-loaded above; any slot before
             // write_head has a completed Release-store from the writer.
             out.push(unsafe { *self.buf[idx].get() });
+        }
+
+        // Guard: if the writer advanced write_head by a full capacity since
+        // we took our snapshot, it has overwritten slots we just read.
+        // Detect this by re-loading write_head (Acquire keeps ordering).
+        // Since write_head is monotonic, if it now exceeds
+        // effective_rh + capacity the writer must have lapped us.
+        let wh_after = self.write_head.load(Ordering::Acquire);
+        if wh_after.saturating_sub(effective_rh) > self.capacity {
+            // Data integrity cannot be guaranteed; let the caller retry.
+            return Vec::new();
         }
 
         // Publish the new read cursor.
