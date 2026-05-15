@@ -1,0 +1,12 @@
+[package]
+name = "companion-bible"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+companion-errors = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

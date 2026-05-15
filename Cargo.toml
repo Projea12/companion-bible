@@ -4,6 +4,7 @@ members = [
     "shared/events",
     "shared/errors",
     "shared/config",
+    "packages/bible",
 ]
 
 [workspace.package]
