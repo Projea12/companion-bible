@@ -52,10 +52,10 @@ impl WhisperModel {
     /// `on_progress` is called with a fraction in [0, 1] at key stages.
     /// whisper.cpp does not expose per-byte load progress; the callback fires
     /// before load starts (0.0) and after the context is ready (1.0).
-    pub fn load<P, F>(path: P, on_progress: F) -> Result<Self, TranscriptionError>
+    pub fn load<P, F>(path: P, mut on_progress: F) -> Result<Self, TranscriptionError>
     where
         P: AsRef<Path>,
-        F: Fn(f32),
+        F: FnMut(f32),
     {
         let path = path.as_ref().to_path_buf();
         if !path.exists() {

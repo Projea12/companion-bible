@@ -45,10 +45,10 @@ impl DownloadConfig {
 /// the checksum passes.
 pub fn download_if_needed<F>(
     cfg: &DownloadConfig,
-    on_progress: F,
+    mut on_progress: F,
 ) -> Result<(), TranscriptionError>
 where
-    F: Fn(f32),
+    F: FnMut(f32),
 {
     if cfg.dest.exists() {
         on_progress(0.5);
