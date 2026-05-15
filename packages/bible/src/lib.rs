@@ -348,6 +348,160 @@ impl KjvBible {
     }
 }
 
+// ─── ValidationResult ────────────────────────────────────────────────────────
+
+/// The outcome of validating a `BibleReference` against the loaded KJV data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ValidationResult {
+    /// The reference is fully valid; contains the resolved verse text.
+    Valid(VerseText),
+
+    /// The book name was not found in the KJV (66-book canon).
+    InvalidBook { book: String },
+
+    /// The chapter number exceeds the book's actual chapter count,
+    /// or is zero.
+    InvalidChapter {
+        book: String,
+        chapter: u8,
+        total_chapters: u8,
+    },
+
+    /// The verse number exceeds the chapter's actual verse count,
+    /// is zero, or was absent from a verse-level reference.
+    InvalidVerse {
+        book: String,
+        chapter: u8,
+        verse: u8,
+        total_verses: u8,
+    },
+}
+
+impl ValidationResult {
+    /// `true` only when the variant is `Valid`.
+    pub fn is_valid(&self) -> bool {
+        matches!(self, Self::Valid(_))
+    }
+
+    /// Consume the result and return the `VerseText` if valid, otherwise `None`.
+    pub fn into_verse(self) -> Option<VerseText> {
+        if let Self::Valid(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
+}
+
+impl std::fmt::Display for ValidationResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Valid(v) => write!(f, "{v}"),
+            Self::InvalidBook { book } => {
+                write!(f, "Unknown book: \"{book}\"")
+            }
+            Self::InvalidChapter {
+                book,
+                chapter,
+                total_chapters,
+            } => write!(
+                f,
+                "{book} has only {total_chapters} chapter(s) (requested {chapter})"
+            ),
+            Self::InvalidVerse {
+                book,
+                chapter,
+                verse,
+                total_verses,
+            } => write!(
+                f,
+                "{book} {chapter} has only {total_verses} verse(s) (requested {verse})"
+            ),
+        }
+    }
+}
+
+// ─── BibleValidator ───────────────────────────────────────────────────────────
+
+/// Validates a `BibleReference` against the loaded KJV data and returns a
+/// `ValidationResult` describing exactly why a reference is invalid, or the
+/// resolved `VerseText` when it is valid.
+///
+/// # Chapter-level references
+/// If `reference.verse` is `None` the validator cannot resolve verse text.
+/// It validates the book and chapter, then returns
+/// `InvalidVerse { verse: 0, total_verses }` to indicate no verse was
+/// specified.  The caller can distinguish this case by checking `verse == 0`.
+pub struct BibleValidator<'a> {
+    bible: &'a KjvBible,
+}
+
+impl<'a> BibleValidator<'a> {
+    pub fn new(bible: &'a KjvBible) -> Self {
+        Self { bible }
+    }
+
+    pub fn validate(&self, reference: &BibleReference) -> ValidationResult {
+        // ── 1. Book ───────────────────────────────────────────────────────────
+        if !self.bible.book_exists(&reference.book) {
+            return ValidationResult::InvalidBook {
+                book: reference.book.clone(),
+            };
+        }
+
+        // ── 2. Chapter ────────────────────────────────────────────────────────
+        // chapter_count is safe to unwrap: we confirmed the book exists above.
+        let total_chapters = self.bible.chapter_count(&reference.book).unwrap();
+        if reference.chapter == 0 || reference.chapter > total_chapters {
+            return ValidationResult::InvalidChapter {
+                book: reference.book.clone(),
+                chapter: reference.chapter,
+                total_chapters,
+            };
+        }
+
+        // ── 3. Verse ─────────────────────────────────────────────────────────
+        // verse_count is safe to unwrap: book + chapter are confirmed valid.
+        let total_verses = self
+            .bible
+            .verse_count(&reference.book, reference.chapter)
+            .unwrap();
+
+        let verse = match reference.verse {
+            Some(v) => v,
+            // Chapter-level reference: no verse to resolve.
+            None => {
+                return ValidationResult::InvalidVerse {
+                    book: reference.book.clone(),
+                    chapter: reference.chapter,
+                    verse: 0,
+                    total_verses,
+                }
+            }
+        };
+
+        if verse == 0 || verse > total_verses {
+            return ValidationResult::InvalidVerse {
+                book: reference.book.clone(),
+                chapter: reference.chapter,
+                verse,
+                total_verses,
+            };
+        }
+
+        // ── 4. All valid ──────────────────────────────────────────────────────
+        match self.bible.get_verse(&reference.book, reference.chapter, verse) {
+            Ok(v) => ValidationResult::Valid(v),
+            Err(_) => ValidationResult::InvalidVerse {
+                book: reference.book.clone(),
+                chapter: reference.chapter,
+                verse,
+                total_verses,
+            },
+        }
+    }
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -658,5 +812,209 @@ mod tests {
             bible().verse_count("Genesis", 0),
             Err(BibleError::ChapterOutOfRange { .. })
         ));
+    }
+
+    // ── BibleValidator — Valid ────────────────────────────────────────────────
+
+    #[test]
+    fn validate_valid_verse_returns_verse_text() {
+        let b = bible();
+        let v = BibleValidator::new(&b);
+        let r = BibleReference::verse("John", 3, 16);
+        assert!(matches!(v.validate(&r), ValidationResult::Valid(_)));
+    }
+
+    #[test]
+    fn validate_valid_verse_text_is_correct() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("John", 3, 16));
+        let verse = result.into_verse().expect("should be valid");
+        assert!(verse.text.contains("God so loved"), "{}", verse.text);
+        assert_eq!(verse.book, "John");
+        assert_eq!(verse.chapter, 3);
+        assert_eq!(verse.verse, 16);
+    }
+
+    #[test]
+    fn validate_valid_genesis_1_1() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Genesis", 1, 1));
+        assert!(result.is_valid());
+    }
+
+    #[test]
+    fn validate_valid_revelation_22_21() {
+        let b = bible();
+        let result =
+            BibleValidator::new(&b).validate(&BibleReference::verse("Revelation", 22, 21));
+        assert!(result.is_valid());
+    }
+
+    #[test]
+    fn validate_is_valid_helper() {
+        let b = bible();
+        let v = BibleValidator::new(&b);
+        assert!(v.validate(&BibleReference::verse("Genesis", 1, 1)).is_valid());
+        assert!(!v
+            .validate(&BibleReference::verse("Hezekiah", 1, 1))
+            .is_valid());
+    }
+
+    // ── BibleValidator — InvalidBook ──────────────────────────────────────────
+
+    #[test]
+    fn validate_invalid_book_unknown_name() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Hezekiah", 1, 1));
+        assert!(matches!(
+            result,
+            ValidationResult::InvalidBook { book } if book == "Hezekiah"
+        ));
+    }
+
+    #[test]
+    fn validate_invalid_book_lowercase_name() {
+        let b = bible();
+        // canonical names are title-cased; lowercase must not match
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("genesis", 1, 1));
+        assert!(matches!(result, ValidationResult::InvalidBook { .. }));
+    }
+
+    #[test]
+    fn validate_invalid_book_empty_string() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("", 1, 1));
+        assert!(matches!(result, ValidationResult::InvalidBook { .. }));
+    }
+
+    #[test]
+    fn validate_invalid_book_display() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Hezekiah", 1, 1));
+        assert!(result.to_string().contains("Hezekiah"), "{result}");
+    }
+
+    // ── BibleValidator — InvalidChapter ───────────────────────────────────────
+
+    #[test]
+    fn validate_invalid_chapter_zero() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Genesis", 0, 1));
+        assert!(matches!(
+            result,
+            ValidationResult::InvalidChapter { chapter: 0, .. }
+        ));
+    }
+
+    #[test]
+    fn validate_invalid_chapter_exceeds_book_length() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Genesis", 51, 1));
+        assert!(matches!(
+            result,
+            ValidationResult::InvalidChapter {
+                total_chapters: 50,
+                chapter: 51,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn validate_invalid_chapter_contains_correct_total() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Obadiah", 2, 1));
+        assert!(matches!(
+            result,
+            ValidationResult::InvalidChapter {
+                total_chapters: 1,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn validate_invalid_chapter_display() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Genesis", 51, 1));
+        let s = result.to_string();
+        assert!(s.contains("Genesis"), "{s}");
+        assert!(s.contains("50"), "{s}");
+        assert!(s.contains("51"), "{s}");
+    }
+
+    // ── BibleValidator — InvalidVerse ─────────────────────────────────────────
+
+    #[test]
+    fn validate_invalid_verse_zero() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Genesis", 1, 0));
+        assert!(matches!(
+            result,
+            ValidationResult::InvalidVerse { verse: 0, .. }
+        ));
+    }
+
+    #[test]
+    fn validate_invalid_verse_exceeds_chapter_length() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Genesis", 1, 255));
+        assert!(matches!(
+            result,
+            ValidationResult::InvalidVerse { verse: 255, .. }
+        ));
+    }
+
+    #[test]
+    fn validate_invalid_verse_contains_correct_total() {
+        let b = bible();
+        // John 3 has 36 verses
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("John", 3, 37));
+        assert!(matches!(
+            result,
+            ValidationResult::InvalidVerse {
+                total_verses: 36,
+                verse: 37,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn validate_invalid_verse_display() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("John", 3, 37));
+        let s = result.to_string();
+        assert!(s.contains("John"), "{s}");
+        assert!(s.contains("36"), "{s}");
+        assert!(s.contains("37"), "{s}");
+    }
+
+    #[test]
+    fn validate_chapter_level_reference_returns_invalid_verse_zero() {
+        let b = bible();
+        // chapter-level reference (no verse) → InvalidVerse { verse: 0 }
+        let result = BibleValidator::new(&b).validate(&BibleReference::chapter("John", 3));
+        assert!(matches!(
+            result,
+            ValidationResult::InvalidVerse { verse: 0, .. }
+        ));
+    }
+
+    // ── BibleValidator — error priority order ─────────────────────────────────
+
+    #[test]
+    fn validate_invalid_book_takes_priority_over_invalid_chapter() {
+        let b = bible();
+        let result =
+            BibleValidator::new(&b).validate(&BibleReference::verse("Hezekiah", 255, 255));
+        assert!(matches!(result, ValidationResult::InvalidBook { .. }));
+    }
+
+    #[test]
+    fn validate_invalid_chapter_takes_priority_over_invalid_verse() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Genesis", 255, 255));
+        assert!(matches!(result, ValidationResult::InvalidChapter { .. }));
     }
 }
