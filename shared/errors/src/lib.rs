@@ -45,9 +45,18 @@ pub enum BibleError {
     #[error("book '{book}' not found")]
     BookNotFound { book: String },
     #[error("{book} has only {total} chapters, requested chapter {requested}")]
-    ChapterOutOfRange { book: String, requested: u8, total: u8 },
+    ChapterOutOfRange {
+        book: String,
+        requested: u8,
+        total: u8,
+    },
     #[error("{book} {chapter} has only {total} verses, requested verse {requested}")]
-    VerseOutOfRange { book: String, chapter: u8, requested: u8, total: u8 },
+    VerseOutOfRange {
+        book: String,
+        chapter: u8,
+        requested: u8,
+        total: u8,
+    },
     #[error("database query failed: {reason}")]
     QueryFailed { reason: String },
 }

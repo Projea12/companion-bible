@@ -10,7 +10,12 @@ pub struct BibleReference {
 
 impl BibleReference {
     pub fn new(book: impl Into<String>, chapter: u8) -> Self {
-        Self { book: book.into(), chapter, verse: None, verse_end: None }
+        Self {
+            book: book.into(),
+            chapter,
+            verse: None,
+            verse_end: None,
+        }
     }
 
     pub fn with_verse(mut self, verse: u8) -> Self {
@@ -177,7 +182,9 @@ mod tests {
 
     #[test]
     fn audio_capture_started_round_trip() {
-        let e = AppEvent::AudioCaptureStarted { device_id: "default".into() };
+        let e = AppEvent::AudioCaptureStarted {
+            device_id: "default".into(),
+        };
         round_trip(&e);
         assert_type_tag(&e, "AUDIO_CAPTURE_STARTED");
     }
@@ -191,7 +198,10 @@ mod tests {
 
     #[test]
     fn audio_chunk_captured_round_trip() {
-        let e = AppEvent::AudioChunkCaptured { chunk_id: 42, duration_ms: 3000 };
+        let e = AppEvent::AudioChunkCaptured {
+            chunk_id: 42,
+            duration_ms: 3000,
+        };
         round_trip(&e);
         assert_type_tag(&e, "AUDIO_CHUNK_CAPTURED");
     }
@@ -240,7 +250,9 @@ mod tests {
 
     #[test]
     fn no_reference_found_round_trip() {
-        round_trip(&AppEvent::NoReferenceFound { source_text: "hello world".into() });
+        round_trip(&AppEvent::NoReferenceFound {
+            source_text: "hello world".into(),
+        });
     }
 
     // ── Bible ─────────────────────────────────────────────────────────────────
@@ -283,7 +295,10 @@ mod tests {
 
     #[test]
     fn ai_query_failed_round_trip() {
-        round_trip(&AppEvent::AiQueryFailed { query_id: 2, reason: "context limit".into() });
+        round_trip(&AppEvent::AiQueryFailed {
+            query_id: 2,
+            reason: "context limit".into(),
+        });
     }
 
     // ── Display ───────────────────────────────────────────────────────────────
@@ -305,7 +320,9 @@ mod tests {
 
     #[test]
     fn app_started_round_trip() {
-        round_trip(&AppEvent::AppStarted { version: "0.1.0".into() });
+        round_trip(&AppEvent::AppStarted {
+            version: "0.1.0".into(),
+        });
     }
 
     #[test]
@@ -331,12 +348,16 @@ mod tests {
 
     #[test]
     fn update_downloaded_round_trip() {
-        round_trip(&AppEvent::UpdateDownloaded { version: "0.2.0".into() });
+        round_trip(&AppEvent::UpdateDownloaded {
+            version: "0.2.0".into(),
+        });
     }
 
     #[test]
     fn update_installed_round_trip() {
-        round_trip(&AppEvent::UpdateInstalled { version: "0.2.0".into() });
+        round_trip(&AppEvent::UpdateInstalled {
+            version: "0.2.0".into(),
+        });
     }
 
     #[test]
@@ -348,7 +369,9 @@ mod tests {
 
     #[test]
     fn health_check_passed_round_trip() {
-        round_trip(&AppEvent::HealthCheckPassed { component: "audio".into() });
+        round_trip(&AppEvent::HealthCheckPassed {
+            component: "audio".into(),
+        });
     }
 
     #[test]
@@ -376,7 +399,10 @@ mod tests {
 
     #[test]
     fn database_migrated_round_trip() {
-        round_trip(&AppEvent::DatabaseMigrated { from_version: 1, to_version: 2 });
+        round_trip(&AppEvent::DatabaseMigrated {
+            from_version: 1,
+            to_version: 2,
+        });
     }
 
     // ── Config ────────────────────────────────────────────────────────────────
@@ -388,15 +414,25 @@ mod tests {
 
     #[test]
     fn config_updated_round_trip() {
-        round_trip(&AppEvent::ConfigUpdated { key: "audio.device_id".into() });
+        round_trip(&AppEvent::ConfigUpdated {
+            key: "audio.device_id".into(),
+        });
     }
 
     // ── BibleReference helpers ────────────────────────────────────────────────
 
     #[test]
     fn bible_reference_display() {
-        assert_eq!(BibleReference::new("John", 3).with_verse(16).to_string(), "John 3:16");
-        assert_eq!(BibleReference::new("Romans", 8).with_range(1, 4).to_string(), "Romans 8:1-4");
+        assert_eq!(
+            BibleReference::new("John", 3).with_verse(16).to_string(),
+            "John 3:16"
+        );
+        assert_eq!(
+            BibleReference::new("Romans", 8)
+                .with_range(1, 4)
+                .to_string(),
+            "Romans 8:1-4"
+        );
         assert_eq!(BibleReference::new("Genesis", 1).to_string(), "Genesis 1");
     }
 
