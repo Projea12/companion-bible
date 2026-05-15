@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+
+# Lint-staged: format + lint TypeScript files
+npx lint-staged
+
+# Rust: format check then lint
+if command -v cargo >/dev/null 2>&1; then
+  cargo fmt --all -- --check
+  cargo clippy --all-targets --all-features -- -D warnings
+fi
