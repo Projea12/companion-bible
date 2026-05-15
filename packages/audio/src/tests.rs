@@ -5,6 +5,7 @@ use crate::device::{infer_device_type, AudioDevice, DeviceType};
 use crate::error::AudioError;
 use crate::input::AudioInput;
 use crate::ring_buffer::{RingBuffer, DEFAULT_CAPACITY};
+use crate::preprocess::{AudioPreprocessor, NoiseGate, RNNOISE_FRAME_SIZE};
 use crate::vad::{VadDecision, VoiceActivityDetector, CHUNK_SIZE, DEFAULT_THRESHOLD};
 
 // ─── AudioDevice ──────────────────────────────────────────────────────────────
@@ -1036,5 +1037,214 @@ fn vad_detect_under_1ms_per_chunk() {
     println!(
         "vad::detect() energy backend: {per_chunk_ns:.0} ns/chunk \
          ({per_chunk_us:.2} µs) over {ITERS} iterations"
+    );
+}
+
+// ─── NoiseGate ────────────────────────────────────────────────────────────────
+
+#[test]
+fn noise_gate_zeros_chunk_below_threshold() {
+    let gate = NoiseGate::new(0.1);
+    // RMS of 0.05 constant signal = 0.05, below 0.1
+    let mut samples = vec![0.05f32; 64];
+    gate.process(&mut samples);
+    assert!(samples.iter().all(|&s| s == 0.0), "chunk should be zeroed");
+}
+
+#[test]
+fn noise_gate_passes_chunk_above_threshold() {
+    let gate = NoiseGate::new(0.1);
+    // RMS of 0.5 constant signal = 0.5, above 0.1
+    let original = vec![0.5f32; 64];
+    let mut samples = original.clone();
+    gate.process(&mut samples);
+    assert_eq!(samples, original, "chunk above threshold must pass through");
+}
+
+#[test]
+fn noise_gate_threshold_at_boundary_passes() {
+    // Exactly at threshold: RMS = threshold → NOT gated (< is strict).
+    let gate = NoiseGate::new(0.3);
+    let mut samples = vec![0.3f32; 64];
+    let original = samples.clone();
+    gate.process(&mut samples);
+    assert_eq!(samples, original);
+}
+
+#[test]
+fn noise_gate_set_threshold_updates_correctly() {
+    let mut gate = NoiseGate::new(0.1);
+    assert_eq!(gate.threshold(), 0.1);
+    gate.set_threshold(0.5);
+    assert_eq!(gate.threshold(), 0.5);
+}
+
+#[test]
+fn noise_gate_threshold_clamped_to_unit_range() {
+    let mut gate = NoiseGate::new(0.5);
+    gate.set_threshold(2.0);
+    assert_eq!(gate.threshold(), 1.0);
+    gate.set_threshold(-0.5);
+    assert_eq!(gate.threshold(), 0.0);
+}
+
+#[test]
+fn noise_gate_would_gate_predicate_matches_process() {
+    let gate = NoiseGate::new(0.2);
+    let quiet = vec![0.05f32; 64];
+    let loud = vec![0.8f32; 64];
+    assert!(gate.would_gate(&quiet));
+    assert!(!gate.would_gate(&loud));
+}
+
+#[test]
+fn noise_gate_empty_slice_does_not_panic() {
+    let gate = NoiseGate::new(0.1);
+    let mut empty: Vec<f32> = Vec::new();
+    gate.process(&mut empty); // must not panic
+}
+
+// ─── AudioPreprocessor ────────────────────────────────────────────────────────
+
+fn full_frame(value: f32) -> Vec<f32> {
+    vec![value; RNNOISE_FRAME_SIZE]
+}
+
+#[test]
+fn preprocessor_process_exact_frame_returns_same_length() {
+    let mut p = AudioPreprocessor::new();
+    let input = full_frame(0.5);
+    let output = p.process(&input);
+    assert_eq!(output.len(), RNNOISE_FRAME_SIZE);
+}
+
+#[test]
+fn preprocessor_output_is_normalised_range() {
+    // RNNoise output should be in [-1, 1] after our PCM rescaling.
+    let mut p = AudioPreprocessor::new();
+    let input = full_frame(0.9);
+    let output = p.process(&input);
+    for &s in &output {
+        assert!(s.abs() <= 1.0, "sample {s} out of [-1, 1]");
+    }
+}
+
+#[test]
+fn preprocessor_reduces_noise_amplitude() {
+    // Feed pure constant noise; RNNoise should attenuate it.
+    let mut p = AudioPreprocessor::new();
+    // Send several frames to warm up the RNN state.
+    for _ in 0..5 {
+        p.process(&full_frame(0.3));
+    }
+    let input = full_frame(0.3);
+    let input_rms = 0.3f32;
+    let output = p.process(&input);
+    let output_rms = {
+        let sq: f32 = output.iter().map(|s| s * s).sum();
+        (sq / output.len() as f32).sqrt()
+    };
+    assert!(
+        output_rms < input_rms,
+        "RNNoise should reduce constant noise: input_rms={input_rms:.3}, output_rms={output_rms:.3}"
+    );
+}
+
+#[test]
+fn preprocessor_short_chunk_is_buffered() {
+    // Feeding fewer than RNNOISE_FRAME_SIZE samples returns nothing yet.
+    let mut p = AudioPreprocessor::new();
+    let partial = vec![0.5f32; RNNOISE_FRAME_SIZE - 1];
+    let out = p.process(&partial);
+    assert!(out.is_empty(), "partial frame should be buffered, not returned");
+}
+
+#[test]
+fn preprocessor_flush_returns_remaining_samples() {
+    let mut p = AudioPreprocessor::new();
+    let partial = vec![0.4f32; 100]; // less than RNNOISE_FRAME_SIZE
+    p.process(&partial);
+    let flushed = p.flush();
+    assert_eq!(
+        flushed.len(),
+        RNNOISE_FRAME_SIZE,
+        "flush should pad to a full frame and return it"
+    );
+}
+
+#[test]
+fn preprocessor_flush_on_empty_buffer_is_noop() {
+    let mut p = AudioPreprocessor::new();
+    let out = p.flush();
+    assert!(out.is_empty());
+}
+
+#[test]
+fn preprocessor_multi_chunk_total_length() {
+    // 3 frames fed as a single large slice → 3 frames returned.
+    let mut p = AudioPreprocessor::new();
+    let input = vec![0.2f32; RNNOISE_FRAME_SIZE * 3];
+    let output = p.process(&input);
+    assert_eq!(output.len(), RNNOISE_FRAME_SIZE * 3);
+}
+
+#[test]
+fn preprocessor_with_gate_zeros_silent_frames() {
+    // A gate threshold of 0.5 should zero a frame whose RMS ≈ 0.05.
+    let mut p = AudioPreprocessor::with_gate(0.5);
+    // RNNoise will attenuate 0.05 input → gate should then suppress it.
+    let quiet = vec![0.05f32; RNNOISE_FRAME_SIZE];
+    let output = p.process(&quiet);
+    assert!(
+        output.iter().all(|&s| s == 0.0),
+        "gate should suppress near-silent frame after denoising"
+    );
+}
+
+#[test]
+fn preprocessor_gate_threshold_configured_correctly() {
+    let mut p = AudioPreprocessor::with_gate(0.1);
+    assert_eq!(p.gate_threshold(), Some(0.1));
+    p.set_gate_threshold(0.3);
+    assert_eq!(p.gate_threshold(), Some(0.3));
+    p.disable_gate();
+    assert_eq!(p.gate_threshold(), None);
+}
+
+#[test]
+fn preprocessor_new_has_no_gate() {
+    let p = AudioPreprocessor::new();
+    assert_eq!(p.gate_threshold(), None);
+}
+
+// ─── Performance ──────────────────────────────────────────────────────────────
+
+#[test]
+fn preprocessor_process_under_10ms_per_frame() {
+    // Budget: RNNoise frame is 480 samples.  At 16 kHz that is 30 ms of audio.
+    // We require processing to complete in < 10 ms (≥ 3× real-time headroom).
+    let mut p = AudioPreprocessor::new();
+    let frame = full_frame(0.3);
+
+    // Warm up.
+    for _ in 0..50 {
+        p.process(&frame);
+    }
+
+    const ITERS: u32 = 2_000;
+    let start = std::time::Instant::now();
+    for _ in 0..ITERS {
+        p.process(&frame);
+    }
+    let total = start.elapsed();
+
+    let per_frame_us = total.as_micros() as f64 / ITERS as f64;
+    assert!(
+        per_frame_us < 10_000.0,
+        "process() averaged {per_frame_us:.1} µs — exceeds 10 ms budget"
+    );
+
+    println!(
+        "AudioPreprocessor::process() RNNoise: {per_frame_us:.0} µs/frame over {ITERS} iters"
     );
 }
