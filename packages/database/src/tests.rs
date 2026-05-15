@@ -473,3 +473,322 @@ async fn deleting_sermon_cascades_to_sub_points() {
     assert_eq!(count, 0, "deleting a sermon should cascade-delete its sub_points");
     close(pool).await;
 }
+
+// ── schema: migration 002 — tables exist ─────────────────────────────────────
+
+#[tokio::test]
+async fn migration_creates_detection_events_table() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let (count,): (i64,) = sqlx::query_as(&table_exists_sql("detection_events"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "detection_events table should exist");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn migration_creates_app_state_table() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let (count,): (i64,) = sqlx::query_as(&table_exists_sql("app_state"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "app_state table should exist");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn migration_creates_church_settings_table() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let (count,): (i64,) = sqlx::query_as(&table_exists_sql("church_settings"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "church_settings table should exist");
+    close(pool).await;
+}
+
+// ── schema: detection_events ──────────────────────────────────────────────────
+
+#[tokio::test]
+async fn can_insert_and_read_detection_event() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sermons (id, church_id, date, started_at)
+         VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO detection_events
+             (id, sermon_id, raw_transcript, decision, confidence, processing_time_ms)
+         VALUES ('d1', 's1', 'John 3:16', 'pattern', 0.98, 42)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (transcript,): (String,) =
+        sqlx::query_as("SELECT raw_transcript FROM detection_events WHERE id = 'd1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    assert_eq!(transcript, "John 3:16");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn detection_event_rejects_invalid_sermon_id() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    let result = sqlx::query(
+        "INSERT INTO detection_events
+             (id, sermon_id, raw_transcript, decision, confidence, processing_time_ms)
+         VALUES ('d1', 'no-such-sermon', 'John 3:16', 'pattern', 0.9, 10)",
+    )
+    .execute(&pool)
+    .await;
+
+    assert!(result.is_err(), "FK constraint should reject unknown sermon_id");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn detection_event_rejects_confidence_out_of_range() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sermons (id, church_id, date, started_at)
+         VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let result = sqlx::query(
+        "INSERT INTO detection_events
+             (id, sermon_id, raw_transcript, decision, confidence, processing_time_ms)
+         VALUES ('d1', 's1', 'test', 'pattern', 1.5, 10)",
+    )
+    .execute(&pool)
+    .await;
+
+    assert!(result.is_err(), "CHECK constraint should reject confidence > 1.0");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn deleting_sermon_cascades_to_detection_events() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sermons (id, church_id, date, started_at)
+         VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO detection_events
+             (id, sermon_id, raw_transcript, decision, confidence, processing_time_ms)
+         VALUES ('d1', 's1', 'John 3:16', 'pattern', 0.9, 10)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query("DELETE FROM sermons WHERE id = 's1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM detection_events WHERE id = 'd1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    assert_eq!(count, 0, "deleting sermon should cascade-delete detection_events");
+    close(pool).await;
+}
+
+// ── schema: app_state ─────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn can_insert_and_read_app_state() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO app_state (key, value) VALUES ('display_mode', '\"fullscreen\"')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (value,): (String,) =
+        sqlx::query_as("SELECT value FROM app_state WHERE key = 'display_mode'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    assert_eq!(value, "\"fullscreen\"");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn app_state_rejects_duplicate_key() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO app_state (key, value) VALUES ('theme', '\"dark\"')")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let result =
+        sqlx::query("INSERT INTO app_state (key, value) VALUES ('theme', '\"light\"')")
+            .execute(&pool)
+            .await;
+
+    assert!(result.is_err(), "PRIMARY KEY should reject duplicate key");
+    close(pool).await;
+}
+
+// ── schema: church_settings ───────────────────────────────────────────────────
+
+#[tokio::test]
+async fn can_insert_and_read_church_setting() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO church_settings (church_id, key, value)
+         VALUES ('c1', 'preferred_translation', '\"KJV\"')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let (value,): (String,) = sqlx::query_as(
+        "SELECT value FROM church_settings WHERE church_id = 'c1' AND key = 'preferred_translation'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(value, "\"KJV\"");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn church_settings_rejects_duplicate_key_for_same_church() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO church_settings (church_id, key, value) VALUES ('c1', 'font_size', '16')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let result = sqlx::query(
+        "INSERT INTO church_settings (church_id, key, value) VALUES ('c1', 'font_size', '18')",
+    )
+    .execute(&pool)
+    .await;
+
+    assert!(result.is_err(), "composite PK should reject duplicate (church_id, key)");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn church_settings_rejects_unknown_church_id() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    let result = sqlx::query(
+        "INSERT INTO church_settings (church_id, key, value)
+         VALUES ('no-such-church', 'font_size', '16')",
+    )
+    .execute(&pool)
+    .await;
+
+    assert!(result.is_err(), "FK should reject unknown church_id");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn deleting_church_cascades_to_church_settings() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO church_settings (church_id, key, value) VALUES ('c1', 'font_size', '16')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query("DELETE FROM churches WHERE id = 'c1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let (count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM church_settings WHERE church_id = 'c1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    assert_eq!(count, 0, "deleting church should cascade-delete church_settings");
+    close(pool).await;
+}
