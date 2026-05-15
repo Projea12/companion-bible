@@ -44,6 +44,16 @@ pub struct HealthReport {
     pub n_segments: i32,
 }
 
+impl std::fmt::Debug for WhisperModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WhisperModel")
+            .field("model_path", &self.model_path)
+            .field("load_time_ms", &self.load_time_ms)
+            .field("memory_delta_mb", &self.memory_delta_mb)
+            .finish_non_exhaustive()
+    }
+}
+
 // ─── WhisperModel impl ────────────────────────────────────────────────────────
 
 impl WhisperModel {

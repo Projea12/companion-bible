@@ -1,4 +1,4 @@
-use std::io::Read as _;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 use sha1::{Digest, Sha1};
@@ -8,11 +8,11 @@ use crate::model::{GGML_MEDIUM_SHA1, GGML_MEDIUM_URL};
 
 // ─── DownloadConfig ───────────────────────────────────────────────────────────
 
-/// Where to get a model and how to verify it.
+/// Where to get a model file and how to verify it.
 pub struct DownloadConfig {
     /// HTTP(S) source URL.
     pub url: String,
-    /// Expected SHA-1 hex digest (lowercase, 40 characters).
+    /// Expected SHA-1 hex digest (lowercase, 40 chars).
     pub sha1: String,
     /// Destination path on disk.
     pub dest: PathBuf,
@@ -31,29 +31,25 @@ impl DownloadConfig {
 
 // ─── download_if_needed ───────────────────────────────────────────────────────
 
-/// Download the model if the destination file does not exist, then verify the
-/// SHA-1 checksum.
+/// Download the model if it is not already present, then verify checksum.
 ///
-/// `on_progress` receives a fraction in [0, 1]:
-/// - `0.0` — starting
-/// - `0.5` — file exists; verifying checksum
-/// - `0.9` — download complete; verifying
-/// - `1.0` — done
+/// `on_progress(bytes_done, bytes_total)` is called on every 64 KB chunk.
+/// `bytes_total` is `None` when the server does not send `Content-Length`.
 ///
-/// The download is performed via `curl` (must be on `PATH`).  A `.tmp`
-/// extension is used during transfer; the file is renamed to `dest` only after
-/// the checksum passes.
+/// A `.tmp` suffix is used during transfer; the file is renamed to `dest` only
+/// after checksum passes.  An existing file whose checksum matches is accepted
+/// without re-downloading.
 pub fn download_if_needed<F>(
     cfg: &DownloadConfig,
     mut on_progress: F,
 ) -> Result<(), TranscriptionError>
 where
-    F: FnMut(f32),
+    F: FnMut(u64, Option<u64>),
 {
     if cfg.dest.exists() {
-        on_progress(0.5);
+        // Signal that we're verifying an existing file.
+        on_progress(0, None);
         verify_sha1(&cfg.dest, &cfg.sha1)?;
-        on_progress(1.0);
         return Ok(());
     }
 
@@ -62,23 +58,21 @@ where
     }
 
     let tmp = cfg.dest.with_extension("tmp");
-    on_progress(0.0);
-    download_via_curl(&cfg.url, &tmp)?;
-    on_progress(0.9);
+
+    fetch_with_progress(&cfg.url, &tmp, &mut on_progress)?;
 
     verify_sha1(&tmp, &cfg.sha1).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp); // clean up corrupt download
+        let _ = std::fs::remove_file(&tmp);
         e
     })?;
 
     std::fs::rename(&tmp, &cfg.dest)?;
-    on_progress(1.0);
     Ok(())
 }
 
 // ─── verify_sha1 ─────────────────────────────────────────────────────────────
 
-/// Stream `path` through SHA-1 and verify it matches `expected` (hex, lowercase).
+/// Stream `path` through SHA-1 and verify it matches `expected` (hex, any case).
 pub fn verify_sha1(path: &Path, expected: &str) -> Result<(), TranscriptionError> {
     let file = std::fs::File::open(path)?;
     let mut reader = std::io::BufReader::new(file);
@@ -105,27 +99,50 @@ pub fn verify_sha1(path: &Path, expected: &str) -> Result<(), TranscriptionError
 
 // ─── Internal ─────────────────────────────────────────────────────────────────
 
-fn download_via_curl(url: &str, dest: &Path) -> Result<(), TranscriptionError> {
-    let dest_str = dest
-        .to_str()
-        .ok_or_else(|| TranscriptionError::Download("non-UTF-8 destination path".into()))?;
+/// Stream `url` into `dest`, calling `on_progress(bytes_done, bytes_total)` on
+/// every 64 KB chunk.  Uses `reqwest` blocking client so no async runtime is
+/// required — call from a `tokio::task::spawn_blocking` context when needed.
+fn fetch_with_progress<F>(
+    url: &str,
+    dest: &Path,
+    on_progress: &mut F,
+) -> Result<(), TranscriptionError>
+where
+    F: FnMut(u64, Option<u64>),
+{
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(3_600)) // 1 h — large file
+        .build()
+        .map_err(|e| TranscriptionError::Download(e.to_string()))?;
 
-    let status = std::process::Command::new("curl")
-        .args([
-            "--location",    // follow redirects (HuggingFace uses them)
-            "--fail",        // non-zero exit on HTTP errors
-            "--progress-bar", // visible progress in the terminal
-            "--output",
-            dest_str,
-            url,
-        ])
-        .status()
-        .map_err(|e| TranscriptionError::Download(format!("failed to run curl: {e}")))?;
+    let mut response = client
+        .get(url)
+        .send()
+        .map_err(|e| TranscriptionError::Download(e.to_string()))?;
 
-    if !status.success() {
+    if !response.status().is_success() {
         return Err(TranscriptionError::Download(format!(
-            "curl exited with status {status}"
+            "HTTP {} for {url}",
+            response.status()
         )));
     }
+
+    let total = response.content_length();
+    let mut file = std::fs::File::create(dest)?;
+    let mut downloaded: u64 = 0;
+    let mut buf = vec![0u8; 65_536];
+
+    loop {
+        let n = response
+            .read(&mut buf)
+            .map_err(|e| TranscriptionError::Download(e.to_string()))?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n])?;
+        downloaded += n as u64;
+        on_progress(downloaded, total);
+    }
+
     Ok(())
 }

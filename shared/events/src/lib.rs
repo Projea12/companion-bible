@@ -149,6 +149,32 @@ pub enum AppEvent {
     ConfigUpdated {
         key: String,
     },
+
+    // ── Model setup ──────────────────────────────────────────────────────────
+    /// First launch: model weights are not present — setup is required.
+    ModelSetupRequired,
+    /// Download started; `bytes_total` is `None` when the server omits Content-Length.
+    ModelDownloadStarted {
+        bytes_total: Option<u64>,
+    },
+    /// Periodic progress during download.
+    ModelDownloadProgress {
+        bytes_done: u64,
+        bytes_total: Option<u64>,
+    },
+    /// Download finished; checksum is being verified.
+    ModelVerifying,
+    /// Model weights are on disk and verified; loading into memory.
+    ModelLoadStarted,
+    /// Model is loaded and the health check passed.
+    ModelReady {
+        load_time_ms: u64,
+        memory_mb: u64,
+    },
+    /// Any step in the setup flow failed.
+    ModelSetupFailed {
+        reason: String,
+    },
 }
 
 impl AppEvent {

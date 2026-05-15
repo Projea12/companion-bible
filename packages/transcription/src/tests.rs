@@ -4,6 +4,7 @@ use sha1::{Digest, Sha1};
 
 use crate::download::{download_if_needed, verify_sha1, DownloadConfig};
 use crate::error::TranscriptionError;
+use crate::manager::{ModelManager, SetupProgress};
 use crate::model::{rss_mb, WhisperModel, GGML_MEDIUM_SHA1, MEMORY_BUDGET_MB};
 
 // ─── Checksum ─────────────────────────────────────────────────────────────────
@@ -63,7 +64,6 @@ fn download_skipped_when_file_exists_and_hash_matches() {
     let data = b"fake model weights";
     let expected = format!("{:x}", Sha1::digest(data));
 
-    // Pre-populate the destination.
     let dest = dir.path().join("ggml-medium.bin");
     std::fs::write(&dest, data).unwrap();
 
@@ -73,15 +73,9 @@ fn download_skipped_when_file_exists_and_hash_matches() {
         dest: dest.clone(),
     };
 
-    let mut progress_values = Vec::new();
-    download_if_needed(&cfg, |p| progress_values.push(p))
+    // No error when file is present with correct hash — no network call made.
+    download_if_needed(&cfg, |_, _| {})
         .expect("should succeed when file is present with correct hash");
-
-    // The function should not have downloaded anything; progress goes 0.5 → 1.0.
-    assert!(
-        progress_values.contains(&1.0_f32),
-        "progress must reach 1.0"
-    );
 }
 
 #[test]
@@ -96,7 +90,7 @@ fn download_fails_when_file_exists_with_wrong_hash() {
         dest,
     };
 
-    let err = download_if_needed(&cfg, |_| {}).expect_err("bad hash must fail");
+    let err = download_if_needed(&cfg, |_, _| {}).expect_err("bad hash must fail");
     assert!(matches!(err, TranscriptionError::ChecksumMismatch { .. }));
 }
 
@@ -145,62 +139,124 @@ fn ggml_medium_sha1_is_40_hex_chars() {
     );
 }
 
+// ─── ModelManager ────────────────────────────────────────────────────────────
+
+#[test]
+fn model_manager_is_present_false_when_no_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let mgr = ModelManager::new(dir.path());
+    assert!(!mgr.is_present(), "is_present() must be false before any download");
+}
+
+#[test]
+fn model_manager_is_present_true_when_file_exists() {
+    let dir = tempfile::tempdir().unwrap();
+    let mgr = ModelManager::new(dir.path());
+    std::fs::create_dir_all(mgr.model_path().parent().unwrap()).unwrap();
+    std::fs::write(mgr.model_path(), b"placeholder").unwrap();
+    assert!(mgr.is_present(), "is_present() must be true when file is on disk");
+}
+
+#[test]
+fn model_manager_model_path_ends_with_ggml_medium() {
+    let dir = tempfile::tempdir().unwrap();
+    let mgr = ModelManager::new(dir.path());
+    assert_eq!(mgr.model_path().file_name().unwrap(), "ggml-medium.bin");
+}
+
+#[test]
+fn setup_progress_labels_are_non_empty() {
+    let cases = [
+        SetupProgress::Checking,
+        SetupProgress::AlreadyPresent,
+        SetupProgress::Downloading { bytes_done: 0, bytes_total: None },
+        SetupProgress::Verifying,
+        SetupProgress::Loading,
+        SetupProgress::Ready { load_time_ms: 0, memory_mb: 0 },
+    ];
+    for p in &cases {
+        assert!(!p.label().is_empty(), "label must not be empty for {p:?}");
+    }
+}
+
+#[test]
+fn setup_progress_download_percent_correct() {
+    let p = SetupProgress::Downloading { bytes_done: 750, bytes_total: Some(1000) };
+    assert_eq!(p.download_percent(), Some(75));
+
+    let p2 = SetupProgress::Downloading { bytes_done: 500, bytes_total: None };
+    assert_eq!(p2.download_percent(), None);
+
+    assert_eq!(SetupProgress::Checking.download_percent(), None);
+}
+
+#[test]
+fn setup_fails_gracefully_when_model_corrupt() {
+    let dir = tempfile::tempdir().unwrap();
+    let mgr = ModelManager::new(dir.path());
+
+    // Plant a corrupt file so the manager tries to verify it (no network call).
+    std::fs::create_dir_all(mgr.model_path().parent().unwrap()).unwrap();
+    std::fs::write(mgr.model_path(), b"this is not a real model").unwrap();
+
+    let err = mgr.setup(|_| {}).expect_err("corrupt file must fail setup");
+    assert!(
+        matches!(err, TranscriptionError::ChecksumMismatch { .. }),
+        "expected ChecksumMismatch, got {err:?}"
+    );
+}
+
 // ─── Full model tests (require model file — run manually) ─────────────────────
 
-/// Load the model, run a health check, and report memory usage.
+/// Full first-launch setup via ModelManager: download (if needed) → verify →
+/// load → health check → memory budget.
 ///
 /// Run with:
 /// ```sh
-/// cargo test -p companion-transcription model_load -- --ignored --nocapture
+/// cargo test -p companion-transcription model_first_launch -- --ignored --nocapture
 /// ```
+/// The model is read from (or downloaded to) `models/whisper/ggml-medium.bin`
+/// relative to the workspace root.
 #[test]
 #[ignore]
-fn model_load_health_check_and_memory() {
-    let model_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+fn model_first_launch_setup() {
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
         .parent()
         .unwrap()
-        .join("models/whisper/ggml-medium.bin");
+        .to_path_buf();
 
-    assert!(
-        model_path.exists(),
-        "model not found at {model_path:?}\nRun: bash scripts/download_whisper.sh"
-    );
+    let mgr = ModelManager::new(&workspace_root);
 
-    // Verify checksum before loading.
-    println!("Verifying checksum...");
-    verify_sha1(&model_path, GGML_MEDIUM_SHA1).expect("checksum must match");
-    println!("✓ Checksum OK");
+    println!("\nModel path : {:?}", mgr.model_path());
+    println!("Present    : {}", mgr.is_present());
+    if !mgr.is_present() {
+        println!("Model not found — will download (~1.5 GB, may take several minutes)");
+    }
 
-    // Load with a simple console progress indicator.
-    println!("Loading model (this takes a few seconds)...");
-    let model = WhisperModel::load(&model_path, |frac| {
-        if frac == 0.0 {
-            print!("  [loading]");
-        } else if frac == 1.0 {
-            println!(" done.");
-        }
-    })
-    .expect("model must load without error");
+    let model = mgr
+        .setup(|progress| {
+            match &progress {
+                SetupProgress::Downloading { bytes_done, bytes_total } => {
+                    let pct = progress.download_percent().map(|p| format!("{p}%")).unwrap_or_else(|| "?".into());
+                    let mb = bytes_done / 1_048_576;
+                    let total_mb = bytes_total.map(|t| format!("{} MB", t / 1_048_576)).unwrap_or_else(|| "?".into());
+                    print!("\r  {pct}  {mb} MB / {total_mb}       ");
+                    use std::io::Write as _;
+                    let _ = std::io::stdout().flush();
+                }
+                other => println!("  {}", other.label()),
+            }
+        })
+        .expect("setup must succeed");
 
-    println!("  Load time   : {} ms", model.load_time_ms);
+    println!("\n  Load time   : {} ms", model.load_time_ms);
     println!("  Memory delta: {} MB", model.memory_delta_mb);
-
-    // ── Memory budget ─────────────────────────────────────────────────────────
-    model
-        .assert_within_budget()
-        .expect("model must fit within 4 GB memory budget");
-    println!(
-        "  Budget check: {} MB / {} MB — OK",
-        model.memory_delta_mb, MEMORY_BUDGET_MB
+    assert!(
+        model.memory_delta_mb <= MEMORY_BUDGET_MB,
+        "model uses {} MB, exceeds {} MB budget",
+        model.memory_delta_mb,
+        MEMORY_BUDGET_MB
     );
-
-    // ── Health check ─────────────────────────────────────────────────────────
-    println!("Running health check (0.1 s silence)...");
-    let report = model.health_check().expect("health check must pass");
-    println!("  Health OK   : {}", report.ok);
-    println!("  Inference   : {} ms", report.inference_ms);
-    println!("  Segments    : {}", report.n_segments);
-    assert!(report.ok);
 }

@@ -32,3 +32,11 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# ML model weights — never commit these (too large for GitHub)
+models/**/*.bin
+models/**/*.gguf
+models/**/*.onnx
+models/**/*.pt
+models/**/*.safetensors
+*.tmp
