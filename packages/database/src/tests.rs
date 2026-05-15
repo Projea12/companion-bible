@@ -2916,3 +2916,501 @@ fn wal_replay_detection_is_idempotent_for_duplicate_event_ids() {
         "duplicate detection event_id must not produce two entries"
     );
 }
+
+// ── WAL rotation ──────────────────────────────────────────────────────────────
+
+#[test]
+fn wal_rotate_archives_the_active_wal_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("app.wal");
+    let wal = WriteAheadLog::open(&path).unwrap();
+    wal.write(WalEntry::SettingChanged { key: "a".into(), value: "1".into() }).unwrap();
+
+    wal.rotate().unwrap();
+
+    // Original path still exists (new empty file).
+    assert!(path.exists(), "active WAL must exist after rotation");
+
+    // Exactly one archive file must exist alongside it.
+    let archives: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let name = e.file_name();
+            let s = name.to_string_lossy();
+            s.starts_with("app.wal.") && s != "app.wal"
+        })
+        .collect();
+    assert_eq!(archives.len(), 1, "exactly one archive must be created");
+}
+
+#[test]
+fn wal_rotate_new_writes_start_at_sequence_1() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("app.wal");
+    let wal = WriteAheadLog::open(&path).unwrap();
+    wal.write(WalEntry::SettingChanged { key: "a".into(), value: "1".into() }).unwrap();
+    wal.write(WalEntry::SettingChanged { key: "b".into(), value: "2".into() }).unwrap();
+
+    wal.rotate().unwrap();
+
+    let seq = wal
+        .write(WalEntry::SettingChanged { key: "c".into(), value: "3".into() })
+        .unwrap();
+    assert_eq!(seq, 1, "sequence must reset to 1 after rotation");
+}
+
+#[test]
+fn wal_rotate_old_content_is_preserved_in_archive() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("app.wal");
+    let wal = WriteAheadLog::open(&path).unwrap();
+    wal.write(WalEntry::SettingChanged { key: "pre-rotate".into(), value: "yes".into() })
+        .unwrap();
+
+    wal.rotate().unwrap();
+
+    // Find the archive file and verify it contains the pre-rotation entry.
+    let archive = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .find(|e| {
+            let n = e.file_name();
+            let s = n.to_string_lossy();
+            s.starts_with("app.wal.") && s != "app.wal"
+        })
+        .expect("archive must exist");
+
+    let contents = std::fs::read_to_string(archive.path()).unwrap();
+    assert!(
+        contents.contains("pre-rotate"),
+        "archive must contain pre-rotation entries"
+    );
+    // The active file must be empty after rotation.
+    assert!(
+        std::fs::read_to_string(&path).unwrap().is_empty(),
+        "active WAL must be empty after rotation"
+    );
+}
+
+#[test]
+fn wal_rotate_prunes_archives_older_than_keep_days() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("app.wal");
+
+    // Plant a fake archive with a timestamp 8 days ago — should be pruned.
+    let old_ts = unix_now() - 8 * 86_400;
+    let old_archive = dir.path().join(format!("app.wal.{old_ts}"));
+    std::fs::write(&old_archive, b"old archive content\n").unwrap();
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    wal.write(WalEntry::SettingChanged { key: "k".into(), value: "v".into() }).unwrap();
+    wal.rotate_keeping(7).unwrap();
+
+    assert!(!old_archive.exists(), "archive older than keep_days must be deleted");
+}
+
+#[test]
+fn wal_rotate_keeps_archives_within_keep_days() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("app.wal");
+
+    // Plant a fake archive with a timestamp 3 days ago — must be kept.
+    let recent_ts = unix_now() - 3 * 86_400;
+    let recent_archive = dir.path().join(format!("app.wal.{recent_ts}"));
+    std::fs::write(&recent_archive, b"recent archive\n").unwrap();
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    wal.rotate_keeping(7).unwrap();
+
+    assert!(recent_archive.exists(), "archive within keep_days must be retained");
+}
+
+#[test]
+fn wal_rotate_replay_sees_only_post_rotation_entries() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("app.wal");
+    let wal = WriteAheadLog::open(&path).unwrap();
+
+    // Pre-rotation entries.
+    wal.write(WalEntry::SettingChanged { key: "old".into(), value: "before".into() }).unwrap();
+    wal.rotate().unwrap();
+
+    // Post-rotation entries + checkpoint.
+    let mut state = AppState::default();
+    state.settings.insert("new".into(), "after".into());
+    wal.checkpoint(state).unwrap();
+
+    let recovered = wal.replay().unwrap();
+    assert_eq!(recovered.settings.get("new").map(String::as_str), Some("after"));
+    // "old" was in the archived file — not visible to replay on the active WAL.
+    assert!(!recovered.settings.contains_key("old"));
+}
+
+// ── write / replay cycle ──────────────────────────────────────────────────────
+
+#[test]
+fn wal_full_write_replay_cycle() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+
+        // Bootstrap state.
+        wal.write(WalEntry::ChurchRegistered {
+            church_id: "c1".into(),
+            name: "Grace".into(),
+            region: "Lagos".into(),
+        })
+        .unwrap();
+        wal.write(WalEntry::SermonStarted {
+            sermon_id: "s1".into(),
+            church_id: "c1".into(),
+            started_at: "2026-05-15T09:00:00Z".into(),
+        })
+        .unwrap();
+
+        // Mid-session checkpoint.
+        let mut base = AppState::default();
+        base.church = Some(Church {
+            id: "c1".into(),
+            name: "Grace".into(),
+            region: "Lagos".into(),
+            installed_at: "2026-05-15T00:00:00Z".into(),
+            onboarding_complete: true,
+        });
+        base.active_sermon = Some(Sermon {
+            id: "s1".into(),
+            church_id: "c1".into(),
+            title: None,
+            pastor: None,
+            date: "2026-05-15".into(),
+            anchor_scripture: None,
+            started_at: "2026-05-15T09:00:00Z".into(),
+            ended_at: None,
+        });
+        wal.checkpoint(base).unwrap();
+
+        // Entries after checkpoint.
+        for i in 0..5u64 {
+            wal.write(WalEntry::DetectionRecorded {
+                event_id: format!("d{i}"),
+                sermon_id: "s1".into(),
+                raw_transcript: format!("John {i}:1"),
+                final_reference: Some(format!("John {i}:1")),
+                confidence: 0.95,
+                decision: "auto_accept".into(),
+                processing_time_ms: 10,
+            })
+            .unwrap();
+        }
+        wal.write(WalEntry::SermonEnded {
+            sermon_id: "s1".into(),
+            ended_at: "2026-05-15T11:00:00Z".into(),
+        })
+        .unwrap();
+    }
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+
+    assert!(state.church.is_some());
+    assert_eq!(state.pending_detections.len(), 5);
+    assert_eq!(
+        state.active_sermon.as_ref().and_then(|s| s.ended_at.as_deref()),
+        Some("2026-05-15T11:00:00Z")
+    );
+}
+
+// ── corrupted entry handling ──────────────────────────────────────────────────
+
+#[test]
+fn wal_replay_handles_multiple_consecutive_corrupted_entries() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.checkpoint(make_app_state()).unwrap();
+        for i in 0..5u64 {
+            wal.write(WalEntry::DetectionRecorded {
+                event_id: format!("d{i}"),
+                sermon_id: "s1".into(),
+                raw_transcript: format!("text {i}"),
+                final_reference: None,
+                confidence: 0.8,
+                decision: "auto_accept".into(),
+                processing_time_ms: 5,
+            })
+            .unwrap();
+        }
+    }
+
+    // Corrupt lines 2, 3, and 4 (zero out their crc fields).
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = contents.lines().collect();
+    let patched: String = lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            if i == 1 || i == 2 || i == 3 {
+                let mut v: serde_json::Value = serde_json::from_str(line).unwrap();
+                v["crc"] = serde_json::json!(0u64);
+                format!("{}\n", serde_json::to_string(&v).unwrap())
+            } else {
+                format!("{line}\n")
+            }
+        })
+        .collect();
+    std::fs::write(&path, patched).unwrap();
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+
+    // Lines 2–4 (d0, d1, d2) were corrupted; d3 and d4 survive.
+    assert_eq!(
+        state.pending_detections.len(),
+        2,
+        "only entries with valid checksums must survive"
+    );
+    let ids: Vec<&str> = state.pending_detections.iter().map(|d| d.id.as_str()).collect();
+    assert!(ids.contains(&"d3"));
+    assert!(ids.contains(&"d4"));
+}
+
+#[test]
+fn wal_replay_handles_truncated_final_entry() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.checkpoint(make_app_state()).unwrap();
+        wal.write(WalEntry::DetectionRecorded {
+            event_id: "d1".into(),
+            sermon_id: "s1".into(),
+            raw_transcript: "complete entry".into(),
+            final_reference: Some("John 3:16".into()),
+            confidence: 0.9,
+            decision: "auto_accept".into(),
+            processing_time_ms: 10,
+        })
+        .unwrap();
+        // Write one more entry that will be truncated mid-way.
+        wal.write(WalEntry::DetectionRecorded {
+            event_id: "d2".into(),
+            sermon_id: "s1".into(),
+            raw_transcript: "incomplete entry — will be truncated".into(),
+            final_reference: None,
+            confidence: 0.5,
+            decision: "pending".into(),
+            processing_time_ms: 5,
+        })
+        .unwrap();
+    }
+
+    // Truncate the last line to simulate a crash mid-write.
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let mut lines: Vec<&str> = contents.lines().collect();
+    // Chop off the last line (the d2 entry).
+    lines.pop();
+    std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+
+    // d1 must be present; d2 was lost in the crash.
+    assert_eq!(state.pending_detections.len(), 1);
+    assert_eq!(state.pending_detections[0].id, "d1");
+}
+
+// ── missing checkpoint ────────────────────────────────────────────────────────
+
+#[test]
+fn wal_replay_without_checkpoint_rebuilds_full_state_from_entries() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.write(WalEntry::ChurchRegistered {
+            church_id: "c1".into(),
+            name: "Grace".into(),
+            region: "Lagos".into(),
+        })
+        .unwrap();
+        wal.write(WalEntry::SettingChanged { key: "theme".into(), value: "dark".into() })
+            .unwrap();
+        wal.write(WalEntry::SettingChanged { key: "font_size".into(), value: "18".into() })
+            .unwrap();
+        wal.write(WalEntry::SermonStarted {
+            sermon_id: "s1".into(),
+            church_id: "c1".into(),
+            started_at: "2026-05-15T09:00:00Z".into(),
+        })
+        .unwrap();
+        for i in 0..3u64 {
+            wal.write(WalEntry::DetectionRecorded {
+                event_id: format!("d{i}"),
+                sermon_id: "s1".into(),
+                raw_transcript: format!("ref {i}"),
+                final_reference: Some(format!("Ps {i}:1")),
+                confidence: 0.88,
+                decision: "auto_accept".into(),
+                processing_time_ms: 8,
+            })
+            .unwrap();
+        }
+        wal.write(WalEntry::CalibrationUpdated {
+            church_id: "c1".into(),
+            stage: "pattern".into(),
+            accept_above: 0.92,
+            escalate_below: 0.55,
+        })
+        .unwrap();
+    }
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+
+    assert_eq!(state.church.as_ref().map(|c| c.id.as_str()), Some("c1"));
+    assert_eq!(state.settings.get("theme").map(String::as_str), Some("dark"));
+    assert_eq!(state.settings.get("font_size").map(String::as_str), Some("18"));
+    assert!(state.active_sermon.is_some());
+    assert_eq!(state.pending_detections.len(), 3);
+    assert_eq!(state.calibration.len(), 1);
+    assert!((state.calibration[0].accept_above - 0.92).abs() < 1e-9);
+}
+
+// ── crash simulation ──────────────────────────────────────────────────────────
+
+fn unix_now() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+#[test]
+fn wal_crash_simulation_1000_entries_state_is_consistent() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    let mut expected_detections: Vec<String> = Vec::new();
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+
+        let mut state = AppState {
+            church: Some(Church {
+                id: "c1".into(),
+                name: "Grace".into(),
+                region: "Lagos".into(),
+                installed_at: "2026-05-15T00:00:00Z".into(),
+                onboarding_complete: true,
+            }),
+            active_sermon: Some(Sermon {
+                id: "s1".into(),
+                church_id: "c1".into(),
+                title: None,
+                pastor: None,
+                date: "2026-05-15".into(),
+                anchor_scripture: None,
+                started_at: "2026-05-15T09:00:00Z".into(),
+                ended_at: None,
+            }),
+            pending_detections: vec![],
+            settings: HashMap::new(),
+            calibration: vec![],
+        };
+
+        wal.write(WalEntry::SermonStarted {
+            sermon_id: "s1".into(),
+            church_id: "c1".into(),
+            started_at: "2026-05-15T09:00:00Z".into(),
+        })
+        .unwrap();
+
+        for i in 0..1000u64 {
+            let event_id = format!("d{i}");
+            wal.write(WalEntry::DetectionRecorded {
+                event_id: event_id.clone(),
+                sermon_id: "s1".into(),
+                raw_transcript: format!("transcript chunk {i}"),
+                final_reference: Some(format!("John {i}:1")),
+                confidence: 0.9,
+                decision: "auto_accept".into(),
+                processing_time_ms: 10,
+            })
+            .unwrap();
+
+            state.pending_detections.push(DetectionEvent {
+                id: event_id.clone(),
+                sermon_id: "s1".into(),
+                raw_transcript: format!("transcript chunk {i}"),
+                pattern_result: None,
+                local_ai_result: None,
+                cloud_ai_result: None,
+                final_reference: Some(format!("John {i}:1")),
+                confidence: 0.9,
+                decision: "auto_accept".into(),
+                operator_action: None,
+                correct_reference: None,
+                processing_time_ms: 10,
+                timestamp: String::new(),
+            });
+            expected_detections.push(event_id);
+
+            // Checkpoint every 100 entries — simulates the 1-second interval.
+            if (i + 1) % 100 == 0 {
+                wal.checkpoint(state.clone()).unwrap();
+            }
+        }
+    }
+
+    // ── Simulate crash: truncate to 2/3 of file size ──────────────────────────
+    let file_bytes = std::fs::read(&path).unwrap();
+    let crash_at = file_bytes.len() * 2 / 3;
+    std::fs::write(&path, &file_bytes[..crash_at]).unwrap();
+
+    // ── Replay and verify internal consistency ────────────────────────────────
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+
+    // No duplicate event IDs.
+    let ids: std::collections::HashSet<&str> =
+        state.pending_detections.iter().map(|d| d.id.as_str()).collect();
+    assert_eq!(
+        ids.len(),
+        state.pending_detections.len(),
+        "pending detections must have unique IDs after crash recovery"
+    );
+
+    // All detections belong to the active sermon.
+    if let Some(ref sermon) = state.active_sermon {
+        for det in &state.pending_detections {
+            assert_eq!(
+                det.sermon_id, sermon.id,
+                "every recovered detection must reference the active sermon"
+            );
+        }
+    }
+
+    // Event IDs are a prefix of what was written (no invented entries).
+    for det in &state.pending_detections {
+        assert!(
+            expected_detections.contains(&det.id),
+            "recovered detection {} was never written",
+            det.id
+        );
+    }
+
+    // At least the last checkpoint (entry 900 or 1000) must have been recovered.
+    // With crash at 2/3 we always hit at least the first checkpoint (entry 100).
+    assert!(
+        !state.pending_detections.is_empty(),
+        "at least some detections must survive a crash at 2/3 of file"
+    );
+}

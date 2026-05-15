@@ -187,6 +187,50 @@ impl WriteAheadLog {
         self.write(WalEntry::Checkpoint { state })
     }
 
+    /// Archive the current WAL file and start a fresh one.
+    ///
+    /// The active file is renamed to `{name}.{unix_ts}` in the same directory.
+    /// Archives older than `keep_days` are then deleted.  The sequence counter
+    /// resets to 0 so the new file starts at sequence 1.
+    ///
+    /// Call this at the start of each new sermon so the active WAL never grows
+    /// unbounded.  The default retention window is 7 days.
+    pub fn rotate(&self) -> Result<(), WalError> {
+        self.rotate_keeping(7)
+    }
+
+    /// Like `rotate`, but with a configurable retention window (useful in tests).
+    pub fn rotate_keeping(&self, keep_days: u64) -> Result<(), WalError> {
+        let mut inner = self.inner.lock().expect("WAL mutex poisoned");
+
+        inner.file.sync_all()?;
+
+        // Open the replacement file at a temporary path so we hold no handle
+        // to `self.path` when we rename it — required on Windows.
+        let tmp = self.path.with_extension("wal.new");
+        // Remove any leftover temp file from a previously interrupted rotation.
+        if tmp.exists() {
+            std::fs::remove_file(&tmp)?;
+        }
+        let new_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&tmp)?;
+
+        // Drop the old handle (closes the file) then rename.
+        drop(std::mem::replace(&mut inner.file, new_file));
+
+        let archive = archive_path_for(&self.path);
+        std::fs::rename(&self.path, &archive)?;
+        std::fs::rename(&tmp, &self.path)?;
+
+        inner.sequence = 0;
+
+        prune_archives(&self.path, keep_days)?;
+
+        Ok(())
+    }
+
     /// Reconstruct the application state from the log.
     ///
     /// Algorithm:
@@ -363,6 +407,48 @@ fn apply_entry(state: &mut AppState, entry: &WalEntry) {
 }
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
+
+/// Build an archive path for `wal_path` using the current unix timestamp.
+/// Appends a counter if the timestamp-based name is already taken.
+fn archive_path_for(wal_path: &Path) -> PathBuf {
+    let parent = wal_path.parent().unwrap_or(Path::new("."));
+    let name = wal_path.file_name().unwrap_or_default().to_string_lossy();
+    let ts = unix_now();
+    let base = parent.join(format!("{name}.{ts}"));
+    if !base.exists() {
+        return base;
+    }
+    (1u32..).map(|n| parent.join(format!("{name}.{ts}.{n}"))).find(|p| !p.exists()).unwrap()
+}
+
+/// Delete archive files for `wal_path` that are older than `keep_days`.
+///
+/// Archives are identified by the `{wal_name}.{unix_ts}` naming convention
+/// written by `archive_path_for`.  Deletion is best-effort; individual
+/// failures are silently ignored so a single unreadable file cannot block
+/// rotation.
+fn prune_archives(wal_path: &Path, keep_days: u64) -> Result<(), WalError> {
+    let cutoff = unix_now().saturating_sub(keep_days * 86_400);
+    let parent = wal_path.parent().unwrap_or(Path::new("."));
+    let wal_name = wal_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let prefix = format!("{wal_name}.");
+
+    for entry in std::fs::read_dir(parent)? {
+        let entry = entry?;
+        let fname = entry.file_name();
+        let name = fname.to_string_lossy();
+        if let Some(suffix) = name.strip_prefix(&prefix) {
+            // Accept "ts" or "ts.counter" — only the leading numeric part matters.
+            let ts_str = suffix.split('.').next().unwrap_or("");
+            if let Ok(ts) = ts_str.parse::<u64>() {
+                if ts < cutoff {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 fn count_entries(path: &Path) -> Result<u64, WalError> {
     let file = File::open(path)?;
