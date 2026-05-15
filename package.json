@@ -2,7 +2,9 @@
   "name": "companion-bible",
   "version": "0.1.0",
   "private": true,
-  "workspaces": [],
+  "workspaces": [
+    "shared/types"
+  ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
