@@ -11,6 +11,7 @@ use crate::preprocess::{
 };
 use crate::vad::{VadDecision, VoiceActivityDetector, CHUNK_SIZE, DEFAULT_THRESHOLD};
 use crate::capture::{AudioCapture, CaptureConfig, CaptureEvent};
+use crate::sliding_window::{AudioWindow, SlidingWindow, SAMPLE_RATE, WINDOW_CAPACITY, WINDOW_SECS};
 
 // ─── AudioDevice ──────────────────────────────────────────────────────────────
 
@@ -2342,4 +2343,368 @@ fn capture_integration_full_lifecycle() {
     // ── Teardown ──────────────────────────────────────────────────────────────
     cap.stop();
     assert!(!cap.is_connected(), "Teardown FAIL — should not be connected after stop()");
+}
+
+// ─── SlidingWindow ────────────────────────────────────────────────────────────
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn sliding_window_constants_are_correct() {
+    assert_eq!(SAMPLE_RATE, 16_000);
+    assert_eq!(WINDOW_SECS, 30);
+    assert_eq!(WINDOW_CAPACITY, 480_000);
+}
+
+// ── Construction ──────────────────────────────────────────────────────────────
+
+#[test]
+fn sliding_window_new_is_empty() {
+    let w = SlidingWindow::new();
+    assert!(w.is_empty());
+    assert_eq!(w.len(), 0);
+    assert_eq!(w.last_push_time(), None);
+}
+
+#[test]
+fn sliding_window_max_duration_is_30_seconds() {
+    let w = SlidingWindow::new();
+    assert_eq!(w.max_duration(), std::time::Duration::from_secs(30));
+}
+
+#[test]
+fn sliding_window_with_params_custom_rate() {
+    let w = SlidingWindow::with_params(8_000, 10);
+    assert_eq!(w.max_duration(), std::time::Duration::from_secs(10));
+}
+
+#[test]
+fn sliding_window_default_equals_new() {
+    let a = SlidingWindow::new();
+    let b = SlidingWindow::default();
+    assert_eq!(a.len(), b.len());
+    assert_eq!(a.max_duration(), b.max_duration());
+}
+
+// ── push ──────────────────────────────────────────────────────────────────────
+
+#[test]
+fn sliding_window_push_empty_is_noop() {
+    let mut w = SlidingWindow::new();
+    w.push(&[]);
+    assert!(w.is_empty());
+    assert_eq!(w.last_push_time(), None);
+}
+
+#[test]
+fn sliding_window_push_increments_len() {
+    let mut w = SlidingWindow::new();
+    w.push(&[0.1, 0.2, 0.3]);
+    assert_eq!(w.len(), 3);
+}
+
+#[test]
+fn sliding_window_push_multiple_accumulates() {
+    let mut w = SlidingWindow::new();
+    w.push(&[1.0; 100]);
+    w.push(&[2.0; 200]);
+    assert_eq!(w.len(), 300);
+}
+
+#[test]
+fn sliding_window_push_records_timestamp() {
+    let mut w = SlidingWindow::new();
+    let before = std::time::Instant::now();
+    w.push(&[0.5; 10]);
+    let after = std::time::Instant::now();
+    let t = w.last_push_time().expect("last_push_time should be Some after push");
+    assert!(t >= before && t <= after, "timestamp must lie within the push call");
+}
+
+#[test]
+fn sliding_window_push_updates_timestamp_each_call() {
+    let mut w = SlidingWindow::new();
+    w.push(&[0.1; 10]);
+    let first = w.last_push_time().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    w.push(&[0.2; 10]);
+    let second = w.last_push_time().unwrap();
+    assert!(second > first, "second push timestamp must be later than first");
+}
+
+#[test]
+fn sliding_window_push_drops_oldest_when_full() {
+    // Use a tiny window (4 samples) so we can test drop-oldest precisely.
+    let mut w = SlidingWindow::with_params(4, 1); // capacity = 4
+    w.push(&[1.0, 2.0, 3.0, 4.0]);              // fills buffer
+    w.push(&[5.0, 6.0]);                          // should drop 1.0, 2.0
+    assert_eq!(w.len(), 4);
+    let all = w.last(std::time::Duration::from_secs(1));
+    assert_eq!(all.samples, vec![3.0, 4.0, 5.0, 6.0]);
+}
+
+#[test]
+fn sliding_window_push_chunk_larger_than_capacity_keeps_tail() {
+    // If a single chunk exceeds capacity, only the newest samples are kept.
+    let mut w = SlidingWindow::with_params(4, 1); // capacity = 4
+    w.push(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);   // 6 > capacity 4
+    assert_eq!(w.len(), 4);
+    let all = w.last(std::time::Duration::from_secs(1));
+    assert_eq!(all.samples, vec![3.0, 4.0, 5.0, 6.0]);
+}
+
+#[test]
+fn sliding_window_push_does_not_exceed_capacity() {
+    let mut w = SlidingWindow::new();
+    // Push more than 30 s of audio in multiple calls.
+    let chunk = vec![0.1f32; SAMPLE_RATE as usize]; // 1 s
+    for _ in 0..35 {
+        w.push(&chunk);
+    }
+    assert_eq!(w.len(), WINDOW_CAPACITY, "buffer must not exceed 30 s capacity");
+}
+
+// ── last ──────────────────────────────────────────────────────────────────────
+
+#[test]
+fn sliding_window_last_returns_correct_tail() {
+    let mut w = SlidingWindow::with_params(SAMPLE_RATE, 30);
+    // Push 3 seconds: first 2 s = 0.1, last 1 s = 0.9.
+    w.push(&vec![0.1f32; SAMPLE_RATE as usize * 2]);
+    w.push(&vec![0.9f32; SAMPLE_RATE as usize]);
+
+    let win = w.last(std::time::Duration::from_secs(1));
+    assert_eq!(win.samples.len(), SAMPLE_RATE as usize);
+    assert!(
+        win.samples.iter().all(|&s| (s - 0.9).abs() < 1e-6),
+        "last 1 s should be all 0.9"
+    );
+}
+
+#[test]
+fn sliding_window_last_clamped_to_available() {
+    let mut w = SlidingWindow::new();
+    w.push(&[0.5f32; 100]);
+
+    // Request more than available — should return all 100 samples.
+    let win = w.last(std::time::Duration::from_secs(10));
+    assert_eq!(win.samples.len(), 100);
+}
+
+#[test]
+fn sliding_window_last_zero_duration_returns_empty() {
+    let mut w = SlidingWindow::new();
+    w.push(&[0.5f32; 100]);
+    let win = w.last(std::time::Duration::ZERO);
+    assert!(win.is_empty());
+}
+
+#[test]
+fn sliding_window_last_on_empty_buffer_returns_empty() {
+    let w = SlidingWindow::new();
+    let win = w.last(std::time::Duration::from_secs(5));
+    assert!(win.is_empty());
+}
+
+#[test]
+fn sliding_window_last_sample_rate_preserved() {
+    let w = SlidingWindow::with_params(8_000, 10);
+    let win = w.last(std::time::Duration::from_secs(1));
+    assert_eq!(win.sample_rate, 8_000);
+}
+
+#[test]
+fn audio_window_duration_is_correct() {
+    let win = AudioWindow {
+        samples: vec![0.0f32; 16_000],
+        sample_rate: 16_000,
+    };
+    assert_eq!(win.duration(), std::time::Duration::from_secs(1));
+}
+
+#[test]
+fn audio_window_duration_zero_for_empty() {
+    let win = AudioWindow { samples: vec![], sample_rate: 16_000 };
+    assert_eq!(win.duration(), std::time::Duration::ZERO);
+}
+
+// ── new_audio_since ───────────────────────────────────────────────────────────
+
+#[test]
+fn new_audio_since_false_when_nothing_pushed() {
+    let w = SlidingWindow::new();
+    let ts = std::time::Instant::now();
+    assert!(!w.new_audio_since(ts));
+}
+
+#[test]
+fn new_audio_since_true_after_push() {
+    let mut w = SlidingWindow::new();
+    let ts = std::time::Instant::now();
+    // Small sleep so the push timestamp is strictly after `ts`.
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    w.push(&[0.5f32; 64]);
+    assert!(w.new_audio_since(ts), "new_audio_since must be true when push happened after ts");
+}
+
+#[test]
+fn new_audio_since_false_when_timestamp_is_after_push() {
+    let mut w = SlidingWindow::new();
+    w.push(&[0.5f32; 64]);
+    // Timestamp taken AFTER push — no new audio since that point.
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let ts = std::time::Instant::now();
+    assert!(!w.new_audio_since(ts));
+}
+
+#[test]
+fn new_audio_since_detects_second_push() {
+    let mut w = SlidingWindow::new();
+    w.push(&[0.1f32; 64]);
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let checkpoint = std::time::Instant::now();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    w.push(&[0.2f32; 64]);
+    assert!(
+        w.new_audio_since(checkpoint),
+        "should detect push that happened after the checkpoint"
+    );
+}
+
+#[test]
+fn new_audio_since_false_after_checkpoint_taken_post_push() {
+    // Simulates the scheduler loop: push once, take checkpoint, no more pushes.
+    let mut w = SlidingWindow::new();
+    w.push(&[0.3f32; 64]);
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let checkpoint = std::time::Instant::now();
+    // No more pushes — nothing new since the checkpoint.
+    assert!(!w.new_audio_since(checkpoint));
+}
+
+// ── duration_buffered ─────────────────────────────────────────────────────────
+
+#[test]
+fn duration_buffered_zero_when_empty() {
+    let w = SlidingWindow::new();
+    assert_eq!(w.duration_buffered(), std::time::Duration::ZERO);
+}
+
+#[test]
+fn duration_buffered_correct_after_push() {
+    let mut w = SlidingWindow::new();
+    w.push(&vec![0.0f32; SAMPLE_RATE as usize * 5]); // 5 s
+    let d = w.duration_buffered();
+    assert!(
+        (d.as_secs_f64() - 5.0).abs() < 1e-6,
+        "expected 5.0 s, got {:.6} s",
+        d.as_secs_f64()
+    );
+}
+
+// ── trim_front ────────────────────────────────────────────────────────────────
+
+#[test]
+fn trim_front_removes_oldest_samples() {
+    let mut w = SlidingWindow::with_params(SAMPLE_RATE, 30);
+    // 2 s of 0.1 followed by 1 s of 0.9.
+    w.push(&vec![0.1f32; SAMPLE_RATE as usize * 2]);
+    w.push(&vec![0.9f32; SAMPLE_RATE as usize]);
+
+    // Remove the first 2 s.
+    w.trim_front(std::time::Duration::from_secs(2));
+    assert_eq!(w.len(), SAMPLE_RATE as usize);
+    let win = w.last(std::time::Duration::from_secs(1));
+    assert!(win.samples.iter().all(|&s| (s - 0.9).abs() < 1e-6));
+}
+
+#[test]
+fn trim_front_more_than_buffered_clears_buffer() {
+    let mut w = SlidingWindow::new();
+    w.push(&[0.5f32; 100]);
+    w.trim_front(std::time::Duration::from_secs(10)); // way more than 100 samples
+    assert!(w.is_empty());
+}
+
+#[test]
+fn trim_front_zero_duration_is_noop() {
+    let mut w = SlidingWindow::new();
+    w.push(&[0.5f32; 100]);
+    w.trim_front(std::time::Duration::ZERO);
+    assert_eq!(w.len(), 100);
+}
+
+// ── drain_all ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn drain_all_returns_and_clears() {
+    let mut w = SlidingWindow::new();
+    let samples = vec![0.1f32, 0.2, 0.3, 0.4];
+    w.push(&samples);
+    let drained = w.drain_all();
+    assert_eq!(drained, samples);
+    assert!(w.is_empty());
+}
+
+// ── Integration: scheduler pattern ───────────────────────────────────────────
+
+#[test]
+fn scheduler_pattern_triggers_only_on_new_audio() {
+    // Simulates the transcription trigger loop:
+    //   1. Take a checkpoint.
+    //   2. Push audio (simulates live capture).
+    //   3. Check new_audio_since — should be true.
+    //   4. Advance checkpoint past the last push.
+    //   5. Check again — should be false (no more audio).
+    let mut w = SlidingWindow::new();
+
+    // Step 1 & 2: checkpoint before push.
+    let checkpoint = std::time::Instant::now();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    w.push(&vec![0.5f32; SAMPLE_RATE as usize]); // 1 s
+
+    // Step 3: fresh audio detected.
+    assert!(w.new_audio_since(checkpoint), "should detect audio pushed after checkpoint");
+
+    // Step 4: advance checkpoint.
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let new_checkpoint = std::time::Instant::now();
+
+    // Step 5: nothing new since new_checkpoint.
+    assert!(!w.new_audio_since(new_checkpoint), "no new audio after advancing checkpoint");
+
+    // Buffer still holds the pushed audio for transcription.
+    let span = w.last(std::time::Duration::from_secs(1));
+    assert_eq!(span.samples.len(), SAMPLE_RATE as usize);
+}
+
+#[test]
+fn rolling_fill_maintains_last_30_seconds() {
+    // Fill the window completely, then verify the oldest data is gone and the
+    // newest 30 s are intact.
+    let mut w = SlidingWindow::new();
+
+    // Push 35 seconds of distinctly valued 1-second chunks.
+    for i in 0u32..35 {
+        let value = (i as f32 + 1.0) / 35.0; // 1/35, 2/35, …, 35/35
+        w.push(&vec![value; SAMPLE_RATE as usize]);
+    }
+
+    // Only the last 30 s (chunks 6–35, values 6/35 … 35/35) should remain.
+    assert_eq!(w.len(), WINDOW_CAPACITY);
+
+    // The very first sample in the buffer should be from chunk 6 (value 6/35).
+    let expected_first = 6.0f32 / 35.0;
+    let first_sample = w.last(w.max_duration()).samples[0];
+    assert!(
+        (first_sample - expected_first).abs() < 1e-5,
+        "expected first sample ≈ {expected_first:.5}, got {first_sample:.5}"
+    );
+
+    // The very last sample should be from chunk 35 (value 35/35 = 1.0).
+    let last_sample = *w.last(w.max_duration()).samples.last().unwrap();
+    assert!(
+        (last_sample - 1.0f32).abs() < 1e-5,
+        "expected last sample ≈ 1.0, got {last_sample:.5}"
+    );
 }
