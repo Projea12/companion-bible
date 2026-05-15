@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use tempfile::tempdir;
 
-use crate::{close, connect, DbPool, PoolConfig};
+use crate::{close, connect, migration, DbPool, PoolConfig};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -790,5 +790,361 @@ async fn deleting_church_cascades_to_church_settings() {
             .unwrap();
 
     assert_eq!(count, 0, "deleting church should cascade-delete church_settings");
+    close(pool).await;
+}
+
+// ── migration 003: calibration_thresholds ─────────────────────────────────────
+
+#[tokio::test]
+async fn migration_creates_calibration_thresholds_table() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let (count,): (i64,) = sqlx::query_as(&table_exists_sql("calibration_thresholds"))
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn can_insert_and_read_calibration_threshold() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO calibration_thresholds (id, church_id, stage, accept_above, escalate_below)
+         VALUES ('t1', 'c1', 'pattern', 0.85, 0.4)",
+    )
+    .execute(&pool).await.unwrap();
+
+    let (stage,): (String,) =
+        sqlx::query_as("SELECT stage FROM calibration_thresholds WHERE id = 't1'")
+            .fetch_one(&pool).await.unwrap();
+    assert_eq!(stage, "pattern");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn calibration_threshold_rejects_invalid_stage() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    let result = sqlx::query(
+        "INSERT INTO calibration_thresholds (id, church_id, stage, accept_above, escalate_below)
+         VALUES ('t1', 'c1', 'unknown_stage', 0.9, 0.5)",
+    )
+    .execute(&pool).await;
+    assert!(result.is_err(), "CHECK should reject unknown stage");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn calibration_threshold_rejects_inverted_thresholds() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    let result = sqlx::query(
+        "INSERT INTO calibration_thresholds (id, church_id, stage, accept_above, escalate_below)
+         VALUES ('t1', 'c1', 'pattern', 0.3, 0.8)",
+    )
+    .execute(&pool).await;
+    assert!(result.is_err(), "CHECK should reject accept_above < escalate_below");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn calibration_threshold_unique_per_church_stage() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO calibration_thresholds (id, church_id, stage) VALUES ('t1', 'c1', 'pattern')",
+    )
+    .execute(&pool).await.unwrap();
+    let result = sqlx::query(
+        "INSERT INTO calibration_thresholds (id, church_id, stage) VALUES ('t2', 'c1', 'pattern')",
+    )
+    .execute(&pool).await;
+    assert!(result.is_err(), "UNIQUE should reject duplicate (church_id, stage)");
+    close(pool).await;
+}
+
+// ── migration 003: service_records ────────────────────────────────────────────
+
+#[tokio::test]
+async fn migration_creates_service_records_table() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let (count,): (i64,) = sqlx::query_as(&table_exists_sql("service_records"))
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn can_insert_and_read_service_record() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO sermons (id, church_id, date, started_at)
+         VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
+    )
+    .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO service_records (id, sermon_id, total_detections, auto_accepted)
+         VALUES ('r1', 's1', 10, 8)",
+    )
+    .execute(&pool).await.unwrap();
+
+    let (total,): (i64,) =
+        sqlx::query_as("SELECT total_detections FROM service_records WHERE id = 'r1'")
+            .fetch_one(&pool).await.unwrap();
+    assert_eq!(total, 10);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn service_record_unique_per_sermon() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO sermons (id, church_id, date, started_at)
+         VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
+    )
+    .execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO service_records (id, sermon_id) VALUES ('r1', 's1')")
+        .execute(&pool).await.unwrap();
+    let result =
+        sqlx::query("INSERT INTO service_records (id, sermon_id) VALUES ('r2', 's1')")
+            .execute(&pool).await;
+    assert!(result.is_err(), "UNIQUE should allow only one service_record per sermon");
+    close(pool).await;
+}
+
+// ── migration 003: operator_patterns ─────────────────────────────────────────
+
+#[tokio::test]
+async fn migration_creates_operator_patterns_table() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let (count,): (i64,) = sqlx::query_as(&table_exists_sql("operator_patterns"))
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn can_insert_and_read_operator_pattern() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO operator_patterns (id, church_id, pattern, book_name)
+         VALUES ('p1', 'c1', 'Ps.', 'Psalms')",
+    )
+    .execute(&pool).await.unwrap();
+
+    let (book,): (String,) =
+        sqlx::query_as("SELECT book_name FROM operator_patterns WHERE id = 'p1'")
+            .fetch_one(&pool).await.unwrap();
+    assert_eq!(book, "Psalms");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn operator_pattern_rejects_invalid_match_type() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    let result = sqlx::query(
+        "INSERT INTO operator_patterns (id, church_id, pattern, book_name, match_type)
+         VALUES ('p1', 'c1', 'Ps.', 'Psalms', 'fuzzy')",
+    )
+    .execute(&pool).await;
+    assert!(result.is_err(), "CHECK should reject unknown match_type");
+    close(pool).await;
+}
+
+// ── migration 004: acoustic_profiles ─────────────────────────────────────────
+
+#[tokio::test]
+async fn migration_creates_acoustic_profiles_table() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let (count,): (i64,) = sqlx::query_as(&table_exists_sql("acoustic_profiles"))
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn can_insert_and_read_acoustic_profile() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO acoustic_profiles (id, church_id, name, sample_rate, vad_threshold)
+         VALUES ('a1', 'c1', 'Main Hall', 16000, 0.6)",
+    )
+    .execute(&pool).await.unwrap();
+
+    let (name,): (String,) =
+        sqlx::query_as("SELECT name FROM acoustic_profiles WHERE id = 'a1'")
+            .fetch_one(&pool).await.unwrap();
+    assert_eq!(name, "Main Hall");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn acoustic_profile_rejects_invalid_vad_threshold() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    let result = sqlx::query(
+        "INSERT INTO acoustic_profiles (id, church_id, name, vad_threshold)
+         VALUES ('a1', 'c1', 'Test', 1.5)",
+    )
+    .execute(&pool).await;
+    assert!(result.is_err(), "CHECK should reject vad_threshold > 1.0");
+    close(pool).await;
+}
+
+// ── migration 004: hardware_profiles ─────────────────────────────────────────
+
+#[tokio::test]
+async fn migration_creates_hardware_profiles_table() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let (count,): (i64,) = sqlx::query_as(&table_exists_sql("hardware_profiles"))
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn can_insert_and_read_hardware_profile() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO hardware_profiles (id, church_id, device_name, device_id)
+         VALUES ('h1', 'c1', 'USB Microphone', 'dev-001')",
+    )
+    .execute(&pool).await.unwrap();
+
+    let (name,): (String,) =
+        sqlx::query_as("SELECT device_name FROM hardware_profiles WHERE id = 'h1'")
+            .fetch_one(&pool).await.unwrap();
+    assert_eq!(name, "USB Microphone");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn hardware_profile_unique_per_church_device() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO hardware_profiles (id, church_id, device_name, device_id)
+         VALUES ('h1', 'c1', 'USB Mic', 'dev-001')",
+    )
+    .execute(&pool).await.unwrap();
+    let result = sqlx::query(
+        "INSERT INTO hardware_profiles (id, church_id, device_name, device_id)
+         VALUES ('h2', 'c1', 'USB Mic v2', 'dev-001')",
+    )
+    .execute(&pool).await;
+    assert!(result.is_err(), "UNIQUE should reject duplicate (church_id, device_id)");
+    close(pool).await;
+}
+
+// ── migration ordering and version tracking ───────────────────────────────────
+
+#[tokio::test]
+async fn current_version_returns_4_after_all_migrations() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let version = migration::current_version(&pool).await.unwrap();
+    assert_eq!(version, 4, "4 migrations should have been applied");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn is_up_to_date_returns_true_after_connect() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    assert!(migration::is_up_to_date(&pool).await.unwrap());
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn list_applied_returns_4_migrations_in_order() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let applied = migration::list_applied(&pool).await.unwrap();
+    assert_eq!(applied.len(), 4, "should have 4 applied migrations");
+    for (i, m) in applied.iter().enumerate() {
+        assert_eq!(m.version, (i + 1) as i64, "migrations must be sorted by version");
+    }
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn migrations_are_idempotent() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    // Running migrations a second time must not re-apply any migration.
+    migration::run(&pool).await.unwrap();
+
+    let applied = migration::list_applied(&pool).await.unwrap();
+    assert_eq!(applied.len(), 4, "second run must not add duplicate entries");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn migration_versions_are_sequential() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let applied = migration::list_applied(&pool).await.unwrap();
+    let versions: Vec<i64> = applied.iter().map(|m| m.version).collect();
+    assert_eq!(versions, vec![1, 2, 3, 4], "versions must be 1..4 in order");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn applied_migrations_have_descriptions() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    let applied = migration::list_applied(&pool).await.unwrap();
+    for m in &applied {
+        assert!(!m.description.is_empty(), "every migration must have a description");
+        assert!(!m.installed_on.is_empty(), "every migration must have an installed_on timestamp");
+    }
     close(pool).await;
 }
