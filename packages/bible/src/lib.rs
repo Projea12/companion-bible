@@ -1,662 +1,19 @@
-use std::{collections::HashMap, path::Path};
-
-use companion_errors::BibleError;
-use serde::Deserialize;
-
-// ─── Testament ────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Testament {
-    OldTestament,
-    NewTestament,
-}
-
-impl Testament {
-    pub fn abbreviation(self) -> &'static str {
-        match self {
-            Self::OldTestament => "OT",
-            Self::NewTestament => "NT",
-        }
-    }
-}
-
-impl std::fmt::Display for Testament {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::OldTestament => write!(f, "Old Testament"),
-            Self::NewTestament => write!(f, "New Testament"),
-        }
-    }
-}
-
-// ─── BibleBook ────────────────────────────────────────────────────────────────
-
-/// Full metadata for a single Bible book.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BibleBook {
-    /// Canonical name exactly as stored in kjv.json (e.g. `"1 Corinthians"`).
-    pub name: String,
-    pub testament: Testament,
-    /// Canonical order: 1 = Genesis … 66 = Revelation.
-    pub order: u8,
-    /// Number of chapters in this book.
-    pub chapter_count: u8,
-    /// Total number of verses across all chapters.
-    pub verse_count: u32,
-}
-
-impl std::fmt::Display for BibleBook {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} ({}, {} ch, {} v)",
-            self.name,
-            self.testament.abbreviation(),
-            self.chapter_count,
-            self.verse_count,
-        )
-    }
-}
-
-// ─── BibleReference ───────────────────────────────────────────────────────────
-
-/// A reference to a specific location in the Bible.
-///
-/// `verse` and `verse_end` are both `None` for chapter-level references.
-/// `verse_end` is `Some` only for verse-range references (e.g. John 3:16-17).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BibleReference {
-    /// Canonical book name (e.g. `"1 Corinthians"`).
-    pub book: String,
-    pub chapter: u8,
-    pub verse: Option<u8>,
-    pub verse_end: Option<u8>,
-}
-
-impl BibleReference {
-    /// Chapter-level reference: `John 3`.
-    pub fn chapter(book: impl Into<String>, chapter: u8) -> Self {
-        Self {
-            book: book.into(),
-            chapter,
-            verse: None,
-            verse_end: None,
-        }
-    }
-
-    /// Single-verse reference: `John 3:16`.
-    pub fn verse(book: impl Into<String>, chapter: u8, verse: u8) -> Self {
-        Self {
-            book: book.into(),
-            chapter,
-            verse: Some(verse),
-            verse_end: None,
-        }
-    }
-
-    /// Verse-range reference: `Romans 8:1-4`.
-    pub fn range(book: impl Into<String>, chapter: u8, from: u8, to: u8) -> Self {
-        Self {
-            book: book.into(),
-            chapter,
-            verse: Some(from),
-            verse_end: Some(to),
-        }
-    }
-
-    /// `true` if this reference covers a range of verses.
-    pub fn is_range(&self) -> bool {
-        self.verse_end.is_some()
-    }
-
-    /// `true` if this is a chapter-level reference with no verse.
-    pub fn is_chapter_ref(&self) -> bool {
-        self.verse.is_none()
-    }
-}
-
-impl std::fmt::Display for BibleReference {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}", self.book, self.chapter)?;
-        match (self.verse, self.verse_end) {
-            (Some(v), Some(end)) => write!(f, ":{v}-{end}"),
-            (Some(v), None) => write!(f, ":{v}"),
-            (None, _) => Ok(()),
-        }
-    }
-}
-
-// ─── VerseText ────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VerseText {
-    pub book: String,
-    pub chapter: u8,
-    pub verse: u8,
-    pub text: String,
-}
-
-impl VerseText {
-    /// Produce a `BibleReference` pointing at this verse.
-    pub fn reference(&self) -> BibleReference {
-        BibleReference::verse(&self.book, self.chapter, self.verse)
-    }
-}
-
-impl std::fmt::Display for VerseText {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} {}:{} — {}",
-            self.book, self.chapter, self.verse, self.text
-        )
-    }
-}
-
-// ─── JSON deserialization shapes (private) ────────────────────────────────────
-
-#[derive(Deserialize)]
-struct RawVerse {
-    verse: u8,
-    text: String,
-}
-
-#[derive(Deserialize)]
-struct RawChapter {
-    chapter: u8,
-    verses: Vec<RawVerse>,
-}
-
-#[derive(Deserialize)]
-struct RawBook {
-    book: String,
-    testament: String, // "OT" or "NT"
-    chapters: Vec<RawChapter>,
-}
-
-// ─── KjvBible ─────────────────────────────────────────────────────────────────
-
-/// In-memory KJV Bible loaded from `kjv.json`.
-///
-/// Internal layout: `text[name][chapter_idx][verse_idx]`
-/// where `chapter_idx = chapter − 1` and `verse_idx = verse − 1`.
-pub struct KjvBible {
-    /// Verse text indexed by book name → chapter index → verse index.
-    text: HashMap<String, Vec<Vec<String>>>,
-    /// Book metadata in canonical Bible order (Genesis … Revelation).
-    meta: Vec<BibleBook>,
-    /// Book name → index into `meta` for O(1) metadata lookup.
-    meta_index: HashMap<String, usize>,
-    /// Flat search index: (book_order_0, chapter, verse, lowercase_text).
-    /// Built once at load time; avoids allocating per search call.
-    search_index: Vec<(u8, u8, u8, String)>,
-}
-
-impl KjvBible {
-    /// Load the Bible from the `kjv.json` produced by the data-preparation step.
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, BibleError> {
-        let path = path.as_ref();
-        let content = std::fs::read_to_string(path).map_err(|e| BibleError::QueryFailed {
-            reason: format!("could not read {}: {e}", path.display()),
-        })?;
-        let raw: Vec<RawBook> =
-            serde_json::from_str(&content).map_err(|e| BibleError::QueryFailed {
-                reason: format!("JSON parse error: {e}"),
-            })?;
-
-        let mut text: HashMap<String, Vec<Vec<String>>> = HashMap::with_capacity(raw.len());
-        let mut meta: Vec<BibleBook> = Vec::with_capacity(raw.len());
-        let mut meta_index: HashMap<String, usize> = HashMap::with_capacity(raw.len());
-
-        for (order_0, raw_book) in raw.into_iter().enumerate() {
-            let testament = match raw_book.testament.as_str() {
-                "NT" => Testament::NewTestament,
-                _ => Testament::OldTestament,
-            };
-
-            let mut chapters: Vec<Vec<String>> = Vec::with_capacity(raw_book.chapters.len());
-            let mut total_verses: u32 = 0;
-
-            for raw_chapter in raw_book.chapters {
-                let mut verses: Vec<String> = Vec::with_capacity(raw_chapter.verses.len());
-                for raw_verse in raw_chapter.verses {
-                    let idx = (raw_verse.verse as usize).saturating_sub(1);
-                    if idx >= verses.len() {
-                        verses.resize(idx + 1, String::new());
-                    }
-                    verses[idx] = raw_verse.text;
-                    total_verses += 1;
-                }
-                let ch_idx = (raw_chapter.chapter as usize).saturating_sub(1);
-                if ch_idx >= chapters.len() {
-                    chapters.resize(ch_idx + 1, Vec::new());
-                }
-                chapters[ch_idx] = verses;
-            }
-
-            let book_meta = BibleBook {
-                name: raw_book.book.clone(),
-                testament,
-                order: (order_0 + 1) as u8,
-                chapter_count: chapters.len() as u8,
-                verse_count: total_verses,
-            };
-
-            meta_index.insert(raw_book.book.clone(), meta.len());
-            meta.push(book_meta);
-            text.insert(raw_book.book, chapters);
-        }
-
-        // Build flat search index in canonical book order.
-        let mut search_index: Vec<(u8, u8, u8, String)> = Vec::with_capacity(31_102);
-        for (book_idx, book_meta) in meta.iter().enumerate() {
-            let chapters = &text[&book_meta.name];
-            for (ch_idx, verses) in chapters.iter().enumerate() {
-                for (v_idx, verse_text) in verses.iter().enumerate() {
-                    if !verse_text.is_empty() {
-                        search_index.push((
-                            book_idx as u8,
-                            (ch_idx + 1) as u8,
-                            (v_idx + 1) as u8,
-                            verse_text.to_lowercase(),
-                        ));
-                    }
-                }
-            }
-        }
-
-        Ok(KjvBible { text, meta, meta_index, search_index })
-    }
-
-    // ── verse access ──────────────────────────────────────────────────────────
-
-    /// Return the text of a single verse, or a `BibleError` if not found.
-    pub fn get_verse(&self, book: &str, chapter: u8, verse: u8) -> Result<VerseText, BibleError> {
-        let chapters = self
-            .text
-            .get(book)
-            .ok_or_else(|| BibleError::BookNotFound { book: book.into() })?;
-
-        let total_chapters = chapters.len() as u8;
-        let ch_idx = chapter.checked_sub(1).ok_or_else(|| BibleError::ChapterOutOfRange {
-            book: book.into(),
-            requested: chapter,
-            total: total_chapters,
-        })? as usize;
-
-        let verses = chapters.get(ch_idx).ok_or_else(|| BibleError::ChapterOutOfRange {
-            book: book.into(),
-            requested: chapter,
-            total: total_chapters,
-        })?;
-
-        let total_verses = verses.len() as u8;
-        let v_idx = verse.checked_sub(1).ok_or_else(|| BibleError::VerseOutOfRange {
-            book: book.into(),
-            chapter,
-            requested: verse,
-            total: total_verses,
-        })? as usize;
-
-        let text = verses.get(v_idx).ok_or_else(|| BibleError::VerseOutOfRange {
-            book: book.into(),
-            chapter,
-            requested: verse,
-            total: total_verses,
-        })?;
-
-        Ok(VerseText {
-            book: book.into(),
-            chapter,
-            verse,
-            text: text.clone(),
-        })
-    }
-
-    // ── book queries ──────────────────────────────────────────────────────────
-
-    /// `true` if the given canonical book name is present in the loaded data.
-    pub fn book_exists(&self, name: &str) -> bool {
-        self.meta_index.contains_key(name)
-    }
-
-    /// Metadata for a single book, or `None` if not found.
-    pub fn book_info(&self, name: &str) -> Option<&BibleBook> {
-        self.meta_index.get(name).map(|&i| &self.meta[i])
-    }
-
-    /// All 66 books in canonical Bible order (Genesis … Revelation).
-    pub fn books(&self) -> &[BibleBook] {
-        &self.meta
-    }
-
-    /// Canonical book names in canonical Bible order.
-    pub fn book_names(&self) -> impl Iterator<Item = &str> {
-        self.meta.iter().map(|b| b.name.as_str())
-    }
-
-    // ── full-text search ──────────────────────────────────────────────────────
-
-    /// Search all 31,102 verses for `query` and return results ranked by
-    /// relevance (highest score first).
-    ///
-    /// Matching is case-insensitive substring search.  Score is computed per
-    /// verse as:
-    ///
-    /// * +10 for each query word that appears as a whole word (word boundary)
-    /// * +1  for each query word that appears as a substring
-    ///
-    /// Whole-word matches also count toward the substring score, so a verse
-    /// containing all query terms as whole words scores higher than one that
-    /// only has substring matches.
-    ///
-    /// Ties in score are broken by canonical book order (Genesis first).
-    ///
-    /// Returns an empty `Vec` when no verse contains any query term.
-    pub fn search(&self, query: &str) -> Vec<SearchResult> {
-        let query = query.trim();
-        if query.is_empty() {
-            return Vec::new();
-        }
-
-        // Split query into lowercase words; skip empty tokens.
-        let terms: Vec<String> = query
-            .to_lowercase()
-            .split_whitespace()
-            .filter(|t| !t.is_empty())
-            .map(String::from)
-            .collect();
-
-        if terms.is_empty() {
-            return Vec::new();
-        }
-
-        let mut results: Vec<SearchResult> = self
-            .search_index
-            .iter()
-            .filter_map(|(book_idx, chapter, verse, lower)| {
-                let score = score_verse(lower, &terms);
-                if score == 0 {
-                    return None;
-                }
-                let book_name = &self.meta[*book_idx as usize].name;
-                let text = self
-                    .text
-                    .get(book_name)
-                    .and_then(|chs| chs.get(*chapter as usize - 1))
-                    .and_then(|vs| vs.get(*verse as usize - 1))
-                    .cloned()
-                    .unwrap_or_default();
-                Some(SearchResult {
-                    verse: VerseText {
-                        book: book_name.clone(),
-                        chapter: *chapter,
-                        verse: *verse,
-                        text,
-                    },
-                    score,
-                })
-            })
-            .collect();
-
-        results.sort_by(|a, b| b.score.cmp(&a.score).then(
-            self.meta_index[&a.verse.book].cmp(&self.meta_index[&b.verse.book])
-        ));
-        results
-    }
-
-    // ── counts ────────────────────────────────────────────────────────────────
-
-    /// Total number of chapters in a book.
-    pub fn chapter_count(&self, book: &str) -> Result<u8, BibleError> {
-        self.book_info(book)
-            .map(|b| b.chapter_count)
-            .ok_or_else(|| BibleError::BookNotFound { book: book.into() })
-    }
-
-    /// Total number of verses in a specific chapter.
-    pub fn verse_count(&self, book: &str, chapter: u8) -> Result<u8, BibleError> {
-        let chapters = self
-            .text
-            .get(book)
-            .ok_or_else(|| BibleError::BookNotFound { book: book.into() })?;
-
-        let total_chapters = chapters.len() as u8;
-        let ch_idx = chapter.checked_sub(1).ok_or_else(|| BibleError::ChapterOutOfRange {
-            book: book.into(),
-            requested: chapter,
-            total: total_chapters,
-        })? as usize;
-
-        chapters
-            .get(ch_idx)
-            .map(|v| v.len() as u8)
-            .ok_or_else(|| BibleError::ChapterOutOfRange {
-                book: book.into(),
-                requested: chapter,
-                total: total_chapters,
-            })
-    }
-}
-
-// ─── Search scoring (private) ────────────────────────────────────────────────
-
-/// Score a pre-lowercased verse against a set of pre-lowercased query terms.
-///
-/// Returns 0 if no term matches at all, so the caller can skip the verse.
-fn score_verse(lower_verse: &str, terms: &[String]) -> u32 {
-    let mut score: u32 = 0;
-    for term in terms {
-        if lower_verse.contains(term.as_str()) {
-            score += 1; // substring hit
-            // Whole-word bonus: chars before and after the match must be
-            // non-alphabetic (or the match is at the string boundary).
-            if is_whole_word_match(lower_verse, term) {
-                score += 10;
-            }
-        }
-    }
-    score
-}
-
-/// Returns `true` if `term` appears in `text` with word boundaries on both
-/// sides (non-alphabetic character or string edge).
-fn is_whole_word_match(text: &str, term: &str) -> bool {
-    let bytes = text.as_bytes();
-    let tlen = term.len();
-    let tlen_text = bytes.len();
-
-    if tlen == 0 || tlen > tlen_text {
-        return false;
-    }
-
-    let mut start = 0;
-    while let Some(pos) = text[start..].find(term.as_ref() as &str) {
-        let abs = start + pos;
-        let before_ok = abs == 0 || !bytes[abs - 1].is_ascii_alphabetic();
-        let after_ok =
-            abs + tlen >= tlen_text || !bytes[abs + tlen].is_ascii_alphabetic();
-        if before_ok && after_ok {
-            return true;
-        }
-        start = abs + 1;
-        if start >= tlen_text {
-            break;
-        }
-    }
-    false
-}
-
-// ─── SearchResult ─────────────────────────────────────────────────────────────
-
-/// A single verse match returned by `KjvBible::search`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SearchResult {
-    pub verse: VerseText,
-    /// Higher is more relevant. Computed from word-boundary matches and
-    /// the number of query terms found.
-    pub score: u32,
-}
-
-// ─── ValidationResult ────────────────────────────────────────────────────────
-
-/// The outcome of validating a `BibleReference` against the loaded KJV data.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ValidationResult {
-    /// The reference is fully valid; contains the resolved verse text.
-    Valid(VerseText),
-
-    /// The book name was not found in the KJV (66-book canon).
-    InvalidBook { book: String },
-
-    /// The chapter number exceeds the book's actual chapter count,
-    /// or is zero.
-    InvalidChapter {
-        book: String,
-        chapter: u8,
-        total_chapters: u8,
-    },
-
-    /// The verse number exceeds the chapter's actual verse count,
-    /// is zero, or was absent from a verse-level reference.
-    InvalidVerse {
-        book: String,
-        chapter: u8,
-        verse: u8,
-        total_verses: u8,
-    },
-}
-
-impl ValidationResult {
-    /// `true` only when the variant is `Valid`.
-    pub fn is_valid(&self) -> bool {
-        matches!(self, Self::Valid(_))
-    }
-
-    /// Consume the result and return the `VerseText` if valid, otherwise `None`.
-    pub fn into_verse(self) -> Option<VerseText> {
-        if let Self::Valid(v) = self {
-            Some(v)
-        } else {
-            None
-        }
-    }
-}
-
-impl std::fmt::Display for ValidationResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Valid(v) => write!(f, "{v}"),
-            Self::InvalidBook { book } => {
-                write!(f, "Unknown book: \"{book}\"")
-            }
-            Self::InvalidChapter {
-                book,
-                chapter,
-                total_chapters,
-            } => write!(
-                f,
-                "{book} has only {total_chapters} chapter(s) (requested {chapter})"
-            ),
-            Self::InvalidVerse {
-                book,
-                chapter,
-                verse,
-                total_verses,
-            } => write!(
-                f,
-                "{book} {chapter} has only {total_verses} verse(s) (requested {verse})"
-            ),
-        }
-    }
-}
-
-// ─── BibleValidator ───────────────────────────────────────────────────────────
-
-/// Validates a `BibleReference` against the loaded KJV data and returns a
-/// `ValidationResult` describing exactly why a reference is invalid, or the
-/// resolved `VerseText` when it is valid.
-///
-/// # Chapter-level references
-/// If `reference.verse` is `None` the validator cannot resolve verse text.
-/// It validates the book and chapter, then returns
-/// `InvalidVerse { verse: 0, total_verses }` to indicate no verse was
-/// specified.  The caller can distinguish this case by checking `verse == 0`.
-pub struct BibleValidator<'a> {
-    bible: &'a KjvBible,
-}
-
-impl<'a> BibleValidator<'a> {
-    pub fn new(bible: &'a KjvBible) -> Self {
-        Self { bible }
-    }
-
-    pub fn validate(&self, reference: &BibleReference) -> ValidationResult {
-        // ── 1. Book ───────────────────────────────────────────────────────────
-        if !self.bible.book_exists(&reference.book) {
-            return ValidationResult::InvalidBook {
-                book: reference.book.clone(),
-            };
-        }
-
-        // ── 2. Chapter ────────────────────────────────────────────────────────
-        // chapter_count is safe to unwrap: we confirmed the book exists above.
-        let total_chapters = self.bible.chapter_count(&reference.book).unwrap();
-        if reference.chapter == 0 || reference.chapter > total_chapters {
-            return ValidationResult::InvalidChapter {
-                book: reference.book.clone(),
-                chapter: reference.chapter,
-                total_chapters,
-            };
-        }
-
-        // ── 3. Verse ─────────────────────────────────────────────────────────
-        // verse_count is safe to unwrap: book + chapter are confirmed valid.
-        let total_verses = self
-            .bible
-            .verse_count(&reference.book, reference.chapter)
-            .unwrap();
-
-        let verse = match reference.verse {
-            Some(v) => v,
-            // Chapter-level reference: no verse to resolve.
-            None => {
-                return ValidationResult::InvalidVerse {
-                    book: reference.book.clone(),
-                    chapter: reference.chapter,
-                    verse: 0,
-                    total_verses,
-                }
-            }
-        };
-
-        if verse == 0 || verse > total_verses {
-            return ValidationResult::InvalidVerse {
-                book: reference.book.clone(),
-                chapter: reference.chapter,
-                verse,
-                total_verses,
-            };
-        }
-
-        // ── 4. All valid ──────────────────────────────────────────────────────
-        match self.bible.get_verse(&reference.book, reference.chapter, verse) {
-            Ok(v) => ValidationResult::Valid(v),
-            Err(_) => ValidationResult::InvalidVerse {
-                book: reference.book.clone(),
-                chapter: reference.chapter,
-                verse,
-                total_verses,
-            },
-        }
-    }
-}
+mod bible;
+mod search;
+mod types;
+mod validator;
+
+pub use bible::KjvBible;
+pub use search::SearchResult;
+pub use types::{BibleBook, BibleReference, Testament, VerseText};
+pub use validator::{BibleValidator, ValidationResult};
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use companion_errors::BibleError;
     use std::path::PathBuf;
 
     fn kjv_path() -> PathBuf {
@@ -731,8 +88,10 @@ mod tests {
     fn books_testament_split_is_correct() {
         let b = bible();
         let books = b.books();
-        let ot: Vec<_> = books.iter().filter(|b| b.testament == Testament::OldTestament).collect();
-        let nt: Vec<_> = books.iter().filter(|b| b.testament == Testament::NewTestament).collect();
+        let ot: Vec<_> =
+            books.iter().filter(|b| b.testament == Testament::OldTestament).collect();
+        let nt: Vec<_> =
+            books.iter().filter(|b| b.testament == Testament::NewTestament).collect();
         assert_eq!(ot.len(), 39, "expected 39 OT books");
         assert_eq!(nt.len(), 27, "expected 27 NT books");
         assert_eq!(ot.last().unwrap().name, "Malachi");
@@ -1005,9 +364,7 @@ mod tests {
         let b = bible();
         let v = BibleValidator::new(&b);
         assert!(v.validate(&BibleReference::verse("Genesis", 1, 1)).is_valid());
-        assert!(!v
-            .validate(&BibleReference::verse("Hezekiah", 1, 1))
-            .is_valid());
+        assert!(!v.validate(&BibleReference::verse("Hezekiah", 1, 1)).is_valid());
     }
 
     // ── BibleValidator — InvalidBook ──────────────────────────────────────────
@@ -1025,7 +382,6 @@ mod tests {
     #[test]
     fn validate_invalid_book_lowercase_name() {
         let b = bible();
-        // canonical names are title-cased; lowercase must not match
         let result = BibleValidator::new(&b).validate(&BibleReference::verse("genesis", 1, 1));
         assert!(matches!(result, ValidationResult::InvalidBook { .. }));
     }
@@ -1076,10 +432,7 @@ mod tests {
         let result = BibleValidator::new(&b).validate(&BibleReference::verse("Obadiah", 2, 1));
         assert!(matches!(
             result,
-            ValidationResult::InvalidChapter {
-                total_chapters: 1,
-                ..
-            }
+            ValidationResult::InvalidChapter { total_chapters: 1, .. }
         ));
     }
 
@@ -1118,15 +471,10 @@ mod tests {
     #[test]
     fn validate_invalid_verse_contains_correct_total() {
         let b = bible();
-        // John 3 has 36 verses
         let result = BibleValidator::new(&b).validate(&BibleReference::verse("John", 3, 37));
         assert!(matches!(
             result,
-            ValidationResult::InvalidVerse {
-                total_verses: 36,
-                verse: 37,
-                ..
-            }
+            ValidationResult::InvalidVerse { total_verses: 36, verse: 37, .. }
         ));
     }
 
@@ -1143,7 +491,6 @@ mod tests {
     #[test]
     fn validate_chapter_level_reference_returns_invalid_verse_zero() {
         let b = bible();
-        // chapter-level reference (no verse) → InvalidVerse { verse: 0 }
         let result = BibleValidator::new(&b).validate(&BibleReference::chapter("John", 3));
         assert!(matches!(
             result,
@@ -1227,7 +574,6 @@ mod tests {
     #[test]
     fn search_partial_word_matches() {
         let b = bible();
-        // "loveth" contains "love" as a substring — partial matches are allowed
         let results = b.search("loveth");
         assert!(!results.is_empty(), "partial word should match");
     }
@@ -1249,8 +595,6 @@ mod tests {
         let b = bible();
         let single = b.search("love");
         let multi = b.search("God is love");
-        // The verse "God is love" (1 John 4:8 / 4:16) should score higher in
-        // the multi-term search than any verse in the single-term search.
         let max_single = single.iter().map(|r| r.score).max().unwrap_or(0);
         let max_multi = multi.iter().map(|r| r.score).max().unwrap_or(0);
         assert!(max_multi > max_single, "multi-term query should yield higher max score");
@@ -1270,7 +614,6 @@ mod tests {
     #[test]
     fn search_single_char_query_matches() {
         let b = bible();
-        // Single characters like "a" appear in almost every verse
         let results = b.search("a");
         assert!(!results.is_empty());
     }
@@ -1386,7 +729,8 @@ mod tests {
     #[test]
     fn boundary_revelation_22_21_is_valid() {
         let b = bible();
-        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Revelation", 22, 21));
+        let result =
+            BibleValidator::new(&b).validate(&BibleReference::verse("Revelation", 22, 21));
         assert!(result.is_valid(), "Revelation 22:21 should be valid");
     }
 
@@ -1471,7 +815,8 @@ mod tests {
             ("Revelation", 22, 21),
         ];
         for &(book, chapter, verse) in cases {
-            let result = BibleValidator::new(&b).validate(&BibleReference::verse(book, chapter, verse));
+            let result =
+                BibleValidator::new(&b).validate(&BibleReference::verse(book, chapter, verse));
             assert!(
                 result.is_valid(),
                 "{book} {chapter}:{verse} should be valid, got: {result}"
