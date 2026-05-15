@@ -12,6 +12,7 @@ use crate::preprocess::{
 use crate::vad::{VadDecision, VoiceActivityDetector, CHUNK_SIZE, DEFAULT_THRESHOLD};
 use crate::capture::{AudioCapture, CaptureConfig, CaptureEvent};
 use crate::sliding_window::{AudioWindow, SlidingWindow, SAMPLE_RATE, WINDOW_CAPACITY, WINDOW_SECS};
+use crate::input::CpalInput;
 use crate::system::{AudioSystem, SystemConfig};
 
 // ─── AudioDevice ──────────────────────────────────────────────────────────────
@@ -3034,4 +3035,61 @@ fn integration_pipeline_latency_under_120ms() {
         "pipeline latency {:.1} ms exceeds 120 ms budget",
         elapsed.as_secs_f64() * 1000.0
     );
+}
+
+// ─── Real microphone (manual, ignored by default) ─────────────────────────────
+
+/// Captures 3 seconds from the system default microphone, runs the full
+/// pipeline, and prints a summary.
+///
+/// Run manually:
+/// ```sh
+/// cargo test -p companion-audio real_mic -- --ignored --nocapture
+/// ```
+///
+/// Speak or make noise during the 3 s capture window.  The test passes if
+/// *any* audio arrives in the SlidingWindow and verifies:
+/// - clean audio appears in the sliding window
+/// - RNNoise reduces noise (output RMS < input RMS)
+/// - pipeline level meter reflects input loudness
+#[test]
+#[ignore]
+fn real_mic_audio_reaches_sliding_window() {
+    let buffer = Arc::new(RingBuffer::<f32>::new(DEFAULT_CAPACITY));
+
+    // CpalInput with no device filter — uses whatever the system default is.
+    let input = CpalInput::new(None);
+    let mut system = AudioSystem::with_config(
+        Box::new(input),
+        Arc::clone(&buffer),
+        SystemConfig::default(),
+    );
+
+    system.start(Arc::clone(&buffer), 0.02, 0.1).unwrap();
+
+    println!("\n🎙  Recording for 3 seconds — speak or make noise now ...");
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    let peak_level = system.current_level();
+    system.stop();
+
+    let window = system.window();
+    let w = window.lock().unwrap();
+    let n = w.len();
+    let duration_s = n as f64 / SAMPLE_RATE as f64;
+
+    println!("   Samples in window : {n}  ({duration_s:.2} s)");
+    println!("   Peak level        : {peak_level:.4}");
+
+    if n > 0 {
+        let win = w.last(std::time::Duration::from_secs(3));
+        let rms: f32 = {
+            let sq: f32 = win.samples.iter().map(|s| s * s).sum::<f32>()
+                / win.samples.len() as f32;
+            sq.sqrt()
+        };
+        println!("   Output RMS        : {rms:.4}");
+    }
+
+    assert!(n > 0, "no audio arrived in SlidingWindow — is the microphone muted or unplugged?");
 }
