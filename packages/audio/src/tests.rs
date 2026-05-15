@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::device::{infer_device_type, AudioDevice, DeviceType};
@@ -10,6 +10,7 @@ use crate::preprocess::{
     CHUNK_100MS, RNNOISE_FRAME_SIZE,
 };
 use crate::vad::{VadDecision, VoiceActivityDetector, CHUNK_SIZE, DEFAULT_THRESHOLD};
+use crate::capture::{AudioCapture, CaptureConfig, CaptureEvent};
 
 // ─── AudioDevice ──────────────────────────────────────────────────────────────
 
@@ -521,8 +522,6 @@ fn overflow_available_never_exceeds_capacity_under_heavy_writes() {
 //   - Strict monotonic ordering (the post-read guard returns empty on a
 //     concurrent lap, so the reader retries without exposing corrupt data,
 //     but gaps in the sequence are expected).
-
-use std::sync::atomic::AtomicBool;
 
 fn done_flag() -> Arc<AtomicBool> {
     Arc::new(AtomicBool::new(false))
@@ -1877,4 +1876,347 @@ fn noise_suppressor_process_under_15ms_per_100ms_chunk() {
     println!(
         "NoiseSuppressor (RNNoise only): {per_chunk_us:.0} µs/chunk over {ITERS} iters"
     );
+}
+
+// ─── AudioCapture — mock infrastructure ──────────────────────────────────────
+//
+// MockAudioInput is a synchronous stand-in for a real cpal device.
+// The test holds shared flags that drive the mock's behaviour:
+//   - driver.drive(samples): push samples through the registered callback
+//     (simulates the cpal callback thread).
+//   - fire_on_start: when true, the mock fires the callback once in start()
+//     itself (simulates a device that produces audio immediately on reconnect).
+//   - available: when false, start() returns an error (simulates a missing device).
+
+struct MockAudioInput {
+    callback: Arc<Mutex<Option<Box<dyn Fn(Vec<f32>) + Send + 'static>>>>,
+    available: Arc<AtomicBool>,
+    fire_on_start: Arc<AtomicBool>,
+}
+
+struct MockDriver {
+    callback: Arc<Mutex<Option<Box<dyn Fn(Vec<f32>) + Send + 'static>>>>,
+}
+
+impl MockAudioInput {
+    fn new() -> (Self, MockDriver) {
+        let cb: Arc<Mutex<Option<Box<dyn Fn(Vec<f32>) + Send + 'static>>>> =
+            Arc::new(Mutex::new(None));
+        let driver = MockDriver { callback: Arc::clone(&cb) };
+        let mock = Self {
+            callback: cb,
+            available: Arc::new(AtomicBool::new(true)),
+            fire_on_start: Arc::new(AtomicBool::new(false)),
+        };
+        (mock, driver)
+    }
+}
+
+impl MockDriver {
+    fn drive(&self, samples: Vec<f32>) {
+        if let Some(cb) = self.callback.lock().unwrap().as_ref() {
+            cb(samples);
+        }
+    }
+}
+
+impl AudioInput for MockAudioInput {
+    fn available_devices(&self) -> Result<Vec<AudioDevice>, crate::error::AudioError> {
+        Ok(vec![])
+    }
+
+    fn select_device(&mut self, _: &str) -> Result<(), crate::error::AudioError> {
+        Ok(())
+    }
+
+    fn start(
+        &mut self,
+        callback: Box<dyn Fn(Vec<f32>) + Send + 'static>,
+    ) -> Result<(), crate::error::AudioError> {
+        if !self.available.load(Ordering::Relaxed) {
+            return Err(crate::error::AudioError::DeviceNotFound(
+                "mock unavailable".into(),
+            ));
+        }
+        if self.fire_on_start.load(Ordering::Relaxed) {
+            // Simulate device producing audio immediately — used by reconnect tests.
+            callback(vec![0.5f32; 512]);
+        }
+        *self.callback.lock().unwrap() = Some(callback);
+        Ok(())
+    }
+
+    fn stop(&mut self) {
+        *self.callback.lock().unwrap() = None;
+    }
+
+    fn current_level(&self) -> f32 {
+        0.0
+    }
+}
+
+/// Fast config for deterministic tests: 20 ms monitor ticks, 1-tick threshold,
+/// 80 ms reconnect interval.
+fn fast_config() -> CaptureConfig {
+    CaptureConfig {
+        zero_ticks_threshold: 1,
+        monitor_interval: std::time::Duration::from_millis(20),
+        reconnect_interval: std::time::Duration::from_millis(80),
+    }
+}
+
+fn make_buffer() -> Arc<RingBuffer<f32>> {
+    Arc::new(RingBuffer::new(65536))
+}
+
+// ─── AudioCapture — structural tests ─────────────────────────────────────────
+
+#[test]
+fn capture_new_is_not_connected() {
+    let (mock, _driver) = MockAudioInput::new();
+    let cap = AudioCapture::new(Box::new(mock), make_buffer());
+    assert!(!cap.is_connected());
+    assert_eq!(cap.current_level(), 0.0);
+}
+
+#[test]
+fn capture_subscribe_returns_receiver_once() {
+    let (mock, _driver) = MockAudioInput::new();
+    let mut cap = AudioCapture::new(Box::new(mock), make_buffer());
+    assert!(cap.subscribe().is_some(), "first subscribe should return Some");
+    assert!(cap.subscribe().is_none(), "second subscribe should return None");
+}
+
+#[test]
+fn capture_start_sets_connected() {
+    let (mock, _driver) = MockAudioInput::new();
+    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    cap.start().expect("start failed");
+    assert!(cap.is_connected());
+    cap.stop();
+}
+
+#[test]
+fn capture_stop_clears_connected_and_level() {
+    let (mock, driver) = MockAudioInput::new();
+    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    cap.start().expect("start failed");
+    driver.drive(vec![0.8f32; 512]);
+    cap.stop();
+    assert!(!cap.is_connected());
+    assert_eq!(cap.current_level(), 0.0);
+}
+
+#[test]
+fn capture_start_twice_does_not_panic() {
+    let (mock, _driver) = MockAudioInput::new();
+    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    cap.start().expect("first start");
+    cap.start().expect("second start");
+    cap.stop();
+}
+
+// ─── AudioCapture — level monitoring ─────────────────────────────────────────
+
+#[test]
+fn capture_level_reflects_driven_audio() {
+    let (mock, driver) = MockAudioInput::new();
+    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    cap.start().expect("start failed");
+
+    // Drive with loud audio so the level rises.
+    for _ in 0..5 {
+        driver.drive(vec![0.9f32; 512]);
+    }
+
+    // Wait for at least one monitor tick to smooth the level.
+    std::thread::sleep(std::time::Duration::from_millis(60));
+
+    assert!(
+        cap.current_level() > 0.0,
+        "level should be > 0 after driving audio; got {}",
+        cap.current_level()
+    );
+    cap.stop();
+}
+
+#[test]
+fn capture_level_stays_zero_without_audio() {
+    let (mock, _driver) = MockAudioInput::new();
+    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    cap.start().expect("start failed");
+
+    std::thread::sleep(std::time::Duration::from_millis(60));
+
+    // No samples were driven; the callback was never fired.
+    assert_eq!(cap.current_level(), 0.0);
+    cap.stop();
+}
+
+#[test]
+fn capture_written_to_ring_buffer() {
+    let buffer = make_buffer();
+    let (mock, driver) = MockAudioInput::new();
+    let mut cap =
+        AudioCapture::with_config(Box::new(mock), Arc::clone(&buffer), fast_config());
+    cap.start().expect("start failed");
+
+    let samples = vec![0.5f32; 256];
+    driver.drive(samples.clone());
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let read = buffer.read(256);
+    assert_eq!(read, samples, "samples must appear in the ring buffer");
+    cap.stop();
+}
+
+// ─── AudioCapture — disconnect detection ─────────────────────────────────────
+
+#[test]
+fn capture_emits_audio_input_lost_on_silence() {
+    // No audio driven → level stays zero → monitor declares disconnect.
+    let (mock, _driver) = MockAudioInput::new();
+    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    let events = cap.subscribe().unwrap();
+
+    cap.start().expect("start failed");
+
+    // Grace period (2 × 20 ms) + 1 tick (20 ms) + margin = ~100 ms.
+    let event = events
+        .recv_timeout(std::time::Duration::from_millis(500))
+        .expect("expected AudioInputLost within 500 ms");
+    assert_eq!(event, CaptureEvent::AudioInputLost);
+
+    cap.stop();
+}
+
+#[test]
+fn capture_is_connected_false_after_disconnect() {
+    let (mock, _driver) = MockAudioInput::new();
+    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    let events = cap.subscribe().unwrap();
+    cap.start().expect("start failed");
+
+    events
+        .recv_timeout(std::time::Duration::from_millis(500))
+        .expect("expected AudioInputLost");
+
+    assert!(!cap.is_connected(), "is_connected should be false after disconnect");
+    cap.stop();
+}
+
+#[test]
+fn capture_no_spurious_disconnect_while_audio_flowing() {
+    // Continuously drive audio; no AudioInputLost should appear.
+    let (mock, driver) = MockAudioInput::new();
+    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    let events = cap.subscribe().unwrap();
+    cap.start().expect("start failed");
+
+    let stop_driving = Arc::new(AtomicBool::new(false));
+    let stop_driving2 = Arc::clone(&stop_driving);
+
+    let driver_thread = std::thread::spawn(move || {
+        while !stop_driving2.load(Ordering::Relaxed) {
+            driver.drive(vec![0.5f32; 512]);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    });
+
+    // Run for 400 ms while audio flows; expect no disconnect event.
+    let result = events.recv_timeout(std::time::Duration::from_millis(400));
+    stop_driving.store(true, Ordering::Relaxed);
+    driver_thread.join().unwrap();
+    cap.stop();
+
+    assert!(
+        result.is_err(),
+        "AudioInputLost must not fire while audio is flowing"
+    );
+}
+
+// ─── AudioCapture — reconnection ─────────────────────────────────────────────
+
+#[test]
+fn capture_emits_audio_input_restored_after_reconnect() {
+    // 1. Start with a mock that doesn't fire the callback (silence → disconnect).
+    // 2. Set fire_on_start = true so the reconnect attempt sees audio.
+    // 3. Expect AudioInputLost then AudioInputRestored.
+
+    let (mock, _driver) = MockAudioInput::new();
+    let fire_on_start = Arc::clone(&mock.fire_on_start);
+
+    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    let events = cap.subscribe().unwrap();
+    cap.start().expect("start failed");
+
+    // Wait for disconnect.
+    let first = events
+        .recv_timeout(std::time::Duration::from_millis(500))
+        .expect("expected AudioInputLost");
+    assert_eq!(first, CaptureEvent::AudioInputLost);
+
+    // Now simulate the device coming back.
+    fire_on_start.store(true, Ordering::Relaxed);
+
+    // Reconnect interval (80 ms) + probe wait (2 × 20 ms) + margin.
+    let second = events
+        .recv_timeout(std::time::Duration::from_millis(600))
+        .expect("expected AudioInputRestored");
+    assert_eq!(second, CaptureEvent::AudioInputRestored);
+
+    cap.stop();
+}
+
+#[test]
+fn capture_is_connected_true_after_restore() {
+    let (mock, _driver) = MockAudioInput::new();
+    let fire_on_start = Arc::clone(&mock.fire_on_start);
+
+    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    let events = cap.subscribe().unwrap();
+    cap.start().expect("start failed");
+
+    events
+        .recv_timeout(std::time::Duration::from_millis(500))
+        .expect("expected AudioInputLost");
+    fire_on_start.store(true, Ordering::Relaxed);
+    events
+        .recv_timeout(std::time::Duration::from_millis(600))
+        .expect("expected AudioInputRestored");
+
+    assert!(cap.is_connected(), "is_connected should be true after restore");
+    cap.stop();
+}
+
+#[test]
+fn capture_no_restore_when_device_stays_unavailable() {
+    // Device is unavailable (start() fails) — only AudioInputLost, no Restored.
+    let (mock, _driver) = MockAudioInput::new();
+    // Make the device unavailable so reconnect attempts always fail.
+    mock.available.store(false, Ordering::Relaxed);
+    // But we need initial start() to succeed, so temporarily allow it.
+    mock.available.store(true, Ordering::Relaxed);
+
+    let available = Arc::clone(&mock.available);
+    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    let events = cap.subscribe().unwrap();
+    cap.start().expect("initial start");
+
+    // Mark unavailable before disconnect happens so reconnect attempts fail.
+    available.store(false, Ordering::Relaxed);
+
+    let first = events
+        .recv_timeout(std::time::Duration::from_millis(500))
+        .expect("expected AudioInputLost");
+    assert_eq!(first, CaptureEvent::AudioInputLost);
+
+    // Wait two reconnect intervals; Restored must NOT appear.
+    let second = events.recv_timeout(std::time::Duration::from_millis(300));
+    assert!(
+        second.is_err(),
+        "AudioInputRestored must not fire when device stays unavailable"
+    );
+
+    cap.stop();
 }

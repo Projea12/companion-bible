@@ -1,3 +1,4 @@
+pub mod capture;
 mod device;
 mod error;
 mod input;
@@ -5,6 +6,7 @@ pub mod preprocess;
 pub mod ring_buffer;
 pub mod vad;
 
+pub use capture::{AudioCapture, CaptureConfig, CaptureEvent};
 pub use device::{AudioDevice, DeviceType};
 pub use error::AudioError;
 pub use input::{AudioInput, BuiltinMicInput, MixerInput, UsbMicInput};
