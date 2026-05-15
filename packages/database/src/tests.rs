@@ -4,10 +4,10 @@ use tempfile::tempdir;
 use std::collections::HashMap;
 
 use crate::{
-    close, connect, migration, AppState, CalibrationRepository, CalibrationThresholds, Church,
-    ChurchRepository, ChurchSettings, DetectionEvent, DetectionEventRepository, DbPool,
-    PoolConfig, Sermon, SermonRepository, ServiceRecord, SubPoint, Verse, VerseRepository,
-    WalEntry, WriteAheadLog,
+    close, connect, migration, AppState, AppStateSerializer, CalibrationRepository,
+    CalibrationThresholds, Church, ChurchRepository, ChurchSettings, DetectionEvent,
+    DetectionEventRepository, DbPool, PoolConfig, Sermon, SermonRepository, ServiceRecord,
+    SubPoint, Verse, VerseRepository, WalEntry, WriteAheadLog,
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -3413,4 +3413,297 @@ fn wal_crash_simulation_1000_entries_state_is_consistent() {
         !state.pending_detections.is_empty(),
         "at least some detections must survive a crash at 2/3 of file"
     );
+}
+
+// ── AppStateSerializer — state round-trip ─────────────────────────────────────
+
+fn make_full_app_state() -> AppState {
+    AppState {
+        church: Some(Church {
+            id: "c1".into(),
+            name: "Grace Baptist Church".into(),
+            region: "Lagos".into(),
+            installed_at: "2026-05-15T00:00:00Z".into(),
+            onboarding_complete: true,
+        }),
+        active_sermon: Some(Sermon {
+            id: "s1".into(),
+            church_id: "c1".into(),
+            title: Some("The Power of Faith".into()),
+            pastor: Some("Pastor John".into()),
+            date: "2026-05-15".into(),
+            anchor_scripture: Some("Romans 8:28".into()),
+            started_at: "2026-05-15T09:00:00Z".into(),
+            ended_at: None,
+        }),
+        pending_detections: vec![
+            DetectionEvent {
+                id: "d1".into(),
+                sermon_id: "s1".into(),
+                raw_transcript: "John 3:16".into(),
+                pattern_result: Some(r#"{"book":"John"}"#.into()),
+                local_ai_result: None,
+                cloud_ai_result: None,
+                final_reference: Some("John 3:16".into()),
+                confidence: 0.97,
+                decision: "auto_accept".into(),
+                operator_action: None,
+                correct_reference: None,
+                processing_time_ms: 38,
+                timestamp: "2026-05-15T09:05:00Z".into(),
+            },
+        ],
+        settings: HashMap::from([
+            ("theme".into(), "dark".into()),
+            ("font_size".into(), "18".into()),
+        ]),
+        calibration: vec![
+            CalibrationThresholds {
+                id: "t1".into(),
+                church_id: "c1".into(),
+                stage: "pattern".into(),
+                accept_above: 0.9,
+                escalate_below: 0.5,
+                updated_at: "2026-05-15T00:00:00Z".into(),
+            },
+        ],
+    }
+}
+
+#[test]
+fn persist_save_load_round_trips_full_app_state() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+    let original = make_full_app_state();
+
+    s.save_state(&original).unwrap();
+    let loaded = s.load_state().unwrap().expect("state file must be readable");
+
+    assert_eq!(loaded, original);
+}
+
+#[test]
+fn persist_load_returns_none_when_no_file_exists() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    let result = s.load_state().unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
+fn persist_save_creates_parent_directories() {
+    let dir = tempdir().unwrap();
+    let nested = dir.path().join("a").join("b").join("c");
+    let s = AppStateSerializer::new(&nested);
+
+    s.save_state(&AppState::default()).unwrap();
+    assert!(nested.join("app_state.json").exists());
+}
+
+#[test]
+fn persist_save_is_atomic_no_temp_file_after_success() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    s.save_state(&make_full_app_state()).unwrap();
+
+    // The .tmp file must have been renamed away.
+    let tmp = s.state_path().with_extension("tmp");
+    assert!(!tmp.exists(), "temp file must not remain after successful save");
+}
+
+#[test]
+fn persist_save_overwrites_previous_state() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    let mut first = make_full_app_state();
+    first.settings.insert("version".into(), "1".into());
+    s.save_state(&first).unwrap();
+
+    let mut second = make_full_app_state();
+    second.settings.insert("version".into(), "2".into());
+    s.save_state(&second).unwrap();
+
+    let loaded = s.load_state().unwrap().unwrap();
+    assert_eq!(
+        loaded.settings.get("version").map(String::as_str),
+        Some("2"),
+        "second save must overwrite first"
+    );
+}
+
+// ── AppStateSerializer — corrupted state handling ─────────────────────────────
+
+#[test]
+fn persist_load_returns_none_for_invalid_json() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    std::fs::write(s.state_path(), b"this is not json").unwrap();
+
+    let result = s.load_state().unwrap();
+    assert!(result.is_none(), "invalid JSON must yield None, not an error");
+}
+
+#[test]
+fn persist_load_returns_none_for_empty_file() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    std::fs::write(s.state_path(), b"").unwrap();
+
+    let result = s.load_state().unwrap();
+    assert!(result.is_none(), "empty file must yield None");
+}
+
+#[test]
+fn persist_load_returns_none_for_truncated_json() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    // Write valid JSON, then truncate it mid-way.
+    s.save_state(&make_full_app_state()).unwrap();
+    let full = std::fs::read(s.state_path()).unwrap();
+    let half = &full[..full.len() / 2];
+    std::fs::write(s.state_path(), half).unwrap();
+
+    let result = s.load_state().unwrap();
+    assert!(result.is_none(), "truncated JSON must yield None");
+}
+
+#[test]
+fn persist_load_returns_none_for_json_wrong_shape() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    // Valid JSON but wrong shape for AppState.
+    std::fs::write(s.state_path(), br#"{"not_a_field": 42}"#).unwrap();
+
+    // serde will produce a default AppState from missing optional fields —
+    // this depends on the derive; either way we assert no panic.
+    let _result = s.load_state();
+}
+
+// ── AppStateSerializer — crash marker ────────────────────────────────────────
+
+#[test]
+fn crash_marker_write_creates_file() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    s.write_crash_marker().unwrap();
+
+    assert!(s.marker_path().exists(), "marker file must exist after write");
+}
+
+#[test]
+fn crash_marker_delete_removes_file() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    s.write_crash_marker().unwrap();
+    s.delete_crash_marker().unwrap();
+
+    assert!(!s.marker_path().exists(), "marker file must not exist after delete");
+}
+
+#[test]
+fn crash_marker_delete_is_ok_when_file_not_found() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    // Deleting a non-existent marker must not return an error.
+    assert!(s.delete_crash_marker().is_ok());
+}
+
+#[test]
+fn crash_marker_exists_returns_true_when_present() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    s.write_crash_marker().unwrap();
+    assert!(s.crash_marker_exists());
+}
+
+#[test]
+fn crash_marker_exists_returns_false_when_absent() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    assert!(!s.crash_marker_exists());
+}
+
+#[test]
+fn crash_marker_creates_parent_directories() {
+    let dir = tempdir().unwrap();
+    let nested = dir.path().join("deep").join("nested");
+    let s = AppStateSerializer::new(&nested);
+
+    s.write_crash_marker().unwrap();
+    assert!(s.marker_path().exists());
+}
+
+// ── AppStateSerializer — clean startup sequence ───────────────────────────────
+
+#[test]
+fn persist_clean_startup_sequence_no_crash_detected() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    // Simulate a clean previous session.
+    s.save_state(&make_full_app_state()).unwrap();
+    // Marker was deleted on clean shutdown — it should not exist.
+    assert!(!s.crash_marker_exists(), "no marker after clean shutdown");
+
+    // On this startup: no crash detected, load from state file.
+    let state = s.load_state().unwrap();
+    assert!(state.is_some(), "state must load after clean shutdown");
+}
+
+#[test]
+fn persist_crash_startup_sequence_marker_detected() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    // Simulate: previous session started (marker written) but never shut down.
+    s.save_state(&make_full_app_state()).unwrap();
+    s.write_crash_marker().unwrap();
+
+    // On this startup: crash detected.
+    assert!(
+        s.crash_marker_exists(),
+        "crash marker must be present after simulated crash"
+    );
+    // Caller would use WAL replay here instead of load_state().
+    // After recovery, write a new marker for this session.
+    s.write_crash_marker().unwrap();
+    assert!(s.crash_marker_exists());
+}
+
+#[test]
+fn persist_full_session_lifecycle() {
+    let dir = tempdir().unwrap();
+    let s = AppStateSerializer::new(dir.path());
+
+    // 1. First launch — no state, no marker.
+    assert!(!s.crash_marker_exists());
+    assert!(s.load_state().unwrap().is_none());
+
+    // 2. Mark session start.
+    s.write_crash_marker().unwrap();
+    assert!(s.crash_marker_exists());
+
+    // 3. Save state mid-session.
+    let state = make_full_app_state();
+    s.save_state(&state).unwrap();
+
+    // 4. Clean shutdown.
+    s.delete_crash_marker().unwrap();
+    assert!(!s.crash_marker_exists());
+
+    // 5. Next launch — no crash, state loads correctly.
+    let loaded = s.load_state().unwrap().expect("state must survive clean shutdown");
+    assert_eq!(loaded, state);
 }

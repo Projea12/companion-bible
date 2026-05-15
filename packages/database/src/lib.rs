@@ -1,6 +1,7 @@
 mod connection;
 pub mod migration;
 pub mod models;
+pub mod persist;
 pub mod repositories;
 pub mod wal;
 
@@ -14,6 +15,7 @@ pub use repositories::{
     CalibrationRepository, ChurchRepository, DetectionEventRepository, SermonRepository,
     VerseRepository,
 };
+pub use persist::{AppStateSerializer, PersistError};
 pub use wal::{AppState, WalEntry, WalError, WriteAheadLog};
 
 #[cfg(test)]
