@@ -187,6 +187,9 @@ pub struct KjvBible {
     meta: Vec<BibleBook>,
     /// Book name → index into `meta` for O(1) metadata lookup.
     meta_index: HashMap<String, usize>,
+    /// Flat search index: (book_order_0, chapter, verse, lowercase_text).
+    /// Built once at load time; avoids allocating per search call.
+    search_index: Vec<(u8, u8, u8, String)>,
 }
 
 impl KjvBible {
@@ -244,7 +247,25 @@ impl KjvBible {
             text.insert(raw_book.book, chapters);
         }
 
-        Ok(KjvBible { text, meta, meta_index })
+        // Build flat search index in canonical book order.
+        let mut search_index: Vec<(u8, u8, u8, String)> = Vec::with_capacity(31_102);
+        for (book_idx, book_meta) in meta.iter().enumerate() {
+            let chapters = &text[&book_meta.name];
+            for (ch_idx, verses) in chapters.iter().enumerate() {
+                for (v_idx, verse_text) in verses.iter().enumerate() {
+                    if !verse_text.is_empty() {
+                        search_index.push((
+                            book_idx as u8,
+                            (ch_idx + 1) as u8,
+                            (v_idx + 1) as u8,
+                            verse_text.to_lowercase(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(KjvBible { text, meta, meta_index, search_index })
     }
 
     // ── verse access ──────────────────────────────────────────────────────────
@@ -314,6 +335,76 @@ impl KjvBible {
         self.meta.iter().map(|b| b.name.as_str())
     }
 
+    // ── full-text search ──────────────────────────────────────────────────────
+
+    /// Search all 31,102 verses for `query` and return results ranked by
+    /// relevance (highest score first).
+    ///
+    /// Matching is case-insensitive substring search.  Score is computed per
+    /// verse as:
+    ///
+    /// * +10 for each query word that appears as a whole word (word boundary)
+    /// * +1  for each query word that appears as a substring
+    ///
+    /// Whole-word matches also count toward the substring score, so a verse
+    /// containing all query terms as whole words scores higher than one that
+    /// only has substring matches.
+    ///
+    /// Ties in score are broken by canonical book order (Genesis first).
+    ///
+    /// Returns an empty `Vec` when no verse contains any query term.
+    pub fn search(&self, query: &str) -> Vec<SearchResult> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Vec::new();
+        }
+
+        // Split query into lowercase words; skip empty tokens.
+        let terms: Vec<String> = query
+            .to_lowercase()
+            .split_whitespace()
+            .filter(|t| !t.is_empty())
+            .map(String::from)
+            .collect();
+
+        if terms.is_empty() {
+            return Vec::new();
+        }
+
+        let mut results: Vec<SearchResult> = self
+            .search_index
+            .iter()
+            .filter_map(|(book_idx, chapter, verse, lower)| {
+                let score = score_verse(lower, &terms);
+                if score == 0 {
+                    return None;
+                }
+                let book_name = &self.meta[*book_idx as usize].name;
+                let text = self
+                    .text
+                    .get(book_name)
+                    .and_then(|chs| chs.get(*chapter as usize - 1))
+                    .and_then(|vs| vs.get(*verse as usize - 1))
+                    .cloned()
+                    .unwrap_or_default();
+                Some(SearchResult {
+                    verse: VerseText {
+                        book: book_name.clone(),
+                        chapter: *chapter,
+                        verse: *verse,
+                        text,
+                    },
+                    score,
+                })
+            })
+            .collect();
+
+        results.sort_by(|a, b| b.score.cmp(&a.score).then(
+            self.meta_index[&a.verse.book].cmp(&self.meta_index[&b.verse.book])
+        ));
+        results
+    }
+
     // ── counts ────────────────────────────────────────────────────────────────
 
     /// Total number of chapters in a book.
@@ -346,6 +437,65 @@ impl KjvBible {
                 total: total_chapters,
             })
     }
+}
+
+// ─── Search scoring (private) ────────────────────────────────────────────────
+
+/// Score a pre-lowercased verse against a set of pre-lowercased query terms.
+///
+/// Returns 0 if no term matches at all, so the caller can skip the verse.
+fn score_verse(lower_verse: &str, terms: &[String]) -> u32 {
+    let mut score: u32 = 0;
+    for term in terms {
+        if lower_verse.contains(term.as_str()) {
+            score += 1; // substring hit
+            // Whole-word bonus: chars before and after the match must be
+            // non-alphabetic (or the match is at the string boundary).
+            if is_whole_word_match(lower_verse, term) {
+                score += 10;
+            }
+        }
+    }
+    score
+}
+
+/// Returns `true` if `term` appears in `text` with word boundaries on both
+/// sides (non-alphabetic character or string edge).
+fn is_whole_word_match(text: &str, term: &str) -> bool {
+    let bytes = text.as_bytes();
+    let tlen = term.len();
+    let tlen_text = bytes.len();
+
+    if tlen == 0 || tlen > tlen_text {
+        return false;
+    }
+
+    let mut start = 0;
+    while let Some(pos) = text[start..].find(term.as_ref() as &str) {
+        let abs = start + pos;
+        let before_ok = abs == 0 || !bytes[abs - 1].is_ascii_alphabetic();
+        let after_ok =
+            abs + tlen >= tlen_text || !bytes[abs + tlen].is_ascii_alphabetic();
+        if before_ok && after_ok {
+            return true;
+        }
+        start = abs + 1;
+        if start >= tlen_text {
+            break;
+        }
+    }
+    false
+}
+
+// ─── SearchResult ─────────────────────────────────────────────────────────────
+
+/// A single verse match returned by `KjvBible::search`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchResult {
+    pub verse: VerseText,
+    /// Higher is more relevant. Computed from word-boundary matches and
+    /// the number of query terms found.
+    pub score: u32,
 }
 
 // ─── ValidationResult ────────────────────────────────────────────────────────
@@ -1016,6 +1166,212 @@ mod tests {
         let b = bible();
         let result = BibleValidator::new(&b).validate(&BibleReference::verse("Genesis", 255, 255));
         assert!(matches!(result, ValidationResult::InvalidChapter { .. }));
+    }
+
+    // ─── Full-text search — accuracy ─────────────────────────────────────────
+
+    #[test]
+    fn search_empty_query_returns_nothing() {
+        let b = bible();
+        assert!(b.search("").is_empty());
+        assert!(b.search("   ").is_empty());
+    }
+
+    #[test]
+    fn search_unknown_word_returns_nothing() {
+        let b = bible();
+        assert!(b.search("xyzzy").is_empty());
+    }
+
+    #[test]
+    fn search_john_3_16_top_result() {
+        let b = bible();
+        let results = b.search("For God so loved the world");
+        assert!(!results.is_empty(), "expected at least one result");
+        let top = &results[0];
+        assert_eq!(top.verse.book, "John");
+        assert_eq!(top.verse.chapter, 3);
+        assert_eq!(top.verse.verse, 16);
+    }
+
+    #[test]
+    fn search_psalm_23_1_top_result() {
+        let b = bible();
+        let results = b.search("The LORD is my shepherd");
+        assert!(!results.is_empty());
+        let top = &results[0];
+        assert_eq!(top.verse.book, "Psalms");
+        assert_eq!(top.verse.chapter, 23);
+        assert_eq!(top.verse.verse, 1);
+    }
+
+    #[test]
+    fn search_beginning_was_the_word_top_result() {
+        let b = bible();
+        let results = b.search("In the beginning was the Word");
+        assert!(!results.is_empty());
+        let top = &results[0];
+        assert_eq!(top.verse.book, "John");
+        assert_eq!(top.verse.chapter, 1);
+        assert_eq!(top.verse.verse, 1);
+    }
+
+    #[test]
+    fn search_case_insensitive() {
+        let b = bible();
+        let upper = b.search("LOVE");
+        let lower = b.search("love");
+        assert_eq!(upper.len(), lower.len(), "case should not affect result count");
+    }
+
+    #[test]
+    fn search_partial_word_matches() {
+        let b = bible();
+        // "loveth" contains "love" as a substring — partial matches are allowed
+        let results = b.search("loveth");
+        assert!(!results.is_empty(), "partial word should match");
+    }
+
+    #[test]
+    fn search_results_sorted_highest_score_first() {
+        let b = bible();
+        let results = b.search("love");
+        for window in results.windows(2) {
+            assert!(
+                window[0].score >= window[1].score,
+                "results must be sorted descending by score"
+            );
+        }
+    }
+
+    #[test]
+    fn search_multi_term_scores_higher_than_single_term() {
+        let b = bible();
+        let single = b.search("love");
+        let multi = b.search("God is love");
+        // The verse "God is love" (1 John 4:8 / 4:16) should score higher in
+        // the multi-term search than any verse in the single-term search.
+        let max_single = single.iter().map(|r| r.score).max().unwrap_or(0);
+        let max_multi = multi.iter().map(|r| r.score).max().unwrap_or(0);
+        assert!(max_multi > max_single, "multi-term query should yield higher max score");
+    }
+
+    #[test]
+    fn search_god_is_love_returns_1_john_4_8() {
+        let b = bible();
+        let results = b.search("God is love");
+        assert!(!results.is_empty());
+        let found = results
+            .iter()
+            .any(|r| r.verse.book == "1 John" && r.verse.chapter == 4 && r.verse.verse == 8);
+        assert!(found, "1 John 4:8 must appear in results for 'God is love'");
+    }
+
+    #[test]
+    fn search_single_char_query_matches() {
+        let b = bible();
+        // Single characters like "a" appear in almost every verse
+        let results = b.search("a");
+        assert!(!results.is_empty());
+    }
+
+    #[test]
+    fn search_score_struct_fields_populated() {
+        let b = bible();
+        let results = b.search("grace");
+        assert!(!results.is_empty());
+        let first = &results[0];
+        assert!(!first.verse.book.is_empty());
+        assert!(first.verse.chapter >= 1);
+        assert!(first.verse.verse >= 1);
+        assert!(!first.verse.text.is_empty());
+        assert!(first.score > 0);
+    }
+
+    // ─── Full-text search — performance ──────────────────────────────────────
+    // Timing assertions are only enforced in release builds (`cargo test
+    // --release`).  Debug builds skip the deadline to avoid false failures
+    // from the lack of compiler optimisations.
+
+    #[test]
+    #[allow(unused_variables)]
+    fn search_single_word_under_50ms() {
+        let b = bible();
+        let start = std::time::Instant::now();
+        let results = b.search("love");
+        let elapsed = start.elapsed();
+        assert!(!results.is_empty());
+        #[cfg(not(debug_assertions))]
+        assert!(
+            elapsed.as_millis() < 50,
+            "search took {}ms, must be under 50ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[test]
+    #[allow(unused_variables)]
+    fn search_phrase_under_50ms() {
+        let b = bible();
+        let start = std::time::Instant::now();
+        let results = b.search("For God so loved the world");
+        let elapsed = start.elapsed();
+        assert!(!results.is_empty());
+        #[cfg(not(debug_assertions))]
+        assert!(
+            elapsed.as_millis() < 50,
+            "phrase search took {}ms, must be under 50ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[test]
+    #[allow(unused_variables)]
+    fn search_rare_term_under_50ms() {
+        let b = bible();
+        let start = std::time::Instant::now();
+        let results = b.search("Melchizedek");
+        let elapsed = start.elapsed();
+        assert!(!results.is_empty());
+        #[cfg(not(debug_assertions))]
+        assert!(
+            elapsed.as_millis() < 50,
+            "rare-term search took {}ms, must be under 50ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[test]
+    #[allow(unused_variables)]
+    fn search_no_match_under_50ms() {
+        let b = bible();
+        let start = std::time::Instant::now();
+        let results = b.search("xyzzy");
+        let elapsed = start.elapsed();
+        assert!(results.is_empty());
+        #[cfg(not(debug_assertions))]
+        assert!(
+            elapsed.as_millis() < 50,
+            "no-match search took {}ms, must be under 50ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[test]
+    #[allow(unused_variables)]
+    fn search_high_frequency_word_under_50ms() {
+        // "the" appears in almost every verse — worst-case scan
+        let b = bible();
+        let start = std::time::Instant::now();
+        let results = b.search("the");
+        let elapsed = start.elapsed();
+        assert!(!results.is_empty());
+        #[cfg(not(debug_assertions))]
+        assert!(
+            elapsed.as_millis() < 50,
+            "high-frequency search took {}ms, must be under 50ms",
+            elapsed.as_millis()
+        );
     }
 
     // ─── Boundary conditions ──────────────────────────────────────────────────
