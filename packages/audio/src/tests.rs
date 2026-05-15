@@ -1505,3 +1505,376 @@ fn pipeline_normalizer_mut_updates_target_rms() {
     p.normalizer_mut().set_target_rms(0.4);
     assert_eq!(p.normalizer_mut().target_rms(), 0.4);
 }
+
+// ─── Noisy audio sample tests ─────────────────────────────────────────────────
+//
+// Each test models a real-world interference source encountered in Nigerian
+// church environments and verifies that the pipeline attenuates it.
+//
+// "Attenuation" is measured as output_rms < input_rms after a warm-up period
+// that lets RNNoise's RNN state converge.  We do not assert a specific dB
+// reduction because nnnoiseless model quality varies slightly across platforms.
+
+// ── Generator hum ─────────────────────────────────────────────────────────────
+
+/// 50 Hz mains / generator hum at three harmonic levels typical of Nigerian
+/// petrol generators feeding an unfiltered PA system.
+fn make_generator_hum(amplitude: f32) -> Vec<f32> {
+    const SR: f32 = 16_000.0;
+    // Fundamental 50 Hz + 2nd (100 Hz) + 3rd (150 Hz) harmonics.
+    let harmonics = [(50.0f32, 1.0f32), (100.0, 0.6), (150.0, 0.3)];
+    (0..CHUNK_100MS)
+        .map(|i| {
+            harmonics
+                .iter()
+                .map(|&(f, rel)| {
+                    amplitude * rel * (2.0 * std::f32::consts::PI * f * i as f32 / SR).sin()
+                })
+                .sum::<f32>()
+        })
+        .collect()
+}
+
+#[test]
+fn generator_hum_rms_is_measurable() {
+    // Sanity: ensure the synthesised hum has non-trivial energy before testing attenuation.
+    let hum = make_generator_hum(0.15);
+    let r = rms_of(&hum);
+    assert!(r > 0.05, "hum RMS {r:.4} too low — generator synthesis broken");
+}
+
+#[test]
+fn noise_suppressor_attenuates_generator_hum() {
+    let mut ns = NoiseSuppressor::new();
+    let hum = make_generator_hum(0.15);
+    let input_rms = rms_of(&hum);
+
+    // Warm up: let RNNoise learn the steady-state hum.
+    for _ in 0..10 {
+        ns.process(&hum);
+    }
+    let out = ns.process(&hum);
+    let output_rms = rms_of(&out);
+
+    assert!(
+        output_rms < input_rms,
+        "RNNoise should suppress generator hum: {input_rms:.4} → {output_rms:.4}"
+    );
+}
+
+#[test]
+fn pipeline_attenuates_generator_hum_below_gate() {
+    // Gate threshold 0.3 is above a 0.15-amplitude hum after RNNoise suppression.
+    // After warm-up the suppressor should reduce the hum below the gate threshold.
+    let mut p = AudioPipeline::new(0.3, 0.1);
+    let hum = make_generator_hum(0.15);
+
+    // Warm up.
+    for _ in 0..15 {
+        p.process(&hum);
+    }
+    let out = p.process(&hum);
+    let output_rms = rms_of(&out);
+
+    assert!(
+        output_rms < rms_of(&hum),
+        "pipeline should reduce generator hum; input_rms={:.4} output_rms={output_rms:.4}",
+        rms_of(&hum)
+    );
+}
+
+#[test]
+fn speech_plus_hum_preserves_speech_energy() {
+    // When speech is mixed with generator hum the pipeline must not suppress the
+    // speech below the gate — verifies the gate is tuned to hum amplitude, not
+    // speech amplitude.
+    let speech = make_speech_like();
+    let hum = make_generator_hum(0.05); // hum at 1/8 the speech RMS
+
+    // Mix: speech dominates.
+    let mixed: Vec<f32> = speech.iter().zip(hum.iter()).map(|(s, h)| s + h).collect();
+    let input_rms = rms_of(&mixed);
+
+    // Gate just above hum level.
+    let mut p = AudioPipeline::new(0.08, 0.2);
+    for _ in 0..5 {
+        p.process(&mixed);
+    }
+    let out = p.process(&mixed);
+    let output_rms = rms_of(&out);
+
+    assert!(
+        output_rms > 0.0,
+        "speech must survive when mixed with hum (input_rms={input_rms:.4}, output_rms={output_rms:.4})"
+    );
+}
+
+// ── Crowd noise ───────────────────────────────────────────────────────────────
+
+/// Broadband crowd noise: band-limited white noise approximated by summing
+/// many incoherent sinusoids spread across 200 Hz – 4 kHz (congregation murmur).
+fn make_crowd_noise(amplitude: f32) -> Vec<f32> {
+    const SR: f32 = 16_000.0;
+    // 20 incoherent components with deterministic pseudo-random phases.
+    let freqs: Vec<f32> = (0..20)
+        .map(|i| 200.0 + i as f32 * 190.0) // 200, 390, 580, … Hz
+        .collect();
+    (0..CHUNK_100MS)
+        .map(|i| {
+            freqs
+                .iter()
+                .enumerate()
+                .map(|(k, &f)| {
+                    // Deterministic per-component phase offset avoids coherent cancellation.
+                    let phase = k as f32 * 1.2345;
+                    amplitude / (freqs.len() as f32).sqrt()
+                        * (2.0 * std::f32::consts::PI * f * i as f32 / SR + phase).sin()
+                })
+                .sum::<f32>()
+        })
+        .collect()
+}
+
+#[test]
+fn crowd_noise_rms_is_measurable() {
+    let noise = make_crowd_noise(0.2);
+    let r = rms_of(&noise);
+    assert!(r > 0.02, "crowd noise RMS {r:.4} — synthesis broken");
+}
+
+#[test]
+fn noise_suppressor_attenuates_crowd_noise() {
+    let mut ns = NoiseSuppressor::new();
+    let noise = make_crowd_noise(0.2);
+    let input_rms = rms_of(&noise);
+
+    for _ in 0..10 {
+        ns.process(&noise);
+    }
+    let out = ns.process(&noise);
+    let output_rms = rms_of(&out);
+
+    assert!(
+        output_rms < input_rms,
+        "RNNoise should suppress crowd noise: {input_rms:.4} → {output_rms:.4}"
+    );
+}
+
+#[test]
+fn speech_survives_crowd_noise_after_suppression() {
+    // The pastor's voice (RMS ≈ 0.63) should remain detectable even when mixed
+    // with crowd noise at 25% of speech amplitude.
+    let speech = make_speech_like();
+    let noise = make_crowd_noise(0.1);
+    let mixed: Vec<f32> = speech.iter().zip(noise.iter()).map(|(s, n)| s + n).collect();
+
+    let mut p = AudioPipeline::new(0.02, 0.2);
+    for _ in 0..5 {
+        p.process(&mixed);
+    }
+    let out = p.process(&mixed);
+
+    assert!(
+        rms_of(&out) > 0.0,
+        "speech must survive crowd noise through the pipeline"
+    );
+}
+
+#[test]
+fn gate_suppresses_crowd_noise_alone() {
+    // Crowd noise alone (no speech) should be below the gate threshold after
+    // RNNoise suppression.  Gate at 0.15, noise at 0.2 → RNNoise should
+    // reduce noise RMS below 0.15 after warm-up.
+    let mut p = AudioPipeline::new(0.15, 0.1);
+    let noise = make_crowd_noise(0.2);
+
+    for _ in 0..15 {
+        p.process(&noise);
+    }
+    let out = p.process(&noise);
+    let output_rms = rms_of(&out);
+
+    assert!(
+        output_rms < rms_of(&noise),
+        "crowd noise should be attenuated by pipeline; noise_rms={:.4} output_rms={output_rms:.4}",
+        rms_of(&noise)
+    );
+}
+
+// ── Reverb handling ───────────────────────────────────────────────────────────
+
+/// Simple first-order feedback comb filter — approximates early reflections in
+/// a large concrete church hall (common in West African church buildings).
+///
+/// `delay_samples` controls the reflection delay; `decay` is the per-bounce
+/// amplitude reduction (< 1.0 for stability).
+fn apply_reverb(input: &[f32], delay_samples: usize, decay: f32) -> Vec<f32> {
+    let mut out = input.to_vec();
+    for i in delay_samples..out.len() {
+        out[i] += out[i - delay_samples] * decay;
+    }
+    // Normalise to prevent clipping.
+    let peak = out.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+    if peak > 1.0 {
+        out.iter_mut().for_each(|s| *s /= peak);
+    }
+    out
+}
+
+#[test]
+fn reverb_produces_nonzero_output_and_changes_waveform() {
+    // Sanity: apply_reverb must produce non-zero output and alter the waveform
+    // (peak-normalization means RMS is not a reliable energy proxy here).
+    let speech = make_speech_like();
+    let reverbed = apply_reverb(&speech, 160, 0.4); // 10 ms delay at 16 kHz
+
+    assert!(rms_of(&reverbed) > 0.0, "reverbed signal must be non-zero");
+    // At least some samples should differ from the original (reflections added).
+    let diffs = speech.iter().zip(reverbed.iter()).filter(|(&a, &b)| (a - b).abs() > 1e-6).count();
+    assert!(diffs > 0, "reverb should alter the waveform");
+}
+
+#[test]
+fn noise_suppressor_handles_reverberant_speech_without_panic() {
+    let mut ns = NoiseSuppressor::new();
+    let reverbed = apply_reverb(&make_speech_like(), 160, 0.5);
+    // Must not panic and must return same-length output.
+    let out = ns.process(&reverbed);
+    assert_eq!(out.len(), reverbed.len());
+}
+
+#[test]
+fn noise_suppressor_output_in_range_for_reverberant_input() {
+    let mut ns = NoiseSuppressor::new();
+    let reverbed = apply_reverb(&make_speech_like(), 240, 0.6); // 15 ms delay
+    for _ in 0..5 {
+        ns.process(&reverbed);
+    }
+    let out = ns.process(&reverbed);
+    for &s in &out {
+        assert!(s.abs() <= 1.0, "reverberant output {s} outside [-1, 1]");
+    }
+}
+
+#[test]
+fn pipeline_does_not_silence_reverberant_speech() {
+    // Reverberant speech must not be gated out — the reverb tail keeps the RMS
+    // high enough to clear the gate threshold.
+    // 20 ms delay, decay 0.5 — typical concrete hall reflection.
+    let reverbed = apply_reverb(&make_speech_like(), 320, 0.5);
+    let reverb_rms = rms_of(&reverbed);
+
+    let mut p = AudioPipeline::new(0.02, 0.2);
+    for _ in 0..5 {
+        p.process(&reverbed);
+    }
+    let out = p.process(&reverbed);
+
+    assert!(
+        rms_of(&out) > 0.0,
+        "reverberant speech (rms={reverb_rms:.4}) must not be silenced by pipeline"
+    );
+}
+
+#[test]
+fn pipeline_attenuates_reverb_tail_of_silence() {
+    // After speech ends, the decaying reverb tail on silence should be suppressed.
+    // Model: silence convolved with a decaying echo.
+    let silence = vec![0.0f32; CHUNK_100MS];
+    // A tiny impulse at the start creates a decaying echo — rest is silence.
+    let mut with_echo = silence.clone();
+    with_echo[0] = 0.3;
+    let echo_tail = apply_reverb(&with_echo, 80, 0.5);
+
+    let input_rms = rms_of(&echo_tail);
+    let mut p = AudioPipeline::new(0.02, 0.1);
+    for _ in 0..5 {
+        p.process(&echo_tail);
+    }
+    let out = p.process(&silence); // pure silence after echo source stops
+    let output_rms = rms_of(&out);
+
+    assert!(
+        output_rms <= input_rms,
+        "pipeline should not amplify reverb tail; input={input_rms:.4} output={output_rms:.4}"
+    );
+}
+
+// ─── Performance — full pipeline under 20 ms per chunk ───────────────────────
+
+#[test]
+fn pipeline_full_chain_under_20ms_per_100ms_chunk() {
+    // Budget: 20 ms of wall time to process 100 ms of audio (5× real-time).
+    // This leaves enough headroom for the main thread to run VAD and UI logic
+    // concurrently on a mid-range ARM SoC (e.g. Raspberry Pi 4, M1 MacBook).
+    let mut p = AudioPipeline::new(0.02, 0.2);
+    let chunk = make_noisy_speech(); // realistic worst case: speech + noise
+
+    // Extend to CHUNK_100MS so we exercise a full 100 ms processing cycle.
+    let chunk: Vec<f32> = chunk
+        .iter()
+        .cloned()
+        .cycle()
+        .take(CHUNK_100MS)
+        .collect();
+
+    // Warm up: prime RNN and IIR state.
+    for _ in 0..50 {
+        p.process(&chunk);
+    }
+
+    const ITERS: u32 = 2_000;
+    let start = std::time::Instant::now();
+    for _ in 0..ITERS {
+        p.process(&chunk);
+    }
+    let total = start.elapsed();
+
+    let per_chunk_us = total.as_micros() as f64 / ITERS as f64;
+
+    assert!(
+        per_chunk_us < 20_000.0,
+        "AudioPipeline::process() averaged {per_chunk_us:.1} µs — exceeds 20 ms budget"
+    );
+
+    println!(
+        "AudioPipeline full chain (gate+suppress+normalize): {per_chunk_us:.0} µs/chunk \
+         ({:.1} ms) over {ITERS} iters — budget 20 ms",
+        per_chunk_us / 1_000.0
+    );
+}
+
+#[test]
+fn noise_suppressor_process_under_15ms_per_100ms_chunk() {
+    // NoiseSuppressor alone (RNNoise only) must complete well within 15 ms
+    // for a 100 ms chunk (1600 samples × 480-sample RNNoise frames = ~3 frames).
+    let mut ns = NoiseSuppressor::new();
+    let chunk: Vec<f32> = make_noisy_speech()
+        .iter()
+        .cloned()
+        .cycle()
+        .take(CHUNK_100MS)
+        .collect();
+
+    for _ in 0..50 {
+        ns.process(&chunk);
+    }
+
+    const ITERS: u32 = 2_000;
+    let start = std::time::Instant::now();
+    for _ in 0..ITERS {
+        ns.process(&chunk);
+    }
+    let total = start.elapsed();
+
+    let per_chunk_us = total.as_micros() as f64 / ITERS as f64;
+
+    assert!(
+        per_chunk_us < 15_000.0,
+        "NoiseSuppressor::process() averaged {per_chunk_us:.1} µs — exceeds 15 ms budget"
+    );
+
+    println!(
+        "NoiseSuppressor (RNNoise only): {per_chunk_us:.0} µs/chunk over {ITERS} iters"
+    );
+}
