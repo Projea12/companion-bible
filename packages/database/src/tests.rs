@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 use tempfile::tempdir;
 
-use crate::{close, connect, migration, DbPool, PoolConfig};
+use crate::{
+    close, connect, migration, CalibrationThresholds, Church, ChurchSettings, DetectionEvent,
+    DbPool, PoolConfig, Sermon, ServiceRecord, SubPoint, Verse,
+};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1147,4 +1150,407 @@ async fn applied_migrations_have_descriptions() {
         assert!(!m.installed_on.is_empty(), "every migration must have an installed_on timestamp");
     }
     close(pool).await;
+}
+
+// ── models: sqlx::FromRow ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn church_from_row_maps_all_fields() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region, onboarding_complete)
+         VALUES ('c1', 'Grace Church', 'Lagos', 1)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let church: Church = sqlx::query_as("SELECT * FROM churches WHERE id = 'c1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(church.id, "c1");
+    assert_eq!(church.name, "Grace Church");
+    assert_eq!(church.region, "Lagos");
+    assert!(church.onboarding_complete);
+    assert!(!church.installed_at.is_empty());
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn verse_from_row_maps_all_fields() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO verses (book, chapter, verse_number, text, book_order)
+         VALUES ('John', 3, 16, 'For God so loved the world...', 43)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let verse: Verse = sqlx::query_as(
+        "SELECT * FROM verses WHERE book='John' AND chapter=3 AND verse_number=16",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert!(verse.id > 0);
+    assert_eq!(verse.book, "John");
+    assert_eq!(verse.chapter, 3);
+    assert_eq!(verse.verse_number, 16);
+    assert_eq!(verse.book_order, 43);
+    assert!(verse.text.contains("God so loved"));
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn sermon_from_row_maps_optional_fields() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sermons (id, church_id, date, started_at)
+         VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let sermon: Sermon = sqlx::query_as("SELECT * FROM sermons WHERE id = 's1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(sermon.id, "s1");
+    assert_eq!(sermon.church_id, "c1");
+    assert!(sermon.title.is_none());
+    assert!(sermon.pastor.is_none());
+    assert!(sermon.ended_at.is_none());
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn sub_point_from_row_maps_all_fields() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sermons (id, church_id, date, started_at)
+         VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sub_points (id, sermon_id, title, order_index)
+         VALUES ('sp1', 's1', 'Introduction', 1)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let sp: SubPoint = sqlx::query_as("SELECT * FROM sub_points WHERE id = 'sp1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(sp.id, "sp1");
+    assert_eq!(sp.title, "Introduction");
+    assert_eq!(sp.order_index, 1);
+    assert!(sp.started_at.is_none());
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn detection_event_from_row_maps_all_fields() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sermons (id, church_id, date, started_at)
+         VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO detection_events
+             (id, sermon_id, raw_transcript, decision, confidence, processing_time_ms,
+              final_reference)
+         VALUES ('d1', 's1', 'John 3:16', 'auto_accept', 0.98, 42, 'John 3:16')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let ev: DetectionEvent =
+        sqlx::query_as("SELECT * FROM detection_events WHERE id = 'd1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    assert_eq!(ev.id, "d1");
+    assert_eq!(ev.raw_transcript, "John 3:16");
+    assert!((ev.confidence - 0.98).abs() < f64::EPSILON);
+    assert_eq!(ev.processing_time_ms, 42);
+    assert_eq!(ev.final_reference.as_deref(), Some("John 3:16"));
+    assert!(ev.pattern_result.is_none());
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn church_settings_from_row_maps_all_fields() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO church_settings (church_id, key, value)
+         VALUES ('c1', 'preferred_translation', '\"KJV\"')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let cs: ChurchSettings = sqlx::query_as(
+        "SELECT * FROM church_settings WHERE church_id = 'c1' AND key = 'preferred_translation'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(cs.church_id, "c1");
+    assert_eq!(cs.key, "preferred_translation");
+    assert_eq!(cs.value, "\"KJV\"");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn calibration_thresholds_from_row_maps_all_fields() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO calibration_thresholds (id, church_id, stage, accept_above, escalate_below)
+         VALUES ('t1', 'c1', 'local_ai', 0.88, 0.45)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let ct: CalibrationThresholds =
+        sqlx::query_as("SELECT * FROM calibration_thresholds WHERE id = 't1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    assert_eq!(ct.id, "t1");
+    assert_eq!(ct.stage, "local_ai");
+    assert!((ct.accept_above - 0.88).abs() < 1e-9);
+    assert!((ct.escalate_below - 0.45).abs() < 1e-9);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn service_record_from_row_maps_optional_fields() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sermons (id, church_id, date, started_at)
+         VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO service_records
+             (id, sermon_id, total_detections, auto_accepted, avg_confidence)
+         VALUES ('r1', 's1', 20, 18, 0.91)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let sr: ServiceRecord =
+        sqlx::query_as("SELECT * FROM service_records WHERE id = 'r1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    assert_eq!(sr.total_detections, 20);
+    assert_eq!(sr.auto_accepted, 18);
+    assert!(sr.avg_confidence.is_some_and(|v| (v - 0.91).abs() < 1e-9));
+    assert!(sr.avg_processing_time_ms.is_none());
+    close(pool).await;
+}
+
+// ── models: serde round-trip ──────────────────────────────────────────────────
+
+#[test]
+fn church_serde_round_trip() {
+    let church = Church {
+        id: "c1".into(),
+        name: "Grace Church".into(),
+        region: "Lagos".into(),
+        installed_at: "2026-05-15T09:00:00Z".into(),
+        onboarding_complete: true,
+    };
+    let json = serde_json::to_string(&church).unwrap();
+    let decoded: Church = serde_json::from_str(&json).unwrap();
+    assert_eq!(church, decoded);
+}
+
+#[test]
+fn verse_serde_round_trip() {
+    let verse = Verse {
+        id: 1,
+        book: "John".into(),
+        chapter: 3,
+        verse_number: 16,
+        text: "For God so loved the world...".into(),
+        book_order: 43,
+    };
+    let json = serde_json::to_string(&verse).unwrap();
+    let decoded: Verse = serde_json::from_str(&json).unwrap();
+    assert_eq!(verse, decoded);
+}
+
+#[test]
+fn sermon_serde_round_trip() {
+    let sermon = Sermon {
+        id: "s1".into(),
+        church_id: "c1".into(),
+        title: Some("Grace and Truth".into()),
+        pastor: None,
+        date: "2026-05-15".into(),
+        anchor_scripture: Some("John 1:17".into()),
+        started_at: "2026-05-15T09:00:00Z".into(),
+        ended_at: None,
+    };
+    let json = serde_json::to_string(&sermon).unwrap();
+    let decoded: Sermon = serde_json::from_str(&json).unwrap();
+    assert_eq!(sermon, decoded);
+}
+
+#[test]
+fn sub_point_serde_round_trip() {
+    let sp = SubPoint {
+        id: "sp1".into(),
+        sermon_id: "s1".into(),
+        title: "Introduction".into(),
+        order_index: 1,
+        started_at: Some("2026-05-15T09:05:00Z".into()),
+    };
+    let json = serde_json::to_string(&sp).unwrap();
+    let decoded: SubPoint = serde_json::from_str(&json).unwrap();
+    assert_eq!(sp, decoded);
+}
+
+#[test]
+fn detection_event_serde_round_trip() {
+    let ev = DetectionEvent {
+        id: "d1".into(),
+        sermon_id: "s1".into(),
+        raw_transcript: "John 3:16".into(),
+        pattern_result: Some(r#"{"book":"John"}"#.into()),
+        local_ai_result: None,
+        cloud_ai_result: None,
+        final_reference: Some("John 3:16".into()),
+        confidence: 0.98,
+        decision: "auto_accept".into(),
+        operator_action: None,
+        correct_reference: None,
+        processing_time_ms: 42,
+        timestamp: "2026-05-15T09:10:00Z".into(),
+    };
+    let json = serde_json::to_string(&ev).unwrap();
+    let decoded: DetectionEvent = serde_json::from_str(&json).unwrap();
+    assert_eq!(ev, decoded);
+}
+
+#[test]
+fn church_settings_serde_round_trip() {
+    let cs = ChurchSettings {
+        church_id: "c1".into(),
+        key: "preferred_translation".into(),
+        value: "\"KJV\"".into(),
+    };
+    let json = serde_json::to_string(&cs).unwrap();
+    let decoded: ChurchSettings = serde_json::from_str(&json).unwrap();
+    assert_eq!(cs, decoded);
+}
+
+#[test]
+fn calibration_thresholds_serde_round_trip() {
+    let ct = CalibrationThresholds {
+        id: "t1".into(),
+        church_id: "c1".into(),
+        stage: "pattern".into(),
+        accept_above: 0.9,
+        escalate_below: 0.5,
+        updated_at: "2026-05-15T09:00:00Z".into(),
+    };
+    let json = serde_json::to_string(&ct).unwrap();
+    let decoded: CalibrationThresholds = serde_json::from_str(&json).unwrap();
+    assert_eq!(ct, decoded);
+}
+
+#[test]
+fn service_record_serde_round_trip() {
+    let sr = ServiceRecord {
+        id: "r1".into(),
+        sermon_id: "s1".into(),
+        total_detections: 20,
+        auto_accepted: 18,
+        operator_corrected: 1,
+        rejected: 1,
+        avg_confidence: Some(0.91),
+        avg_processing_time_ms: Some(35.5),
+        created_at: "2026-05-15T09:00:00Z".into(),
+    };
+    let json = serde_json::to_string(&sr).unwrap();
+    let decoded: ServiceRecord = serde_json::from_str(&json).unwrap();
+    assert_eq!(sr, decoded);
 }
