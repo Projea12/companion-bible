@@ -1017,4 +1017,109 @@ mod tests {
         let result = BibleValidator::new(&b).validate(&BibleReference::verse("Genesis", 255, 255));
         assert!(matches!(result, ValidationResult::InvalidChapter { .. }));
     }
+
+    // ─── Boundary conditions ──────────────────────────────────────────────────
+
+    #[test]
+    fn boundary_genesis_1_1_is_valid() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Genesis", 1, 1));
+        assert!(result.is_valid(), "Genesis 1:1 should be valid");
+    }
+
+    #[test]
+    fn boundary_revelation_22_21_is_valid() {
+        let b = bible();
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Revelation", 22, 21));
+        assert!(result.is_valid(), "Revelation 22:21 should be valid");
+    }
+
+    #[test]
+    fn boundary_chapter_1_verse_1_of_every_book() {
+        let b = bible();
+        for book in b.book_names() {
+            let result = BibleValidator::new(&b).validate(&BibleReference::verse(book, 1, 1));
+            assert!(result.is_valid(), "{book} 1:1 should be valid, got: {result}");
+        }
+    }
+
+    #[test]
+    fn boundary_last_verse_of_every_book() {
+        let b = bible();
+        let cases: &[(&str, u8, u8)] = &[
+            ("Genesis", 50, 26),
+            ("Exodus", 40, 38),
+            ("Leviticus", 27, 34),
+            ("Numbers", 36, 13),
+            ("Deuteronomy", 34, 12),
+            ("Joshua", 24, 33),
+            ("Judges", 21, 25),
+            ("Ruth", 4, 22),
+            ("1 Samuel", 31, 13),
+            ("2 Samuel", 24, 25),
+            ("1 Kings", 22, 53),
+            ("2 Kings", 25, 30),
+            ("1 Chronicles", 29, 30),
+            ("2 Chronicles", 36, 23),
+            ("Ezra", 10, 44),
+            ("Nehemiah", 13, 31),
+            ("Esther", 10, 3),
+            ("Job", 42, 17),
+            ("Psalms", 150, 6),
+            ("Proverbs", 31, 31),
+            ("Ecclesiastes", 12, 14),
+            ("Song of Solomon", 8, 14),
+            ("Isaiah", 66, 24),
+            ("Jeremiah", 52, 34),
+            ("Lamentations", 5, 22),
+            ("Ezekiel", 48, 35),
+            ("Daniel", 12, 13),
+            ("Hosea", 14, 9),
+            ("Joel", 3, 21),
+            ("Amos", 9, 15),
+            ("Obadiah", 1, 21),
+            ("Jonah", 4, 11),
+            ("Micah", 7, 20),
+            ("Nahum", 3, 19),
+            ("Habakkuk", 3, 19),
+            ("Zephaniah", 3, 20),
+            ("Haggai", 2, 23),
+            ("Zechariah", 14, 21),
+            ("Malachi", 4, 6),
+            ("Matthew", 28, 20),
+            ("Mark", 16, 20),
+            ("Luke", 24, 53),
+            ("John", 21, 25),
+            ("Acts", 28, 31),
+            ("Romans", 16, 27),
+            ("1 Corinthians", 16, 24),
+            ("2 Corinthians", 13, 14),
+            ("Galatians", 6, 18),
+            ("Ephesians", 6, 24),
+            ("Philippians", 4, 23),
+            ("Colossians", 4, 18),
+            ("1 Thessalonians", 5, 28),
+            ("2 Thessalonians", 3, 18),
+            ("1 Timothy", 6, 21),
+            ("2 Timothy", 4, 22),
+            ("Titus", 3, 15),
+            ("Philemon", 1, 25),
+            ("Hebrews", 13, 25),
+            ("James", 5, 20),
+            ("1 Peter", 5, 14),
+            ("2 Peter", 3, 18),
+            ("1 John", 5, 21),
+            ("2 John", 1, 13),
+            ("3 John", 1, 14),
+            ("Jude", 1, 25),
+            ("Revelation", 22, 21),
+        ];
+        for &(book, chapter, verse) in cases {
+            let result = BibleValidator::new(&b).validate(&BibleReference::verse(book, chapter, verse));
+            assert!(
+                result.is_valid(),
+                "{book} {chapter}:{verse} should be valid, got: {result}"
+            );
+        }
+    }
 }
