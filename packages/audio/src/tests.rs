@@ -2880,3 +2880,158 @@ fn audio_system_stop_halts_processing() {
         "no new samples should reach the window after stop()"
     );
 }
+
+// ─── Integration: microphone simulation ──────────────────────────────────────
+
+/// Simulate speaking into the microphone: sustained speech-like audio driven
+/// through the full AudioSystem must land in the SlidingWindow.
+#[test]
+fn integration_speech_reaches_sliding_window() {
+    let buffer = Arc::new(RingBuffer::<f32>::new(DEFAULT_CAPACITY));
+    let (mock, driver) = MockAudioInput::new();
+    let mut system = AudioSystem::with_config(
+        Box::new(mock),
+        Arc::clone(&buffer),
+        fast_system_config(),
+    );
+    system.start(Arc::clone(&buffer), 0.0, 0.1).unwrap();
+
+    // 500 ms of speech-like audio: 400 Hz sine wave at comfortable volume.
+    let sample_rate = SAMPLE_RATE as f32;
+    let speech: Vec<f32> = (0..CHUNK_100MS * 5)
+        .map(|i| (2.0 * std::f32::consts::PI * 400.0 * i as f32 / sample_rate).sin() * 0.4)
+        .collect();
+
+    // Drive in 100 ms bursts, just like a real cpal callback cadence.
+    for chunk in speech.chunks(CHUNK_100MS) {
+        driver.drive(chunk.to_vec());
+    }
+
+    // Allow the processor thread to drain the ring buffer.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    system.stop();
+
+    let w = system.window();
+    let samples = w.lock().unwrap().len();
+    assert!(
+        samples > 0,
+        "speech driven through AudioSystem must appear in the SlidingWindow"
+    );
+}
+
+/// Silence (near-zero amplitude) fed through the pipeline then evaluated by
+/// the VAD should produce a Silence decision.
+#[test]
+fn integration_silence_filtered_by_vad() {
+    // Run near-zero audio through AudioPipeline with gate disabled (threshold=0)
+    // and through the VAD.  The VAD must not detect speech in the output.
+    let mut pipeline = AudioPipeline::new(0.0, 0.1);
+    let mut vad = VoiceActivityDetector::new_energy();
+
+    // Ten chunks of near-silence (amplitude 0.0001 — well below any speech level).
+    let silence = vec![0.0001f32; CHUNK_100MS];
+    for _ in 0..10 {
+        let clean = pipeline.process(&silence);
+        // Feed into VAD in CHUNK_SIZE blocks.
+        for vad_chunk in clean.chunks(CHUNK_SIZE) {
+            let decision = vad.detect(vad_chunk);
+            assert_eq!(
+                decision,
+                VadDecision::Silence,
+                "near-silence through the full pipeline must not trigger VAD speech"
+            );
+        }
+    }
+}
+
+/// Broadband noise fed through RNNoise must have its energy meaningfully
+/// reduced compared to the raw input.
+#[test]
+fn integration_rnnoise_reduces_noise() {
+    // White-ish noise at high amplitude — RNNoise should attenuate it.
+    let noise: Vec<f32> = (0..CHUNK_100MS * 5)
+        .map(|i| {
+            // Deterministic pseudo-noise via a simple LCG.
+            let v = ((i as u64).wrapping_mul(6364136223846793005).wrapping_add(1)) as f32;
+            (v / u64::MAX as f32) * 2.0 - 1.0
+        })
+        .collect();
+
+    let input_rms = {
+        let sq: f32 = noise.iter().map(|s| s * s).sum::<f32>() / noise.len() as f32;
+        sq.sqrt()
+    };
+
+    // Use AudioPreprocessor directly (gate disabled by using AudioPreprocessor,
+    // not AudioPipeline) so we isolate the RNNoise contribution.
+    let mut proc = AudioPreprocessor::new();
+    let mut output = Vec::new();
+    for chunk in noise.chunks(CHUNK_100MS) {
+        output.extend_from_slice(&proc.process(chunk));
+    }
+    output.extend_from_slice(&proc.flush());
+
+    let output_rms = if output.is_empty() {
+        0.0
+    } else {
+        let sq: f32 = output.iter().map(|s| s * s).sum::<f32>() / output.len() as f32;
+        sq.sqrt()
+    };
+
+    assert!(
+        output_rms < input_rms * 0.9,
+        "RNNoise must reduce broadband noise energy by at least 10%; \
+         input RMS={input_rms:.4}, output RMS={output_rms:.4}"
+    );
+}
+
+/// Full pipeline latency: the time from audio entering the ring buffer to
+/// appearing in the SlidingWindow must be under 120 ms.
+#[test]
+fn integration_pipeline_latency_under_120ms() {
+    let buffer = Arc::new(RingBuffer::<f32>::new(DEFAULT_CAPACITY));
+    let (mock, driver) = MockAudioInput::new();
+    let mut system = AudioSystem::with_config(
+        Box::new(mock),
+        Arc::clone(&buffer),
+        fast_system_config(),
+    );
+    system.start(Arc::clone(&buffer), 0.0, 0.1).unwrap();
+
+    // Let the system settle.
+    std::thread::sleep(std::time::Duration::from_millis(30));
+
+    let window = system.window();
+    let checkpoint = std::time::Instant::now();
+
+    // Drive one 100 ms chunk of speech-like audio.
+    let chunk: Vec<f32> = (0..CHUNK_100MS)
+        .map(|i| (2.0 * std::f32::consts::PI * 300.0 * i as f32 / SAMPLE_RATE as f32).sin() * 0.4)
+        .collect();
+    driver.drive(chunk);
+
+    // Poll until the window contains new audio or we time out.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(120);
+    let mut arrived = false;
+    while std::time::Instant::now() < deadline {
+        if window.lock().unwrap().new_audio_since(checkpoint) {
+            arrived = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+
+    let elapsed = checkpoint.elapsed();
+    system.stop();
+
+    assert!(
+        arrived,
+        "audio must arrive in SlidingWindow within 120 ms; elapsed={:.1} ms",
+        elapsed.as_secs_f64() * 1000.0
+    );
+    assert!(
+        elapsed < std::time::Duration::from_millis(120),
+        "pipeline latency {:.1} ms exceeds 120 ms budget",
+        elapsed.as_secs_f64() * 1000.0
+    );
+}
