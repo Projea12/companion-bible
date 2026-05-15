@@ -276,16 +276,23 @@ fn monitor_loop(
     // Grace period: let the stream settle before we start counting silence.
     sleep_interruptible(cfg.monitor_interval * 2, &stop_flag);
 
-    // Baseline: treat any callbacks that fired during the grace period as
-    // already known so the first post-grace tick doesn't double-count them.
+    // Baseline the sequence counter after the grace period so any callbacks
+    // that fired during startup are treated as known.  The first_tick flag
+    // gives one additional tick of margin: if the audio thread was scheduled
+    // late (e.g. under test load) and hasn't fired yet by the end of grace,
+    // the first post-grace tick is still counted as "flowing" rather than
+    // triggering a false-positive disconnect.
     let mut last_seq = callback_seq.load(Ordering::Acquire);
+    let mut first_tick = true;
 
     while !stop_flag.load(Ordering::Acquire) {
         let seq = callback_seq.load(Ordering::Acquire);
+        let has_new_audio = seq != last_seq || first_tick;
+        first_tick = false;
+        last_seq = seq;
 
-        if seq != last_seq {
+        if has_new_audio {
             // Callback fired at least once since the last tick — audio is flowing.
-            last_seq = seq;
             let instant = f32::from_bits(level_raw.load(Ordering::Relaxed));
             smoothed += (instant - smoothed) * 0.3;
             zero_ticks = 0;

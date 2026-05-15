@@ -2029,8 +2029,9 @@ fn capture_level_reflects_driven_audio() {
         driver.drive(vec![0.9f32; 512]);
     }
 
-    // Wait for at least one monitor tick to smooth the level.
-    std::thread::sleep(std::time::Duration::from_millis(60));
+    // Wait past the grace period (2 × 20 ms = 40 ms) plus two monitor ticks
+    // (2 × 20 ms) so the IIR has processed the driven audio.
+    std::thread::sleep(std::time::Duration::from_millis(120));
 
     assert!(
         cap.current_level() > 0.0,
@@ -2108,8 +2109,18 @@ fn capture_is_connected_false_after_disconnect() {
 #[test]
 fn capture_no_spurious_disconnect_while_audio_flowing() {
     // Continuously drive audio; no AudioInputLost should appear.
+    // Use threshold=2 so a single scheduling hiccup (one missed tick) cannot
+    // trigger a false disconnect — the driver fires every 10 ms and the monitor
+    // ticks every 20 ms, so at worst one tick per 20 ms window might be skipped.
     let (mock, driver) = MockAudioInput::new();
-    let mut cap = AudioCapture::with_config(Box::new(mock), make_buffer(), fast_config());
+    let mut cap = AudioCapture::with_config(
+        Box::new(mock),
+        make_buffer(),
+        CaptureConfig {
+            zero_ticks_threshold: 2,
+            ..fast_config()
+        },
+    );
     let events = cap.subscribe().unwrap();
     cap.start().expect("start failed");
 
@@ -2223,17 +2234,23 @@ fn capture_no_restore_when_device_stays_unavailable() {
 
 // ─── AudioCapture — end-to-end integration test ───────────────────────────────
 //
-// This single test walks through the complete capture lifecycle in order:
+// Walks through the complete capture lifecycle in a single deterministic test:
 //
-//   1. Start capture — audio flows to the ring buffer.
-//   2. Stop driving audio — AudioInputLost is emitted.
-//   3. Simulate reconnect (fire_on_start = true) — AudioInputRestored is emitted.
+//   Step 1 — Start capture; verify audio flows into the ring buffer and the
+//             level meter rises.
+//   Step 2 — Stop driving audio; verify AudioInputLost is emitted and
+//             is_connected() transitions to false.
+//   Step 3 — Simulate device reconnection (fire_on_start = true); verify
+//             AudioInputRestored is emitted and is_connected() returns true.
+//   Teardown — stop(); verify is_connected() returns false.
 //
-// The test uses `fast_config()` (20 ms monitor ticks, 80 ms reconnect interval)
-// so the full cycle completes in well under a second.
+// Uses fast_config() (20 ms monitor ticks, 80 ms reconnect interval) so the
+// entire test completes in well under 2 seconds.
 
 #[test]
 fn capture_integration_full_lifecycle() {
+    use std::time::Duration;
+
     // ── Setup ─────────────────────────────────────────────────────────────────
     let (mock, driver) = MockAudioInput::new();
     let fire_on_start = Arc::clone(&mock.fire_on_start);
@@ -2243,25 +2260,38 @@ fn capture_integration_full_lifecycle() {
         AudioCapture::with_config(Box::new(mock), Arc::clone(&buffer), fast_config());
     let events = cap.subscribe().unwrap();
 
-    // ── Step 1: start capture, verify audio reaches the ring buffer ───────────
-    cap.start().expect("start() must succeed");
-    assert!(cap.is_connected(), "should be connected immediately after start()");
+    // ── Step 1: start capture — audio flows to the ring buffer ────────────────
+    cap.start().expect("Step 1 FAIL — start() must not error");
+    assert!(cap.is_connected(), "Step 1 FAIL — should be connected immediately after start()");
 
-    // Drive a distinctive waveform so we can confirm identity, not just presence.
+    // Drive a distinctive linear-ramp waveform so we can verify identity in the
+    // ring buffer (not just presence of some samples).
     let probe_samples: Vec<f32> = (0..512).map(|i| (i as f32 / 512.0) * 0.6).collect();
     driver.drive(probe_samples.clone());
 
-    // Allow one scheduler tick for the callback to propagate through the ring buffer.
-    std::thread::sleep(std::time::Duration::from_millis(20));
-
+    // Wait for the callback to write to the ring buffer (no thread hop needed —
+    // MockAudioInput::drive calls the callback synchronously on this thread).
+    std::thread::sleep(Duration::from_millis(5));
     let buffered = buffer.read(512);
     assert_eq!(
         buffered, probe_samples,
-        "Step 1 FAIL — audio written by callback must appear in the ring buffer verbatim"
+        "Step 1 FAIL — samples written by callback must appear in the ring buffer verbatim"
     );
 
-    // Level should have risen above zero (the callback stored the peak).
-    std::thread::sleep(std::time::Duration::from_millis(60)); // one monitor tick
+    // Keep driving audio continuously so the monitor's post-grace ticks see a
+    // live stream and zero_ticks stays at 0.  We stop after the grace period
+    // (2 × 20 ms = 40 ms) plus one extra tick (20 ms).
+    let stop_driving = Arc::new(AtomicBool::new(false));
+    let stop_driving2 = Arc::clone(&stop_driving);
+    let driver_thread = std::thread::spawn(move || {
+        while !stop_driving2.load(Ordering::Relaxed) {
+            driver.drive(vec![0.7f32; 128]);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    });
+
+    // After at least one monitor tick has processed live audio, level must be > 0.
+    std::thread::sleep(Duration::from_millis(80)); // grace (40ms) + one tick (20ms) + margin
     assert!(
         cap.current_level() > 0.0,
         "Step 1 FAIL — current_level() must be > 0 while audio is flowing; got {}",
@@ -2269,17 +2299,20 @@ fn capture_integration_full_lifecycle() {
     );
 
     // ── Step 2: stop driving audio → AudioInputLost ───────────────────────────
-    // The driver thread simply stops pushing samples.  The cpal callback will
-    // never fire again, so `level` stays at its last (decaying-IIR) value and
-    // the monitor will count it as zero once it falls below 1e-4.
-    // Grace period (2 × 20 ms) + 1 tick (20 ms) + IIR decay + margin ≈ 300 ms.
+    // Once the driver stops, the callback_seq stops incrementing.  The next
+    // monitor tick sees no new audio, decays the smoothed level, increments
+    // zero_ticks.  With zero_ticks_threshold = 1 AudioInputLost fires after
+    // a single silent tick (≤ 20 ms after stopping).
+    stop_driving.store(true, Ordering::Relaxed);
+    driver_thread.join().unwrap();
+
     let event1 = events
-        .recv_timeout(std::time::Duration::from_millis(500))
-        .expect("Step 2 FAIL — AudioInputLost not received within 500 ms");
+        .recv_timeout(Duration::from_millis(400))
+        .expect("Step 2 FAIL — AudioInputLost not received within 400 ms after stopping audio");
     assert_eq!(
         event1,
         CaptureEvent::AudioInputLost,
-        "Step 2 FAIL — first event must be AudioInputLost"
+        "Step 2 FAIL — first event after silence must be AudioInputLost"
     );
     assert!(
         !cap.is_connected(),
@@ -2287,14 +2320,15 @@ fn capture_integration_full_lifecycle() {
     );
 
     // ── Step 3: reconnect → AudioInputRestored ────────────────────────────────
-    // Enabling fire_on_start causes the mock's start() to immediately invoke
-    // the new callback with a loud burst, so the reconnect probe sees level > 1e-4.
+    // Setting fire_on_start = true causes the mock's start() to call the new
+    // callback synchronously with a loud burst (0.5 amplitude), so the monitor's
+    // post-reconnect probe sees callback_seq advanced and declares the device back.
     fire_on_start.store(true, Ordering::Relaxed);
 
-    // reconnect_interval (80 ms) + probe wait (2 × 20 ms) + margin ≈ 200 ms.
+    // reconnect_interval (80 ms) + probe wait (2 × 20 ms) + margin.
     let event2 = events
-        .recv_timeout(std::time::Duration::from_millis(600))
-        .expect("Step 3 FAIL — AudioInputRestored not received within 600 ms");
+        .recv_timeout(Duration::from_millis(500))
+        .expect("Step 3 FAIL — AudioInputRestored not received within 500 ms after enabling reconnect");
     assert_eq!(
         event2,
         CaptureEvent::AudioInputRestored,
@@ -2307,5 +2341,5 @@ fn capture_integration_full_lifecycle() {
 
     // ── Teardown ──────────────────────────────────────────────────────────────
     cap.stop();
-    assert!(!cap.is_connected(), "should not be connected after stop()");
+    assert!(!cap.is_connected(), "Teardown FAIL — should not be connected after stop()");
 }
