@@ -5,6 +5,7 @@ mod input;
 pub mod preprocess;
 pub mod ring_buffer;
 pub mod sliding_window;
+pub mod system;
 pub mod vad;
 
 pub use capture::{AudioCapture, CaptureConfig, CaptureEvent};
@@ -17,6 +18,7 @@ pub use preprocess::{
     AmplitudeNormalizer, AudioPipeline, AudioPreprocessor, NoiseGate, NoiseSuppressor,
     CHUNK_100MS, RNNOISE_FRAME_SIZE,
 };
+pub use system::{AudioSystem, SystemConfig};
 pub use vad::{VadDecision, VadError, VoiceActivityDetector, CHUNK_SIZE, DEFAULT_THRESHOLD};
 
 #[cfg(test)]

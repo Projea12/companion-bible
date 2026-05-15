@@ -12,6 +12,7 @@ use crate::preprocess::{
 use crate::vad::{VadDecision, VoiceActivityDetector, CHUNK_SIZE, DEFAULT_THRESHOLD};
 use crate::capture::{AudioCapture, CaptureConfig, CaptureEvent};
 use crate::sliding_window::{AudioWindow, SlidingWindow, SAMPLE_RATE, WINDOW_CAPACITY, WINDOW_SECS};
+use crate::system::{AudioSystem, SystemConfig};
 
 // ─── AudioDevice ──────────────────────────────────────────────────────────────
 
@@ -2796,5 +2797,86 @@ fn last_15_seconds_returns_exactly_15_seconds() {
         (reported.as_secs_f64() - 15.0).abs() < 1e-9,
         "AudioWindow::duration() must be 15.0 s, got {:.9} s",
         reported.as_secs_f64()
+    );
+}
+
+// ─── AudioSystem ──────────────────────────────────────────────────────────────
+
+fn fast_system_config() -> SystemConfig {
+    SystemConfig {
+        gate_threshold: 0.0,
+        target_rms: 0.1,
+        capture: CaptureConfig {
+            zero_ticks_threshold: 1,
+            monitor_interval: std::time::Duration::from_millis(20),
+            reconnect_interval: std::time::Duration::from_millis(80),
+        },
+    }
+}
+
+/// Audio driven through the mock propagates end-to-end into the SlidingWindow.
+#[test]
+fn audio_system_audio_reaches_sliding_window() {
+    let buffer = Arc::new(RingBuffer::<f32>::new(DEFAULT_CAPACITY));
+
+    let (mock, driver) = MockAudioInput::new();
+    let mut system = AudioSystem::with_config(
+        Box::new(mock),
+        Arc::clone(&buffer),
+        fast_system_config(),
+    );
+
+    system.start(Arc::clone(&buffer), 0.0, 0.1).unwrap();
+
+    // Drive 300 ms of non-silent audio through the mock (6 × 50 ms chunks).
+    let chunk = vec![0.5f32; 800];
+    for _ in 0..6 {
+        driver.drive(chunk.clone());
+    }
+
+    // Give the processor thread time to drain and process the ring buffer.
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    system.stop();
+
+    let window = system.window();
+    let w = window.lock().unwrap();
+    assert!(
+        !w.is_empty(),
+        "SlidingWindow must contain samples after audio was driven through the system"
+    );
+}
+
+/// After stopping, no new samples reach the window.
+#[test]
+fn audio_system_stop_halts_processing() {
+    let buffer = Arc::new(RingBuffer::<f32>::new(DEFAULT_CAPACITY));
+
+    let (mock, driver) = MockAudioInput::new();
+    let mut system = AudioSystem::with_config(
+        Box::new(mock),
+        Arc::clone(&buffer),
+        fast_system_config(),
+    );
+
+    system.start(Arc::clone(&buffer), 0.0, 0.1).unwrap();
+
+    // Drive some audio and then stop.
+    driver.drive(vec![0.3f32; CHUNK_100MS]);
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    system.stop();
+
+    // Snapshot the window length right after stop.
+    let window = system.window();
+    let len_after_stop = window.lock().unwrap().len();
+
+    // Drive more audio into the buffer after the system has stopped.
+    driver.drive(vec![0.9f32; CHUNK_100MS * 4]);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+
+    let len_final = window.lock().unwrap().len();
+    assert_eq!(
+        len_final, len_after_stop,
+        "no new samples should reach the window after stop()"
     );
 }

@@ -386,6 +386,18 @@ impl AudioPipeline {
     pub fn normalizer_mut(&mut self) -> &mut AmplitudeNormalizer {
         &mut self.normalizer
     }
+
+    /// Flush any samples buffered inside the suppressor's RNNoise staging buffer.
+    ///
+    /// Call at end-of-stream so the tail of the audio (up to one RNNoise frame
+    /// of zero-padded samples) is returned rather than discarded.
+    pub fn flush(&mut self) -> Vec<f32> {
+        let mut flushed = self.suppressor.flush();
+        if !flushed.is_empty() {
+            self.normalizer.process(&mut flushed);
+        }
+        flushed
+    }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
