@@ -6,6 +6,7 @@ members = [
     "shared/config",
     "packages/bible",
     "packages/database",
+    "packages/audio",
 ]
 
 [workspace.package]
@@ -23,3 +24,4 @@ companion-events = { path = "shared/events" }
 companion-errors = { path = "shared/errors" }
 companion-config = { path = "shared/config" }
 companion-database = { path = "packages/database" }
+companion-audio = { path = "packages/audio" }
