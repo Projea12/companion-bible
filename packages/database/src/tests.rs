@@ -5,6 +5,7 @@ use crate::{
     close, connect, migration, CalibrationRepository, CalibrationThresholds, Church,
     ChurchRepository, ChurchSettings, DetectionEvent, DetectionEventRepository, DbPool,
     PoolConfig, Sermon, SermonRepository, ServiceRecord, SubPoint, Verse, VerseRepository,
+    WalEntry, WriteAheadLog,
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -2358,4 +2359,198 @@ async fn calibration_repo_get_recent_service_records_respects_limit() {
     let records = repo.get_recent_service_records(2).await.unwrap();
     assert_eq!(records.len(), 2);
     close(pool).await;
+}
+
+// ── WriteAheadLog ─────────────────────────────────────────────────────────────
+
+#[test]
+fn wal_write_returns_sequential_sequence_numbers() {
+    let dir = tempdir().unwrap();
+    let wal = WriteAheadLog::open(dir.path().join("test.wal")).unwrap();
+
+    let s1 = wal.write(WalEntry::SettingChanged { key: "a".into(), value: "1".into() }).unwrap();
+    let s2 = wal.write(WalEntry::SettingChanged { key: "b".into(), value: "2".into() }).unwrap();
+    let s3 = wal.write(WalEntry::SettingChanged { key: "c".into(), value: "3".into() }).unwrap();
+
+    assert_eq!(s1, 1);
+    assert_eq!(s2, 2);
+    assert_eq!(s3, 3);
+}
+
+#[test]
+fn wal_open_creates_file_if_not_exists() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("new.wal");
+
+    assert!(!path.exists());
+    WriteAheadLog::open(&path).unwrap();
+    assert!(path.exists());
+}
+
+#[test]
+fn wal_open_creates_parent_directories() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("nested").join("dirs").join("app.wal");
+
+    WriteAheadLog::open(&path).unwrap();
+    assert!(path.exists());
+}
+
+#[test]
+fn wal_write_produces_valid_newline_delimited_json() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+    let wal = WriteAheadLog::open(&path).unwrap();
+
+    wal.write(WalEntry::SermonStarted {
+        sermon_id: "s1".into(),
+        church_id: "c1".into(),
+        started_at: "2026-05-15T09:00:00Z".into(),
+    })
+    .unwrap();
+
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = contents.lines().collect();
+    assert_eq!(lines.len(), 1, "one entry = one line");
+
+    let record: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(record["seq"], 1);
+    assert!(record["ts"].is_number());
+    assert_eq!(record["entry"]["type"], "sermon_started");
+    assert_eq!(record["entry"]["sermon_id"], "s1");
+}
+
+#[test]
+fn wal_write_appends_multiple_entries_each_on_own_line() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+    let wal = WriteAheadLog::open(&path).unwrap();
+
+    for i in 1..=5u64 {
+        wal.write(WalEntry::SettingChanged {
+            key: format!("k{i}"),
+            value: format!("v{i}"),
+        })
+        .unwrap();
+    }
+
+    let contents = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(contents.lines().count(), 5);
+}
+
+#[test]
+fn wal_reopen_resumes_sequence_from_existing_entries() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    // Session 1: write 3 entries.
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.write(WalEntry::SettingChanged { key: "a".into(), value: "1".into() }).unwrap();
+        wal.write(WalEntry::SettingChanged { key: "b".into(), value: "2".into() }).unwrap();
+        wal.write(WalEntry::SettingChanged { key: "c".into(), value: "3".into() }).unwrap();
+    }
+
+    // Session 2: should resume from 4.
+    let wal2 = WriteAheadLog::open(&path).unwrap();
+    let seq = wal2
+        .write(WalEntry::SettingChanged { key: "d".into(), value: "4".into() })
+        .unwrap();
+
+    assert_eq!(seq, 4, "sequence must continue from where the previous session left off");
+
+    let line_count = std::fs::read_to_string(&path).unwrap().lines().count();
+    assert_eq!(line_count, 4, "file must contain all 4 entries");
+}
+
+#[test]
+fn wal_write_each_entry_variant() {
+    let dir = tempdir().unwrap();
+    let wal = WriteAheadLog::open(dir.path().join("test.wal")).unwrap();
+
+    let entries = vec![
+        WalEntry::ChurchRegistered {
+            church_id: "c1".into(),
+            name: "Grace".into(),
+            region: "Lagos".into(),
+        },
+        WalEntry::SermonStarted {
+            sermon_id: "s1".into(),
+            church_id: "c1".into(),
+            started_at: "2026-05-15T09:00:00Z".into(),
+        },
+        WalEntry::SermonEnded {
+            sermon_id: "s1".into(),
+            ended_at: "2026-05-15T11:00:00Z".into(),
+        },
+        WalEntry::DetectionRecorded {
+            event_id: "d1".into(),
+            sermon_id: "s1".into(),
+            raw_transcript: "John 3:16".into(),
+            final_reference: Some("John 3:16".into()),
+            confidence: 0.98,
+            decision: "auto_accept".into(),
+            processing_time_ms: 42,
+        },
+        WalEntry::OperatorCorrected {
+            event_id: "d1".into(),
+            action: "corrected".into(),
+            correct_reference: Some("John 3:17".into()),
+        },
+        WalEntry::CalibrationUpdated {
+            church_id: "c1".into(),
+            stage: "pattern".into(),
+            accept_above: 0.9,
+            escalate_below: 0.5,
+        },
+        WalEntry::SettingChanged {
+            key: "theme".into(),
+            value: "dark".into(),
+        },
+        WalEntry::ServiceRecordSaved {
+            record_id: "r1".into(),
+            sermon_id: "s1".into(),
+            total_detections: 20,
+            auto_accepted: 18,
+            operator_corrected: 1,
+            rejected: 1,
+        },
+    ];
+
+    let total = entries.len() as u64;
+    for (i, entry) in entries.into_iter().enumerate() {
+        let seq = wal.write(entry).unwrap();
+        assert_eq!(seq, i as u64 + 1);
+    }
+
+    let line_count = std::fs::read_to_string(dir.path().join("test.wal"))
+        .unwrap()
+        .lines()
+        .count();
+    assert_eq!(line_count as u64, total, "every variant must produce exactly one line");
+}
+
+#[test]
+fn wal_entries_are_valid_json_and_round_trip() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+    let wal = WriteAheadLog::open(&path).unwrap();
+
+    let original = WalEntry::DetectionRecorded {
+        event_id: "d1".into(),
+        sermon_id: "s1".into(),
+        raw_transcript: "Romans 8:28".into(),
+        final_reference: Some("Romans 8:28".into()),
+        confidence: 0.95,
+        decision: "auto_accept".into(),
+        processing_time_ms: 30,
+    };
+
+    wal.write(original.clone()).unwrap();
+
+    let line = std::fs::read_to_string(&path).unwrap();
+    let record: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    let decoded: WalEntry = serde_json::from_value(record["entry"].clone()).unwrap();
+
+    assert_eq!(decoded, original);
 }
