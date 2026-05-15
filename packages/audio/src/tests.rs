@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use crate::device::{infer_device_type, AudioDevice, DeviceType};
 use crate::error::AudioError;
 use crate::input::AudioInput;
+use crate::ring_buffer::{RingBuffer, DEFAULT_CAPACITY};
 
 // ─── AudioDevice ──────────────────────────────────────────────────────────────
 
@@ -300,4 +301,131 @@ fn hardware_builtin_mic_start_stop() {
     assert!(*received.lock().unwrap() > 0, "no samples received");
 
     input.stop();
+}
+
+// ─── RingBuffer ───────────────────────────────────────────────────────────────
+
+#[test]
+fn ring_buffer_default_capacity_is_30_seconds_at_16khz() {
+    assert_eq!(DEFAULT_CAPACITY, 524_288);
+    assert!(DEFAULT_CAPACITY >= 16_000 * 30);
+    assert!(DEFAULT_CAPACITY.is_power_of_two());
+}
+
+#[test]
+fn ring_buffer_new_is_empty() {
+    let rb: RingBuffer<f32> = RingBuffer::new(16);
+    assert!(rb.is_empty());
+    assert_eq!(rb.available(), 0);
+}
+
+#[test]
+fn ring_buffer_write_then_read_roundtrip() {
+    let rb: RingBuffer<f32> = RingBuffer::new(16);
+    rb.write(&[1.0, 2.0, 3.0]);
+    assert_eq!(rb.available(), 3);
+    let out = rb.read(3);
+    assert_eq!(out, vec![1.0, 2.0, 3.0]);
+    assert!(rb.is_empty());
+}
+
+#[test]
+fn ring_buffer_partial_read() {
+    let rb: RingBuffer<f32> = RingBuffer::new(16);
+    rb.write(&[1.0, 2.0, 3.0, 4.0]);
+    let out = rb.read(2);
+    assert_eq!(out, vec![1.0, 2.0]);
+    assert_eq!(rb.available(), 2);
+    let out2 = rb.read(2);
+    assert_eq!(out2, vec![3.0, 4.0]);
+    assert!(rb.is_empty());
+}
+
+#[test]
+fn ring_buffer_read_more_than_available_returns_what_exists() {
+    let rb: RingBuffer<f32> = RingBuffer::new(16);
+    rb.write(&[1.0, 2.0]);
+    let out = rb.read(100);
+    assert_eq!(out, vec![1.0, 2.0]);
+}
+
+#[test]
+fn ring_buffer_read_empty_returns_empty_vec() {
+    let rb: RingBuffer<f32> = RingBuffer::new(16);
+    let out = rb.read(10);
+    assert!(out.is_empty());
+}
+
+#[test]
+fn ring_buffer_drops_oldest_when_full() {
+    let rb: RingBuffer<f32> = RingBuffer::new(4); // capacity = 4
+    rb.write(&[1.0, 2.0, 3.0, 4.0]);             // fills buffer
+    rb.write(&[5.0, 6.0]);                         // overwrites oldest two
+
+    // Buffer should now contain [3.0, 4.0, 5.0, 6.0] — oldest two dropped.
+    assert_eq!(rb.available(), 4);
+    let out = rb.read(4);
+    assert_eq!(out, vec![3.0, 4.0, 5.0, 6.0]);
+}
+
+#[test]
+fn ring_buffer_write_larger_than_capacity_keeps_newest() {
+    let rb: RingBuffer<f32> = RingBuffer::new(4);
+    // Write 6 samples into a capacity-4 buffer — only last 4 kept.
+    rb.write(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    assert_eq!(rb.available(), 4);
+    let out = rb.read(4);
+    assert_eq!(out, vec![3.0, 4.0, 5.0, 6.0]);
+}
+
+#[test]
+fn ring_buffer_available_never_exceeds_capacity() {
+    let rb: RingBuffer<f32> = RingBuffer::new(4);
+    rb.write(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+    assert!(rb.available() <= rb.capacity());
+}
+
+#[test]
+fn ring_buffer_wraps_around_correctly() {
+    let rb: RingBuffer<f32> = RingBuffer::new(4);
+    rb.write(&[1.0, 2.0, 3.0]);
+    rb.read(2); // consume 2 → read_head = 2
+    rb.write(&[4.0, 5.0]); // wraps: slots [0]=4.0 [1]=5.0, write_head=5
+    // available: 5 - 2 = 3 → [3.0, 4.0, 5.0]
+    let out = rb.read(3);
+    assert_eq!(out, vec![3.0, 4.0, 5.0]);
+}
+
+#[test]
+fn ring_buffer_multiple_write_read_cycles() {
+    let rb: RingBuffer<i32> = RingBuffer::new(8);
+    for batch in 0..10_i32 {
+        let samples: Vec<i32> = (batch * 4..(batch + 1) * 4).collect();
+        rb.write(&samples);
+        let out = rb.read(4);
+        assert_eq!(out, samples, "batch {batch}");
+    }
+    assert!(rb.is_empty());
+}
+
+#[test]
+fn ring_buffer_write_empty_slice_is_noop() {
+    let rb: RingBuffer<f32> = RingBuffer::new(8);
+    rb.write(&[]);
+    assert!(rb.is_empty());
+    rb.write(&[1.0, 2.0]);
+    rb.write(&[]);
+    assert_eq!(rb.available(), 2);
+}
+
+#[test]
+fn ring_buffer_capacity_reported_correctly() {
+    let rb: RingBuffer<f32> = RingBuffer::new(64);
+    assert_eq!(rb.capacity(), 64);
+}
+
+#[test]
+#[should_panic]
+fn ring_buffer_non_power_of_two_panics() {
+    let _rb: RingBuffer<f32> = RingBuffer::new(100);
 }
