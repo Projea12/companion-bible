@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -23,7 +23,7 @@ pub enum CaptureEvent {
 
 /// Tuning knobs for the monitor thread.  Pass to [`AudioCapture::with_config`].
 pub struct CaptureConfig {
-    /// Consecutive near-zero level ticks before declaring a disconnect.
+    /// Consecutive silent ticks before declaring a disconnect.
     /// Default: 3  (300 ms at the default 100 ms interval).
     pub zero_ticks_threshold: u32,
     /// How often the monitor wakes to update the level and check for silence.
@@ -57,17 +57,26 @@ impl Default for CaptureConfig {
 ///   [`RingBuffer`].  Nothing else happens on that hot path.
 /// * A lightweight monitor thread wakes every `monitor_interval` (default
 ///   100 ms) to:
-///   - Apply IIR smoothing to the peak level for the operator UI meter.
-///   - Count consecutive near-zero ticks; after `zero_ticks_threshold` sends
+///   - Detect whether the callback has fired since the last tick (via a
+///     sequence counter) and apply IIR smoothing to the peak level for the
+///     operator UI meter; when the callback stops, the level decays to 0.
+///   - Count consecutive silent ticks; after `zero_ticks_threshold` sends
 ///     [`CaptureEvent::AudioInputLost`] and enters reconnection mode.
 ///   - Retry the device every `reconnect_interval`; on success sends
 ///     [`CaptureEvent::AudioInputRestored`].
 pub struct AudioCapture {
     input: Arc<Mutex<Box<dyn AudioInput>>>,
     buffer: Arc<RingBuffer<f32>>,
-    /// f32::to_bits() of the current smoothed peak level.
+    /// f32::to_bits() of the current smoothed peak level; written only by the
+    /// monitor thread so that `current_level()` always returns a stable value.
     level: Arc<AtomicU32>,
-    /// true while the stream is running and the device is responding.
+    /// Raw peak written by the cpal callback on every invocation.
+    level_raw: Arc<AtomicU32>,
+    /// Incremented by the cpal callback on every invocation.  The monitor
+    /// compares its local `last_seq` to this to detect whether new audio
+    /// arrived during the last tick window.
+    callback_seq: Arc<AtomicUsize>,
+    /// `true` while the stream is running and the device is responding.
     connected: Arc<AtomicBool>,
     stop_flag: Arc<AtomicBool>,
     config: CaptureConfig,
@@ -93,6 +102,8 @@ impl AudioCapture {
             input: Arc::new(Mutex::new(input)),
             buffer,
             level: Arc::new(AtomicU32::new(0)),
+            level_raw: Arc::new(AtomicU32::new(0)),
+            callback_seq: Arc::new(AtomicUsize::new(0)),
             connected: Arc::new(AtomicBool::new(false)),
             stop_flag: Arc::new(AtomicBool::new(true)),
             config,
@@ -115,6 +126,7 @@ impl AudioCapture {
     /// Smoothed peak level in [0.0, 1.0] for the operator UI level meter.
     ///
     /// Updated every `monitor_interval` with a first-order IIR (α = 0.3).
+    /// Decays to 0 when the callback stops firing (device silent or unplugged).
     pub fn current_level(&self) -> f32 {
         f32::from_bits(self.level.load(Ordering::Relaxed))
     }
@@ -135,16 +147,20 @@ impl AudioCapture {
 
         self.stop_flag.store(false, Ordering::Release);
         self.connected.store(true, Ordering::Release);
+        // Reset counters so the new stream starts fresh.
+        self.callback_seq.store(0, Ordering::Release);
+        self.level_raw.store(0, Ordering::Relaxed);
+        self.level.store(0, Ordering::Relaxed);
 
         // ── cpal callback — the hot path ──────────────────────────────────────
         //
-        // cpal schedules this closure on its own audio thread.
-        // On the first invocation we upgrade that thread's scheduling policy to
-        // real-time (see `try_set_realtime_priority`).
-        // After that: compute peak, store it atomically, write to ring buffer.
-        // No allocation, no lock.
+        // Runs on cpal's audio thread.  On the first invocation, tries to
+        // upgrade that thread's scheduling policy to real-time.
+        // Per-invocation work: compute peak, store raw level, increment seq,
+        // write to ring buffer.  No allocation, no lock on the hot path.
         let buffer = Arc::clone(&self.buffer);
-        let level = Arc::clone(&self.level);
+        let level_raw = Arc::clone(&self.level_raw);
+        let callback_seq = Arc::clone(&self.callback_seq);
         let rt_done = Arc::new(AtomicBool::new(false));
         {
             let rt_done2 = Arc::clone(&rt_done);
@@ -154,15 +170,18 @@ impl AudioCapture {
                     try_set_realtime_priority();
                 }
                 let peak = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-                level.store(peak.to_bits(), Ordering::Relaxed);
+                level_raw.store(peak.to_bits(), Ordering::Relaxed);
+                callback_seq.fetch_add(1, Ordering::Release);
                 buffer.write(&samples);
             }))?;
         }
 
-        // ── Monitor thread — level + disconnect + reconnect ───────────────────
+        // ── Monitor thread — level smoothing + disconnect + reconnect ─────────
         let input = Arc::clone(&self.input);
         let buffer_mon = Arc::clone(&self.buffer);
         let level_mon = Arc::clone(&self.level);
+        let level_raw_mon = Arc::clone(&self.level_raw);
+        let callback_seq_mon = Arc::clone(&self.callback_seq);
         let connected_mon = Arc::clone(&self.connected);
         let stop_flag_mon = Arc::clone(&self.stop_flag);
         let event_tx = self.event_tx.clone();
@@ -180,6 +199,8 @@ impl AudioCapture {
                         input,
                         buffer_mon,
                         level_mon,
+                        level_raw_mon,
+                        callback_seq_mon,
                         connected_mon,
                         stop_flag_mon,
                         event_tx,
@@ -206,6 +227,7 @@ impl AudioCapture {
             inp.stop();
         }
         self.level.store(0u32, Ordering::Relaxed);
+        self.level_raw.store(0u32, Ordering::Relaxed);
         if let Some(h) = self.monitor_handle.take() {
             let _ = h.join();
         }
@@ -214,13 +236,13 @@ impl AudioCapture {
 
 impl Drop for AudioCapture {
     fn drop(&mut self) {
-        // Signal and drop without joining — avoids blocking the dropping thread.
+        // Signal and drop without joining to avoid blocking the dropping thread.
         self.stop_flag.store(true, Ordering::Release);
         self.connected.store(false, Ordering::Release);
         if let Ok(mut inp) = self.input.lock() {
             inp.stop();
         }
-        // Drop the handle; the thread will exit on its next stop_flag check.
+        // Drop the handle; the monitor exits on its next stop_flag check.
         self.monitor_handle.take();
     }
 }
@@ -233,40 +255,54 @@ struct MonitorCfg {
     reconnect_interval: Duration,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn monitor_loop(
     input: Arc<Mutex<Box<dyn AudioInput>>>,
     buffer: Arc<RingBuffer<f32>>,
     level: Arc<AtomicU32>,
+    level_raw: Arc<AtomicU32>,
+    callback_seq: Arc<AtomicUsize>,
     connected: Arc<AtomicBool>,
     stop_flag: Arc<AtomicBool>,
     event_tx: mpsc::SyncSender<CaptureEvent>,
     cfg: MonitorCfg,
 ) {
     let mut zero_ticks: u32 = 0;
-    // Allow an immediate first reconnect attempt (reconnect_interval has already elapsed).
     let mut last_reconnect = Instant::now()
         .checked_sub(cfg.reconnect_interval)
         .unwrap_or_else(Instant::now);
     let mut smoothed: f32 = 0.0;
 
-    // Grace period: let the stream produce its first buffers before we start
-    // counting silence ticks.  Two monitor intervals is plenty for cpal startup.
+    // Grace period: let the stream settle before we start counting silence.
     sleep_interruptible(cfg.monitor_interval * 2, &stop_flag);
 
+    // Baseline: treat any callbacks that fired during the grace period as
+    // already known so the first post-grace tick doesn't double-count them.
+    let mut last_seq = callback_seq.load(Ordering::Acquire);
+
     while !stop_flag.load(Ordering::Acquire) {
-        // ── Level smoothing ────────────────────────────────────────────────────
-        let instant = f32::from_bits(level.load(Ordering::Relaxed));
-        smoothed += (instant - smoothed) * 0.3;
+        let seq = callback_seq.load(Ordering::Acquire);
+
+        if seq != last_seq {
+            // Callback fired at least once since the last tick — audio is flowing.
+            last_seq = seq;
+            let instant = f32::from_bits(level_raw.load(Ordering::Relaxed));
+            smoothed += (instant - smoothed) * 0.3;
+            zero_ticks = 0;
+        } else {
+            // No new audio since the last tick: decay the smoothed level toward 0
+            // so the meter and disconnect detection reflect the silence correctly.
+            smoothed *= 0.7;
+            if connected.load(Ordering::Acquire) {
+                zero_ticks += 1;
+            }
+        }
+
+        // Publish smoothed level for current_level().
         level.store(smoothed.to_bits(), Ordering::Relaxed);
 
         if connected.load(Ordering::Acquire) {
             // ── Disconnect detection ───────────────────────────────────────────
-            if smoothed < 1e-4 {
-                zero_ticks += 1;
-            } else {
-                zero_ticks = 0;
-            }
-
             if zero_ticks >= cfg.zero_ticks_threshold {
                 connected.store(false, Ordering::Release);
                 let _ = event_tx.try_send(CaptureEvent::AudioInputLost);
@@ -281,25 +317,33 @@ fn monitor_loop(
                 last_reconnect = Instant::now();
 
                 let buffer2 = Arc::clone(&buffer);
-                let level2 = Arc::clone(&level);
+                let level_raw2 = Arc::clone(&level_raw);
+                let callback_seq2 = Arc::clone(&callback_seq);
+                let pre_seq = callback_seq.load(Ordering::Acquire);
+
                 let result = {
                     let mut inp = input.lock().unwrap();
                     inp.start(Box::new(move |samples: Vec<f32>| {
                         let peak = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-                        level2.store(peak.to_bits(), Ordering::Relaxed);
+                        level_raw2.store(peak.to_bits(), Ordering::Relaxed);
+                        callback_seq2.fetch_add(1, Ordering::Release);
                         buffer2.write(&samples);
                     }))
                 };
 
                 if result.is_ok() {
-                    // Give the stream a moment to produce audio, then probe.
+                    // Give the stream a moment to produce audio, then probe via
+                    // the sequence counter (avoids reading a stale raw level).
                     sleep_interruptible(cfg.monitor_interval * 2, &stop_flag);
                     if stop_flag.load(Ordering::Acquire) {
                         return;
                     }
-                    let probe = f32::from_bits(level.load(Ordering::Relaxed));
-                    if probe > 1e-4 {
+                    let post_seq = callback_seq.load(Ordering::Acquire);
+                    if post_seq != pre_seq {
+                        // Callback fired during the probe window — device is back.
+                        let probe = f32::from_bits(level_raw.load(Ordering::Relaxed));
                         smoothed = probe;
+                        last_seq = post_seq;
                         zero_ticks = 0;
                         connected.store(true, Ordering::Release);
                         let _ = event_tx.try_send(CaptureEvent::AudioInputRestored);
