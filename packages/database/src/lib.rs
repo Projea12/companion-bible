@@ -14,7 +14,7 @@ pub use repositories::{
     CalibrationRepository, ChurchRepository, DetectionEventRepository, SermonRepository,
     VerseRepository,
 };
-pub use wal::{WalEntry, WalError, WriteAheadLog};
+pub use wal::{AppState, WalEntry, WalError, WriteAheadLog};
 
 #[cfg(test)]
 mod tests;

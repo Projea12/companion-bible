@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 use tempfile::tempdir;
 
+use std::collections::HashMap;
+
 use crate::{
-    close, connect, migration, CalibrationRepository, CalibrationThresholds, Church,
+    close, connect, migration, AppState, CalibrationRepository, CalibrationThresholds, Church,
     ChurchRepository, ChurchSettings, DetectionEvent, DetectionEventRepository, DbPool,
     PoolConfig, Sermon, SermonRepository, ServiceRecord, SubPoint, Verse, VerseRepository,
     WalEntry, WriteAheadLog,
@@ -2416,6 +2418,7 @@ fn wal_write_produces_valid_newline_delimited_json() {
     let record: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
     assert_eq!(record["seq"], 1);
     assert!(record["ts"].is_number());
+    assert!(record["crc"].is_number(), "every record must include a crc checksum");
     assert_eq!(record["entry"]["type"], "sermon_started");
     assert_eq!(record["entry"]["sermon_id"], "s1");
 }
@@ -2553,4 +2556,363 @@ fn wal_entries_are_valid_json_and_round_trip() {
     let decoded: WalEntry = serde_json::from_value(record["entry"].clone()).unwrap();
 
     assert_eq!(decoded, original);
+}
+
+// ── checkpoint ────────────────────────────────────────────────────────────────
+
+fn make_app_state() -> AppState {
+    AppState {
+        church: Some(Church {
+            id: "c1".into(),
+            name: "Grace".into(),
+            region: "Lagos".into(),
+            installed_at: "2026-05-15T00:00:00Z".into(),
+            onboarding_complete: true,
+        }),
+        active_sermon: Some(Sermon {
+            id: "s1".into(),
+            church_id: "c1".into(),
+            title: Some("Faith".into()),
+            pastor: None,
+            date: "2026-05-15".into(),
+            anchor_scripture: None,
+            started_at: "2026-05-15T09:00:00Z".into(),
+            ended_at: None,
+        }),
+        pending_detections: vec![],
+        settings: HashMap::from([("theme".into(), "dark".into())]),
+        calibration: vec![],
+    }
+}
+
+#[test]
+fn wal_checkpoint_returns_incremented_sequence_number() {
+    let dir = tempdir().unwrap();
+    let wal = WriteAheadLog::open(dir.path().join("test.wal")).unwrap();
+
+    // Prior write advances seq to 1; checkpoint should be 2.
+    wal.write(WalEntry::SettingChanged { key: "a".into(), value: "1".into() })
+        .unwrap();
+    let seq = wal.checkpoint(make_app_state()).unwrap();
+
+    assert_eq!(seq, 2);
+}
+
+#[test]
+fn wal_checkpoint_writes_checkpoint_variant_to_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+    let wal = WriteAheadLog::open(&path).unwrap();
+    wal.checkpoint(make_app_state()).unwrap();
+
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let record: serde_json::Value =
+        serde_json::from_str(contents.trim()).unwrap();
+
+    assert_eq!(record["entry"]["type"], "checkpoint");
+    assert!(record["crc"].is_number());
+}
+
+// ── replay ────────────────────────────────────────────────────────────────────
+
+#[test]
+fn wal_replay_on_empty_wal_returns_default_state() {
+    let dir = tempdir().unwrap();
+    let wal = WriteAheadLog::open(dir.path().join("test.wal")).unwrap();
+
+    let state = wal.replay().unwrap();
+    assert_eq!(state, AppState::default());
+}
+
+#[test]
+fn wal_replay_restores_exactly_the_checkpointed_state() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    let original = make_app_state();
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.checkpoint(original.clone()).unwrap();
+    }
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let recovered = wal.replay().unwrap();
+    assert_eq!(recovered, original);
+}
+
+#[test]
+fn wal_replay_uses_the_last_of_multiple_checkpoints() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    let mut state_v2 = make_app_state();
+    state_v2.settings.insert("font_size".into(), "20".into());
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.checkpoint(make_app_state()).unwrap(); // checkpoint 1 — old
+        wal.checkpoint(state_v2.clone()).unwrap(); // checkpoint 2 — newest
+    }
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let recovered = wal.replay().unwrap();
+    assert_eq!(recovered, state_v2, "replay must start from the last checkpoint");
+}
+
+#[test]
+fn wal_replay_applies_sermon_ended_after_checkpoint() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.checkpoint(make_app_state()).unwrap();
+        wal.write(WalEntry::SermonEnded {
+            sermon_id: "s1".into(),
+            ended_at: "2026-05-15T11:00:00Z".into(),
+        })
+        .unwrap();
+    }
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+    let ended_at = state
+        .active_sermon
+        .as_ref()
+        .and_then(|s| s.ended_at.as_deref());
+    assert_eq!(ended_at, Some("2026-05-15T11:00:00Z"));
+}
+
+#[test]
+fn wal_replay_applies_detection_recorded_after_checkpoint() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.checkpoint(make_app_state()).unwrap();
+        wal.write(WalEntry::DetectionRecorded {
+            event_id: "d1".into(),
+            sermon_id: "s1".into(),
+            raw_transcript: "John 3:16".into(),
+            final_reference: Some("John 3:16".into()),
+            confidence: 0.98,
+            decision: "auto_accept".into(),
+            processing_time_ms: 42,
+        })
+        .unwrap();
+    }
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+    assert_eq!(state.pending_detections.len(), 1);
+    assert_eq!(state.pending_detections[0].id, "d1");
+    assert_eq!(
+        state.pending_detections[0].final_reference.as_deref(),
+        Some("John 3:16")
+    );
+}
+
+#[test]
+fn wal_replay_applies_operator_corrected_after_checkpoint() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.checkpoint(make_app_state()).unwrap();
+        wal.write(WalEntry::DetectionRecorded {
+            event_id: "d1".into(),
+            sermon_id: "s1".into(),
+            raw_transcript: "Psalms 23".into(),
+            final_reference: None,
+            confidence: 0.4,
+            decision: "pending".into(),
+            processing_time_ms: 10,
+        })
+        .unwrap();
+        wal.write(WalEntry::OperatorCorrected {
+            event_id: "d1".into(),
+            action: "corrected".into(),
+            correct_reference: Some("Psalms 23:1".into()),
+        })
+        .unwrap();
+    }
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+    let det = &state.pending_detections[0];
+    assert_eq!(det.operator_action.as_deref(), Some("corrected"));
+    assert_eq!(det.correct_reference.as_deref(), Some("Psalms 23:1"));
+}
+
+#[test]
+fn wal_replay_applies_setting_changed_after_checkpoint() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.checkpoint(make_app_state()).unwrap();
+        wal.write(WalEntry::SettingChanged {
+            key: "theme".into(),
+            value: "light".into(),
+        })
+        .unwrap();
+    }
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+    assert_eq!(state.settings.get("theme").map(String::as_str), Some("light"));
+}
+
+#[test]
+fn wal_replay_without_checkpoint_applies_all_entries() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.write(WalEntry::ChurchRegistered {
+            church_id: "c1".into(),
+            name: "Grace".into(),
+            region: "Lagos".into(),
+        })
+        .unwrap();
+        wal.write(WalEntry::SermonStarted {
+            sermon_id: "s1".into(),
+            church_id: "c1".into(),
+            started_at: "2026-05-15T09:00:00Z".into(),
+        })
+        .unwrap();
+        wal.write(WalEntry::SettingChanged {
+            key: "theme".into(),
+            value: "dark".into(),
+        })
+        .unwrap();
+    }
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+
+    assert!(state.church.is_some());
+    assert_eq!(state.church.as_ref().unwrap().id, "c1");
+    assert!(state.active_sermon.is_some());
+    assert_eq!(state.settings.get("theme").map(String::as_str), Some("dark"));
+}
+
+#[test]
+fn wal_replay_skips_entry_with_wrong_checksum() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    // Write three entries: 1=setting, 2=detection (will be corrupted), 3=setting.
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.checkpoint(make_app_state()).unwrap();
+        wal.write(WalEntry::DetectionRecorded {
+            event_id: "d1".into(),
+            sermon_id: "s1".into(),
+            raw_transcript: "John 3:16".into(),
+            final_reference: Some("John 3:16".into()),
+            confidence: 0.9,
+            decision: "auto_accept".into(),
+            processing_time_ms: 5,
+        })
+        .unwrap();
+        wal.write(WalEntry::SettingChanged {
+            key: "theme".into(),
+            value: "light".into(),
+        })
+        .unwrap();
+    }
+
+    // Corrupt the checksum on line 2 (the DetectionRecorded entry).
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = contents.lines().collect();
+    let mut bad_record: serde_json::Value =
+        serde_json::from_str(lines[1]).unwrap();
+    bad_record["crc"] = serde_json::json!(0u64);
+    let patched = format!(
+        "{}\n{}\n{}\n",
+        lines[0],
+        serde_json::to_string(&bad_record).unwrap(),
+        lines[2]
+    );
+    std::fs::write(&path, patched).unwrap();
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+
+    // The corrupted DetectionRecorded must have been dropped.
+    assert!(state.pending_detections.is_empty(), "corrupted detection must be skipped");
+    // The valid SettingChanged after it must still be applied.
+    assert_eq!(
+        state.settings.get("theme").map(String::as_str),
+        Some("light"),
+        "valid entry after corrupted one must still be applied"
+    );
+}
+
+#[test]
+fn wal_replay_skips_unparseable_line() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.checkpoint(make_app_state()).unwrap();
+        wal.write(WalEntry::SettingChanged {
+            key: "font_size".into(),
+            value: "18".into(),
+        })
+        .unwrap();
+    }
+
+    // Replace line 1 (the checkpoint) with garbage JSON.
+    let contents = std::fs::read_to_string(&path).unwrap();
+    let lines: Vec<&str> = contents.lines().collect();
+    let patched = format!("{{not valid json}}\n{}\n", lines[1]);
+    std::fs::write(&path, patched).unwrap();
+
+    // Replay should skip the garbage line and still apply the SettingChanged.
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+    assert_eq!(
+        state.settings.get("font_size").map(String::as_str),
+        Some("18"),
+        "valid entry after unparseable line must still be applied"
+    );
+}
+
+#[test]
+fn wal_replay_detection_is_idempotent_for_duplicate_event_ids() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("test.wal");
+
+    let detection = WalEntry::DetectionRecorded {
+        event_id: "d1".into(),
+        sermon_id: "s1".into(),
+        raw_transcript: "John 3:16".into(),
+        final_reference: None,
+        confidence: 0.9,
+        decision: "auto_accept".into(),
+        processing_time_ms: 10,
+    };
+
+    {
+        let wal = WriteAheadLog::open(&path).unwrap();
+        wal.checkpoint(make_app_state()).unwrap();
+        // Write the same event twice (e.g. due to a crash during commit).
+        wal.write(detection.clone()).unwrap();
+        wal.write(detection).unwrap();
+    }
+
+    let wal = WriteAheadLog::open(&path).unwrap();
+    let state = wal.replay().unwrap();
+    assert_eq!(
+        state.pending_detections.len(),
+        1,
+        "duplicate detection event_id must not produce two entries"
+    );
 }
