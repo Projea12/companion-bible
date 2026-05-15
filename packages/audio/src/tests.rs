@@ -62,6 +62,101 @@ fn infer_builtin_device() {
     assert_eq!(infer_device_type("Internal Mic"), DeviceType::Builtin);
 }
 
+// ─── Device enumeration ───────────────────────────────────────────────────────
+
+fn make_device(id: &str, name: &str, dt: DeviceType, is_default: bool) -> AudioDevice {
+    AudioDevice { id: id.into(), name: name.into(), device_type: dt, is_default }
+}
+
+#[test]
+fn enumeration_returns_all_devices() {
+    let devs = vec![
+        make_device("d1", "USB Audio", DeviceType::UsbMic, false),
+        make_device("d2", "Built-in Mic", DeviceType::Builtin, true),
+        make_device("d3", "Line In", DeviceType::Mixer, false),
+    ];
+    let input = MockInput::new(devs.clone());
+    let result = input.available_devices().unwrap();
+    assert_eq!(result.len(), 3);
+    assert_eq!(result[0].id, "d1");
+    assert_eq!(result[1].id, "d2");
+    assert_eq!(result[2].id, "d3");
+}
+
+#[test]
+fn enumeration_identifies_default_device() {
+    let devs = vec![
+        make_device("d1", "USB Audio", DeviceType::UsbMic, false),
+        make_device("d2", "Built-in Mic", DeviceType::Builtin, true),
+    ];
+    let input = MockInput::new(devs);
+    let result = input.available_devices().unwrap();
+    let default_devs: Vec<_> = result.iter().filter(|d| d.is_default).collect();
+    assert_eq!(default_devs.len(), 1);
+    assert_eq!(default_devs[0].id, "d2");
+}
+
+#[test]
+fn enumeration_empty_returns_error() {
+    let input = MockInput::new(vec![]);
+    assert!(matches!(input.available_devices(), Err(AudioError::NoDevices)));
+}
+
+#[test]
+fn enumeration_device_fields_are_correct() {
+    let devs = vec![make_device("usb-42", "Focusrite USB", DeviceType::UsbMic, false)];
+    let input = MockInput::new(devs);
+    let result = input.available_devices().unwrap();
+    let d = &result[0];
+    assert_eq!(d.id, "usb-42");
+    assert_eq!(d.name, "Focusrite USB");
+    assert_eq!(d.device_type, DeviceType::UsbMic);
+    assert!(!d.is_default);
+}
+
+// ─── Device selection ─────────────────────────────────────────────────────────
+
+#[test]
+fn selection_valid_device_is_recorded() {
+    let mut input = MockInput::new(vec![
+        make_device("d1", "USB Audio", DeviceType::UsbMic, false),
+        make_device("d2", "Built-in Mic", DeviceType::Builtin, true),
+    ]);
+    input.select_device("d1").unwrap();
+    assert_eq!(input.selected.as_deref(), Some("d1"));
+}
+
+#[test]
+fn selection_unknown_device_errors() {
+    let mut input = MockInput::new(vec![make_device("d1", "USB Audio", DeviceType::UsbMic, false)]);
+    let err = input.select_device("ghost").unwrap_err();
+    assert!(matches!(err, AudioError::DeviceNotFound(_)));
+}
+
+#[test]
+fn selection_can_be_changed() {
+    let mut input = MockInput::new(vec![
+        make_device("d1", "USB Audio", DeviceType::UsbMic, false),
+        make_device("d2", "Built-in Mic", DeviceType::Builtin, true),
+    ]);
+    input.select_device("d1").unwrap();
+    assert_eq!(input.selected.as_deref(), Some("d1"));
+    input.select_device("d2").unwrap();
+    assert_eq!(input.selected.as_deref(), Some("d2"));
+}
+
+#[test]
+fn selection_persists_after_start_stop() {
+    let mut input = MockInput::new(vec![
+        make_device("d1", "USB Audio", DeviceType::UsbMic, false),
+    ]);
+    input.select_device("d1").unwrap();
+    input.start(Box::new(|_| {})).unwrap();
+    input.stop();
+    // selection should still be set after stop
+    assert_eq!(input.selected.as_deref(), Some("d1"));
+}
+
 // ─── Mock AudioInput ──────────────────────────────────────────────────────────
 
 struct MockInput {
