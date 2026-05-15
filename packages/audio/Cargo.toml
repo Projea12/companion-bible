@@ -2,11 +2,24 @@
 name = "companion-audio"
 version.workspace = true
 edition.workspace = true
+build = "build.rs"
+
+[features]
+default = []
+# Enables the Silero VAD neural backend via tract-onnx.
+# Run `cargo build -p companion-audio --features neural-vad` after placing
+# models/silero_vad.onnx in the packages/audio directory (build.rs will
+# download it automatically if curl is available).
+neural-vad = ["dep:tract-onnx"]
 
 [dependencies]
 cpal = "0.15"
 serde = { workspace = true }
 thiserror = { workspace = true }
+tract-onnx = { version = "0.21", optional = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+
+[build-dependencies]
+# No extra deps — build.rs uses std::process::Command (curl)

@@ -5,6 +5,7 @@ use crate::device::{infer_device_type, AudioDevice, DeviceType};
 use crate::error::AudioError;
 use crate::input::AudioInput;
 use crate::ring_buffer::{RingBuffer, DEFAULT_CAPACITY};
+use crate::vad::{VadDecision, VoiceActivityDetector, CHUNK_SIZE, DEFAULT_THRESHOLD};
 
 // ─── AudioDevice ──────────────────────────────────────────────────────────────
 
@@ -655,3 +656,183 @@ fn concurrent_spsc_all_read_values_within_written_range() {
     writer.join().unwrap();
     reader.join().unwrap();
 }
+
+// ─── VoiceActivityDetector ────────────────────────────────────────────────────
+
+fn silence_chunk() -> Vec<f32> {
+    vec![0.0f32; CHUNK_SIZE]
+}
+
+fn loud_chunk() -> Vec<f32> {
+    // Full-scale square wave — RMS = 1.0
+    vec![1.0f32; CHUNK_SIZE]
+}
+
+fn chunk_with_rms(rms: f32) -> Vec<f32> {
+    vec![rms; CHUNK_SIZE]
+}
+
+#[test]
+fn vad_default_threshold_is_half() {
+    let vad = VoiceActivityDetector::new_energy();
+    assert_eq!(vad.threshold(), DEFAULT_THRESHOLD);
+    assert_eq!(DEFAULT_THRESHOLD, 0.5);
+}
+
+#[test]
+fn vad_set_threshold_clamps_to_unit_range() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    vad.set_threshold(1.5);
+    assert_eq!(vad.threshold(), 1.0);
+    vad.set_threshold(-0.3);
+    assert_eq!(vad.threshold(), 0.0);
+    vad.set_threshold(0.7);
+    assert_eq!(vad.threshold(), 0.7);
+}
+
+#[test]
+fn vad_silence_below_threshold_returns_silence() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    // Near-silent chunk — RMS ≈ 0.01, well below 0.5
+    let quiet: Vec<f32> = vec![0.01f32; CHUNK_SIZE];
+    for _ in 0..WINDOW_SIZE {
+        assert_eq!(vad.detect(&quiet), VadDecision::Silence);
+    }
+}
+
+#[test]
+fn vad_loud_signal_above_threshold_returns_speech() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    // Fill the window with loud frames
+    for _ in 0..WINDOW_SIZE {
+        vad.detect(&loud_chunk());
+    }
+    assert_eq!(vad.detect(&loud_chunk()), VadDecision::Speech);
+}
+
+#[test]
+fn vad_rolling_window_requires_3_of_5_frames() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    // 2 speech, 2 silence → not enough yet
+    vad.detect(&loud_chunk());   // speech
+    vad.detect(&loud_chunk());   // speech
+    vad.detect(&silence_chunk()); // silence
+    vad.detect(&silence_chunk()); // silence
+    let result = vad.detect(&silence_chunk()); // silence → 2/5 → Silence
+    assert_eq!(result, VadDecision::Silence);
+}
+
+#[test]
+fn vad_rolling_window_3_of_5_confirms_speech() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    vad.detect(&loud_chunk());    // speech
+    vad.detect(&loud_chunk());    // speech
+    vad.detect(&loud_chunk());    // speech
+    vad.detect(&silence_chunk()); // silence
+    let result = vad.detect(&silence_chunk()); // silence → 3/5 → Speech
+    assert_eq!(result, VadDecision::Speech);
+}
+
+#[test]
+fn vad_window_size_is_five() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    assert_eq!(vad.window_len(), 0);
+    for i in 1..=7 {
+        vad.detect(&silence_chunk());
+        assert_eq!(vad.window_len(), i.min(5), "frame {i}");
+    }
+}
+
+#[test]
+fn vad_window_snapshot_reflects_decisions() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    vad.detect(&loud_chunk());    // speech (true)
+    vad.detect(&silence_chunk()); // silence (false)
+    vad.detect(&loud_chunk());    // speech (true)
+    let snap = vad.window_snapshot();
+    assert_eq!(snap, vec![true, false, true]);
+}
+
+#[test]
+fn vad_reset_clears_window_and_state() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    for _ in 0..5 {
+        vad.detect(&loud_chunk());
+    }
+    assert_eq!(vad.window_len(), 5);
+    vad.reset();
+    assert_eq!(vad.window_len(), 0);
+}
+
+#[test]
+fn vad_reset_resets_accumulated_speech() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    // Fill window with speech
+    for _ in 0..5 { vad.detect(&loud_chunk()); }
+    vad.reset();
+    // After reset, a single silence frame should be Silence (0/1 in window)
+    assert_eq!(vad.detect(&silence_chunk()), VadDecision::Silence);
+}
+
+#[test]
+fn vad_transition_speech_to_silence() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    // Fill window with speech
+    for _ in 0..5 { vad.detect(&loud_chunk()); }
+    assert_eq!(vad.detect(&loud_chunk()), VadDecision::Speech);
+
+    // Flood with silence — after 3 silence frames the vote flips
+    for _ in 0..3 { vad.detect(&silence_chunk()); }
+    // Window: [speech, speech, silence, silence, silence] → 2 speech < 3
+    assert_eq!(vad.detect(&silence_chunk()), VadDecision::Silence);
+}
+
+#[test]
+fn vad_calibrate_raises_threshold_above_noise_floor() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    // Noise at RMS ≈ 0.1
+    let noise: Vec<f32> = vec![0.1f32; CHUNK_SIZE * 4];
+    vad.calibrate(&noise, 2.0);
+    // Threshold should be ≈ 0.1 * 2.0 = 0.2
+    let t = vad.threshold();
+    assert!(t > 0.15 && t < 0.25, "expected ≈ 0.2, got {t}");
+}
+
+#[test]
+fn vad_calibrate_empty_noise_is_noop() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    let original = vad.threshold();
+    vad.calibrate(&[], 2.0);
+    assert_eq!(vad.threshold(), original);
+}
+
+#[test]
+fn vad_calibrate_clamps_threshold_to_1() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    // Loud noise (RMS 0.9) × scale 5.0 would overflow — must clamp to 1.0
+    let loud_noise: Vec<f32> = vec![0.9f32; CHUNK_SIZE * 2];
+    vad.calibrate(&loud_noise, 5.0);
+    assert!(vad.threshold() <= 1.0);
+}
+
+#[test]
+fn vad_short_chunk_does_not_panic() {
+    let mut vad = VoiceActivityDetector::new_energy();
+    // Shorter-than-standard chunk (128 samples) should not panic
+    let short: Vec<f32> = vec![1.0; 128];
+    let _ = vad.detect(&short);
+}
+
+#[test]
+fn vad_from_model_without_feature_returns_energy_detector() {
+    // Without the neural-vad feature, from_model() returns the energy backend.
+    let result = VoiceActivityDetector::from_model("nonexistent_path.onnx");
+    // Should succeed (energy fallback) and behave normally
+    assert!(result.is_ok());
+    let mut vad = result.unwrap();
+    assert_eq!(vad.threshold(), DEFAULT_THRESHOLD);
+    vad.detect(&silence_chunk()); // must not panic
+}
+
+// Reuse the named constant inside tests to avoid magic numbers.
+const WINDOW_SIZE: usize = 5;
