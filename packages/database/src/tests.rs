@@ -2,8 +2,9 @@ use std::path::PathBuf;
 use tempfile::tempdir;
 
 use crate::{
-    close, connect, migration, CalibrationThresholds, Church, ChurchSettings, DetectionEvent,
-    DbPool, PoolConfig, Sermon, ServiceRecord, SubPoint, Verse,
+    close, connect, migration, CalibrationRepository, CalibrationThresholds, Church,
+    ChurchRepository, ChurchSettings, DetectionEvent, DetectionEventRepository, DbPool,
+    PoolConfig, Sermon, SermonRepository, ServiceRecord, SubPoint, Verse, VerseRepository,
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -1553,4 +1554,808 @@ fn service_record_serde_round_trip() {
     let json = serde_json::to_string(&sr).unwrap();
     let decoded: ServiceRecord = serde_json::from_str(&json).unwrap();
     assert_eq!(sr, decoded);
+}
+
+// ── VerseRepository ───────────────────────────────────────────────────────────
+
+async fn insert_test_verses(pool: &DbPool) {
+    let verses = [
+        ("Genesis", 1i64, 1i64, "In the beginning God created the heaven and the earth.", 1i64),
+        ("Genesis", 1, 2, "And the earth was without form, and void.", 1),
+        ("Genesis", 2, 1, "Thus the heavens and the earth were finished.", 1),
+        ("John", 3, 16, "For God so loved the world, that he gave his only begotten Son.", 43),
+        ("John", 3, 17, "For God sent not his Son into the world to condemn the world.", 43),
+        ("Psalms", 23, 1, "The LORD is my shepherd; I shall not want.", 19),
+    ];
+    for (book, ch, v, text, order) in verses {
+        sqlx::query(
+            "INSERT INTO verses (book, chapter, verse_number, text, book_order)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(book)
+        .bind(ch)
+        .bind(v)
+        .bind(text)
+        .bind(order)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn verse_repo_get_by_reference_returns_matching_verse() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    insert_test_verses(&pool).await;
+
+    let repo = VerseRepository::new(pool.clone());
+    let verse = repo.get_by_reference("John", 3, 16).await.unwrap();
+
+    assert!(verse.is_some());
+    let v = verse.unwrap();
+    assert_eq!(v.book, "John");
+    assert_eq!(v.chapter, 3);
+    assert_eq!(v.verse_number, 16);
+    assert!(v.text.contains("God so loved"));
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn verse_repo_get_by_reference_returns_none_for_missing_verse() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    let repo = VerseRepository::new(pool.clone());
+    let result = repo.get_by_reference("Revelation", 22, 21).await.unwrap();
+
+    assert!(result.is_none());
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn verse_repo_search_returns_matching_verses() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    insert_test_verses(&pool).await;
+
+    let repo = VerseRepository::new(pool.clone());
+    let results = repo.search_full_text("God").await.unwrap();
+
+    // "In the beginning God", "For God so loved", "For God sent not" — 3 matches
+    assert_eq!(results.len(), 3);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn verse_repo_search_returns_empty_for_no_match() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    insert_test_verses(&pool).await;
+
+    let repo = VerseRepository::new(pool.clone());
+    let results = repo.search_full_text("xyznonexistent").await.unwrap();
+
+    assert!(results.is_empty());
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn verse_repo_search_results_ordered_by_book_order_then_chapter_verse() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    insert_test_verses(&pool).await;
+
+    let repo = VerseRepository::new(pool.clone());
+    // "the" appears in Genesis 1:1, 1:2, 2:1, John 3:16, 3:17, Psalms 23:1
+    let results = repo.search_full_text("the").await.unwrap();
+
+    assert!(!results.is_empty());
+    // verify ascending book_order, then chapter, then verse_number
+    for window in results.windows(2) {
+        let (a, b) = (&window[0], &window[1]);
+        assert!(
+            (a.book_order, a.chapter, a.verse_number)
+                <= (b.book_order, b.chapter, b.verse_number)
+        );
+    }
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn verse_repo_get_all_for_book_returns_only_that_book() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    insert_test_verses(&pool).await;
+
+    let repo = VerseRepository::new(pool.clone());
+    let verses = repo.get_all_for_book("John").await.unwrap();
+
+    assert_eq!(verses.len(), 2);
+    assert!(verses.iter().all(|v| v.book == "John"));
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn verse_repo_get_all_for_book_ordered_by_chapter_verse() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    insert_test_verses(&pool).await;
+
+    let repo = VerseRepository::new(pool.clone());
+    let verses = repo.get_all_for_book("Genesis").await.unwrap();
+
+    assert_eq!(verses.len(), 3);
+    for window in verses.windows(2) {
+        let (a, b) = (&window[0], &window[1]);
+        assert!((a.chapter, a.verse_number) <= (b.chapter, b.verse_number));
+    }
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn verse_repo_get_all_for_book_returns_empty_for_unknown_book() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    let repo = VerseRepository::new(pool.clone());
+    let verses = repo.get_all_for_book("NotABook").await.unwrap();
+
+    assert!(verses.is_empty());
+    close(pool).await;
+}
+
+// ── SermonRepository ──────────────────────────────────────────────────────────
+
+fn make_sermon(id: &str, church_id: &str, started_at: &str) -> Sermon {
+    Sermon {
+        id: id.into(),
+        church_id: church_id.into(),
+        title: None,
+        pastor: None,
+        date: "2026-05-15".into(),
+        anchor_scripture: None,
+        started_at: started_at.into(),
+        ended_at: None,
+    }
+}
+
+#[tokio::test]
+async fn sermon_repo_create_returns_the_sermon() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = SermonRepository::new(pool.clone());
+    let sermon = make_sermon("s1", "c1", "2026-05-15T09:00:00Z");
+    let created = repo.create(sermon.clone()).await.unwrap();
+
+    assert_eq!(created, sermon);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn sermon_repo_create_persists_to_database() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = SermonRepository::new(pool.clone());
+    repo.create(make_sermon("s1", "c1", "2026-05-15T09:00:00Z"))
+        .await
+        .unwrap();
+
+    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sermons WHERE id = 's1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn sermon_repo_get_by_id_returns_some_for_existing_sermon() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = SermonRepository::new(pool.clone());
+    let original = make_sermon("s1", "c1", "2026-05-15T09:00:00Z");
+    repo.create(original.clone()).await.unwrap();
+
+    let fetched = repo.get_by_id("s1").await.unwrap();
+    assert_eq!(fetched, Some(original));
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn sermon_repo_get_by_id_returns_none_for_missing_id() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    let repo = SermonRepository::new(pool.clone());
+    let result = repo.get_by_id("nonexistent").await.unwrap();
+
+    assert!(result.is_none());
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn sermon_repo_update_changes_mutable_fields() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = SermonRepository::new(pool.clone());
+    repo.create(make_sermon("s1", "c1", "2026-05-15T09:00:00Z"))
+        .await
+        .unwrap();
+
+    let updated = Sermon {
+        id: "s1".into(),
+        church_id: "c1".into(),
+        title: Some("Faith Under Fire".into()),
+        pastor: Some("Pastor John".into()),
+        date: "2026-05-15".into(),
+        anchor_scripture: Some("Romans 8:28".into()),
+        started_at: "2026-05-15T09:00:00Z".into(),
+        ended_at: None,
+    };
+    let returned = repo.update(updated.clone()).await.unwrap();
+    assert_eq!(returned, updated);
+
+    let fetched = repo.get_by_id("s1").await.unwrap().unwrap();
+    assert_eq!(fetched.title.as_deref(), Some("Faith Under Fire"));
+    assert_eq!(fetched.pastor.as_deref(), Some("Pastor John"));
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn sermon_repo_get_recent_returns_newest_first() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = SermonRepository::new(pool.clone());
+    repo.create(make_sermon("s1", "c1", "2026-05-10T09:00:00Z"))
+        .await
+        .unwrap();
+    repo.create(make_sermon("s2", "c1", "2026-05-15T09:00:00Z"))
+        .await
+        .unwrap();
+    repo.create(make_sermon("s3", "c1", "2026-05-12T09:00:00Z"))
+        .await
+        .unwrap();
+
+    let recent = repo.get_recent(10).await.unwrap();
+    assert_eq!(recent.len(), 3);
+    assert_eq!(recent[0].id, "s2");
+    assert_eq!(recent[1].id, "s3");
+    assert_eq!(recent[2].id, "s1");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn sermon_repo_get_recent_respects_limit() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = SermonRepository::new(pool.clone());
+    for i in 1..=5i64 {
+        repo.create(make_sermon(
+            &format!("s{i}"),
+            "c1",
+            &format!("2026-05-{:02}T09:00:00Z", i + 10),
+        ))
+        .await
+        .unwrap();
+    }
+
+    let recent = repo.get_recent(3).await.unwrap();
+    assert_eq!(recent.len(), 3);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn sermon_repo_end_sermon_sets_ended_at() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = SermonRepository::new(pool.clone());
+    repo.create(make_sermon("s1", "c1", "2026-05-15T09:00:00Z"))
+        .await
+        .unwrap();
+
+    repo.end_sermon("s1", "2026-05-15T11:30:00Z").await.unwrap();
+
+    let sermon = repo.get_by_id("s1").await.unwrap().unwrap();
+    assert_eq!(sermon.ended_at.as_deref(), Some("2026-05-15T11:30:00Z"));
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn sermon_repo_end_sermon_on_unknown_id_does_not_error() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    let repo = SermonRepository::new(pool.clone());
+    // SQLite UPDATE on a non-existent row succeeds silently (0 rows affected).
+    let result = repo.end_sermon("no-such-id", "2026-05-15T11:00:00Z").await;
+    assert!(result.is_ok());
+    close(pool).await;
+}
+
+// ── DetectionEventRepository ──────────────────────────────────────────────────
+
+fn make_detection_event(id: &str, sermon_id: &str, transcript: &str) -> DetectionEvent {
+    DetectionEvent {
+        id: id.into(),
+        sermon_id: sermon_id.into(),
+        raw_transcript: transcript.into(),
+        pattern_result: None,
+        local_ai_result: None,
+        cloud_ai_result: None,
+        final_reference: None,
+        confidence: 0.0,
+        decision: "pending".into(),
+        operator_action: None,
+        correct_reference: None,
+        processing_time_ms: 0,
+        timestamp: "2026-05-15T09:00:00Z".into(),
+    }
+}
+
+async fn seed_church_and_sermon(pool: &DbPool) {
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO sermons (id, church_id, date, started_at)
+         VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn detection_event_repo_create_returns_event() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    let repo = DetectionEventRepository::new(pool.clone());
+    let event = make_detection_event("d1", "s1", "John 3:16");
+    let created = repo.create(event.clone()).await.unwrap();
+
+    assert_eq!(created, event);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn detection_event_repo_create_persists_to_database() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    let repo = DetectionEventRepository::new(pool.clone());
+    repo.create(make_detection_event("d1", "s1", "Romans 8:28"))
+        .await
+        .unwrap();
+
+    let (count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM detection_events WHERE id = 'd1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn detection_event_repo_get_for_sermon_returns_all_events_ordered() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    let repo = DetectionEventRepository::new(pool.clone());
+    // Insert in reverse order; verify they come back sorted by timestamp ASC.
+    let mut e1 = make_detection_event("d1", "s1", "John 3:16");
+    e1.timestamp = "2026-05-15T09:01:00Z".into();
+    let mut e2 = make_detection_event("d2", "s1", "Genesis 1:1");
+    e2.timestamp = "2026-05-15T09:00:00Z".into();
+    repo.create(e1).await.unwrap();
+    repo.create(e2).await.unwrap();
+
+    let events = repo.get_for_sermon("s1").await.unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].id, "d2");
+    assert_eq!(events[1].id, "d1");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn detection_event_repo_get_for_sermon_returns_empty_for_no_events() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    let repo = DetectionEventRepository::new(pool.clone());
+    let events = repo.get_for_sermon("s1").await.unwrap();
+    assert!(events.is_empty());
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn detection_event_repo_update_operator_action_sets_fields() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    let repo = DetectionEventRepository::new(pool.clone());
+    repo.create(make_detection_event("d1", "s1", "Psalms 23:1"))
+        .await
+        .unwrap();
+
+    repo.update_operator_action("d1", "corrected", Some("Psalms 23:1"))
+        .await
+        .unwrap();
+
+    let events = repo.get_for_sermon("s1").await.unwrap();
+    let ev = &events[0];
+    assert_eq!(ev.operator_action.as_deref(), Some("corrected"));
+    assert_eq!(ev.correct_reference.as_deref(), Some("Psalms 23:1"));
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn detection_event_repo_update_operator_action_clears_correct_reference() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    let repo = DetectionEventRepository::new(pool.clone());
+    repo.create(make_detection_event("d1", "s1", "test"))
+        .await
+        .unwrap();
+
+    repo.update_operator_action("d1", "rejected", None)
+        .await
+        .unwrap();
+
+    let events = repo.get_for_sermon("s1").await.unwrap();
+    assert_eq!(events[0].operator_action.as_deref(), Some("rejected"));
+    assert!(events[0].correct_reference.is_none());
+    close(pool).await;
+}
+
+// ── ChurchRepository ──────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn church_repo_get_or_create_inserts_when_empty() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    let repo = ChurchRepository::new(pool.clone());
+    let church = repo.get_or_create("c1", "Grace Church", "Lagos").await.unwrap();
+
+    assert_eq!(church.id, "c1");
+    assert_eq!(church.name, "Grace Church");
+    assert_eq!(church.region, "Lagos");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn church_repo_get_or_create_returns_existing_when_present() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    sqlx::query(
+        "INSERT INTO churches (id, name, region) VALUES ('existing', 'Old Name', 'Abuja')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = ChurchRepository::new(pool.clone());
+    // Supplying different data should NOT overwrite the existing row.
+    let church = repo
+        .get_or_create("new-id", "New Name", "Lagos")
+        .await
+        .unwrap();
+
+    assert_eq!(church.id, "existing");
+    assert_eq!(church.name, "Old Name");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn church_repo_update_setting_inserts_new_key() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    let repo = ChurchRepository::new(pool.clone());
+    repo.get_or_create("c1", "Grace", "Lagos").await.unwrap();
+    repo.update_setting("display_font_size", "18").await.unwrap();
+
+    let value = repo.get_setting("display_font_size").await.unwrap();
+    assert_eq!(value.as_deref(), Some("18"));
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn church_repo_update_setting_overwrites_existing_key() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    let repo = ChurchRepository::new(pool.clone());
+    repo.get_or_create("c1", "Grace", "Lagos").await.unwrap();
+    repo.update_setting("theme", "dark").await.unwrap();
+    repo.update_setting("theme", "light").await.unwrap();
+
+    let value = repo.get_setting("theme").await.unwrap();
+    assert_eq!(value.as_deref(), Some("light"));
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn church_repo_get_setting_returns_none_for_missing_key() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    let repo = ChurchRepository::new(pool.clone());
+    repo.get_or_create("c1", "Grace", "Lagos").await.unwrap();
+
+    let value = repo.get_setting("nonexistent_key").await.unwrap();
+    assert!(value.is_none());
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn church_repo_multiple_settings_are_independent() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+
+    let repo = ChurchRepository::new(pool.clone());
+    repo.get_or_create("c1", "Grace", "Lagos").await.unwrap();
+    repo.update_setting("font_size", "16").await.unwrap();
+    repo.update_setting("theme", "dark").await.unwrap();
+
+    assert_eq!(repo.get_setting("font_size").await.unwrap().as_deref(), Some("16"));
+    assert_eq!(repo.get_setting("theme").await.unwrap().as_deref(), Some("dark"));
+    close(pool).await;
+}
+
+// ── CalibrationRepository ─────────────────────────────────────────────────────
+
+fn make_threshold(id: &str, church_id: &str, stage: &str) -> CalibrationThresholds {
+    CalibrationThresholds {
+        id: id.into(),
+        church_id: church_id.into(),
+        stage: stage.into(),
+        accept_above: 0.9,
+        escalate_below: 0.5,
+        updated_at: "2026-05-15T09:00:00Z".into(),
+    }
+}
+
+fn make_service_record(id: &str, sermon_id: &str, created_at: &str) -> ServiceRecord {
+    ServiceRecord {
+        id: id.into(),
+        sermon_id: sermon_id.into(),
+        total_detections: 10,
+        auto_accepted: 8,
+        operator_corrected: 1,
+        rejected: 1,
+        avg_confidence: Some(0.88),
+        avg_processing_time_ms: None,
+        created_at: created_at.into(),
+    }
+}
+
+#[tokio::test]
+async fn calibration_repo_get_thresholds_returns_all_stages() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    let repo = CalibrationRepository::new(pool.clone());
+    repo.update_thresholds(make_threshold("t1", "c1", "pattern"))
+        .await
+        .unwrap();
+    repo.update_thresholds(make_threshold("t2", "c1", "local_ai"))
+        .await
+        .unwrap();
+    repo.update_thresholds(make_threshold("t3", "c1", "cloud_ai"))
+        .await
+        .unwrap();
+
+    let thresholds = repo.get_thresholds().await.unwrap();
+    assert_eq!(thresholds.len(), 3);
+    let stages: Vec<&str> = thresholds.iter().map(|t| t.stage.as_str()).collect();
+    // ORDER BY stage ASC → cloud_ai, local_ai, pattern
+    assert_eq!(stages, vec!["cloud_ai", "local_ai", "pattern"]);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn calibration_repo_get_thresholds_returns_empty_before_any_inserted() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    let repo = CalibrationRepository::new(pool.clone());
+    let thresholds = repo.get_thresholds().await.unwrap();
+    assert!(thresholds.is_empty());
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn calibration_repo_update_thresholds_inserts_new_row() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    let repo = CalibrationRepository::new(pool.clone());
+    repo.update_thresholds(make_threshold("t1", "c1", "pattern"))
+        .await
+        .unwrap();
+
+    let thresholds = repo.get_thresholds().await.unwrap();
+    assert_eq!(thresholds.len(), 1);
+    assert_eq!(thresholds[0].stage, "pattern");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn calibration_repo_update_thresholds_upserts_existing_stage() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    let repo = CalibrationRepository::new(pool.clone());
+    repo.update_thresholds(make_threshold("t1", "c1", "pattern"))
+        .await
+        .unwrap();
+
+    let mut updated = make_threshold("t1", "c1", "pattern");
+    updated.accept_above = 0.95;
+    updated.escalate_below = 0.6;
+    repo.update_thresholds(updated).await.unwrap();
+
+    let thresholds = repo.get_thresholds().await.unwrap();
+    assert_eq!(thresholds.len(), 1, "upsert must not create a duplicate row");
+    assert!((thresholds[0].accept_above - 0.95).abs() < 1e-9);
+    assert!((thresholds[0].escalate_below - 0.6).abs() < 1e-9);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn calibration_repo_add_service_record_persists() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    let repo = CalibrationRepository::new(pool.clone());
+    repo.add_service_record(make_service_record("r1", "s1", "2026-05-15T10:00:00Z"))
+        .await
+        .unwrap();
+
+    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM service_records")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn calibration_repo_get_recent_service_records_returns_newest_first() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    // Add a second sermon for a second service record.
+    sqlx::query(
+        "INSERT INTO sermons (id, church_id, date, started_at)
+         VALUES ('s2', 'c1', '2026-05-16', '2026-05-16T09:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = CalibrationRepository::new(pool.clone());
+    repo.add_service_record(make_service_record("r1", "s1", "2026-05-15T10:00:00Z"))
+        .await
+        .unwrap();
+    repo.add_service_record(make_service_record("r2", "s2", "2026-05-16T10:00:00Z"))
+        .await
+        .unwrap();
+
+    let records = repo.get_recent_service_records(10).await.unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].id, "r2", "most recent should be first");
+    assert_eq!(records[1].id, "r1");
+    close(pool).await;
+}
+
+#[tokio::test]
+async fn calibration_repo_get_recent_service_records_respects_limit() {
+    let dir = tempdir().unwrap();
+    let pool = open_db(dir.path()).await;
+    seed_church_and_sermon(&pool).await;
+
+    // Three sermons, three records.
+    for i in 2..=3i64 {
+        sqlx::query(
+            "INSERT INTO sermons (id, church_id, date, started_at)
+             VALUES (?, 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
+        )
+        .bind(format!("s{i}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let repo = CalibrationRepository::new(pool.clone());
+    for i in 1..=3i64 {
+        repo.add_service_record(make_service_record(
+            &format!("r{i}"),
+            &format!("s{i}"),
+            &format!("2026-05-15T{:02}:00:00Z", 9 + i),
+        ))
+        .await
+        .unwrap();
+    }
+
+    let records = repo.get_recent_service_records(2).await.unwrap();
+    assert_eq!(records.len(), 2);
+    close(pool).await;
 }
