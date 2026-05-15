@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "shared/types"
+    "shared/types",
+    "packages/bible"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
