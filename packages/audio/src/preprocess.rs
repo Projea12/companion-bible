@@ -203,6 +203,191 @@ impl AudioPreprocessor {
     }
 }
 
+// ─── NoiseSuppressor ──────────────────────────────────────────────────────────
+
+/// 100 ms at 16 kHz.
+pub const CHUNK_100MS: usize = 1600;
+
+/// Convenience wrapper around `AudioPreprocessor` that processes fixed-size
+/// chunks and always returns exactly as many samples as were passed in.
+///
+/// Shorter input chunks are handled transparently; the internal preprocessor
+/// may buffer samples and return them on the next call or via `flush`.
+pub struct NoiseSuppressor {
+    inner: AudioPreprocessor,
+}
+
+impl Default for NoiseSuppressor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NoiseSuppressor {
+    pub fn new() -> Self {
+        Self { inner: AudioPreprocessor::new() }
+    }
+
+    /// Denoise `chunk`, returning a `Vec<f32>` of the same length.
+    ///
+    /// If the preprocessor's staging buffer has fewer than `RNNOISE_FRAME_SIZE`
+    /// samples after consuming `chunk`, a flush is triggered so the returned
+    /// slice always matches `chunk.len()`.  The result may be zero-padded at
+    /// the tail when the final RNNoise frame was shorter than `RNNOISE_FRAME_SIZE`.
+    pub fn process(&mut self, chunk: &[f32]) -> Vec<f32> {
+        let target_len = chunk.len();
+        let mut out = self.inner.process(chunk);
+
+        if out.len() < target_len {
+            let extra = self.inner.flush();
+            out.extend_from_slice(&extra);
+        }
+
+        out.truncate(target_len);
+        out.resize(target_len, 0.0);
+        out
+    }
+
+    /// Flush any remaining buffered samples (zero-padded to `RNNOISE_FRAME_SIZE`).
+    pub fn flush(&mut self) -> Vec<f32> {
+        self.inner.flush()
+    }
+}
+
+// ─── AmplitudeNormalizer ──────────────────────────────────────────────────────
+
+/// Smooth amplitude normalizer that tracks a running gain estimate via a
+/// first-order IIR filter, preventing sudden level jumps.
+///
+/// ## Gain-smoothing algorithm
+/// ```text
+/// target_gain = clamp(target_rms / chunk_rms, 0, max_gain)
+/// current_gain += (target_gain - current_gain) * smoothing
+/// output[i] = clamp(input[i] * current_gain, -1, 1)
+/// ```
+///
+/// Silence (chunk RMS < 1e-6) is passed through without gain adjustment so
+/// near-silence is not boosted into audible noise.
+pub struct AmplitudeNormalizer {
+    target_rms: f32,
+    current_gain: f32,
+    smoothing: f32,
+    max_gain: f32,
+}
+
+impl Default for AmplitudeNormalizer {
+    fn default() -> Self {
+        Self::new(0.1)
+    }
+}
+
+impl AmplitudeNormalizer {
+    /// Create a normalizer with the given `target_rms`.
+    ///
+    /// * `target_rms` – desired RMS level for output audio (normalised, [0, 1]).
+    ///   A value of `0.1` is a reasonable starting point.
+    pub fn new(target_rms: f32) -> Self {
+        Self {
+            target_rms: target_rms.clamp(0.0, 1.0),
+            current_gain: 1.0,
+            smoothing: 0.1,
+            max_gain: 10.0,
+        }
+    }
+
+    /// Set the target RMS (clamped to [0, 1]).
+    pub fn set_target_rms(&mut self, target_rms: f32) {
+        self.target_rms = target_rms.clamp(0.0, 1.0);
+    }
+
+    /// Target RMS.
+    pub fn target_rms(&self) -> f32 {
+        self.target_rms
+    }
+
+    /// Set the IIR smoothing coefficient (clamped to (0, 1]).
+    ///
+    /// Smaller values → slower, smoother gain changes.
+    /// Default: `0.1`.
+    pub fn set_smoothing(&mut self, smoothing: f32) {
+        self.smoothing = smoothing.clamp(f32::EPSILON, 1.0);
+    }
+
+    /// Set the maximum allowable gain multiplier.  Default: `10.0`.
+    pub fn set_max_gain(&mut self, max_gain: f32) {
+        self.max_gain = max_gain.max(1.0);
+    }
+
+    /// Current instantaneous gain (reflects the smoothed IIR state).
+    pub fn current_gain(&self) -> f32 {
+        self.current_gain
+    }
+
+    /// Normalize `samples` in place.
+    pub fn process(&mut self, samples: &mut [f32]) {
+        let rms = chunk_rms(samples);
+        if rms < 1e-6 {
+            return;
+        }
+
+        let target_gain = (self.target_rms / rms).min(self.max_gain);
+        self.current_gain += (target_gain - self.current_gain) * self.smoothing;
+
+        let g = self.current_gain;
+        for s in samples.iter_mut() {
+            *s = (*s * g).clamp(-1.0, 1.0);
+        }
+    }
+}
+
+// ─── AudioPipeline ────────────────────────────────────────────────────────────
+
+/// Full preprocessing pipeline: **gate → suppress → normalize**.
+///
+/// 1. `NoiseGate` — zeroes chunks whose RMS is below `gate_threshold`.
+/// 2. `NoiseSuppressor` — RNNoise broadband denoising.
+/// 3. `AmplitudeNormalizer` — smooth gain to `target_rms`.
+pub struct AudioPipeline {
+    gate: NoiseGate,
+    suppressor: NoiseSuppressor,
+    normalizer: AmplitudeNormalizer,
+}
+
+impl AudioPipeline {
+    pub fn new(gate_threshold: f32, target_rms: f32) -> Self {
+        Self {
+            gate: NoiseGate::new(gate_threshold),
+            suppressor: NoiseSuppressor::new(),
+            normalizer: AmplitudeNormalizer::new(target_rms),
+        }
+    }
+
+    /// Run a chunk through the full pipeline, returning a processed `Vec<f32>`.
+    pub fn process(&mut self, chunk: &[f32]) -> Vec<f32> {
+        // Stage 1: gate (in-place copy).
+        let mut gated = chunk.to_vec();
+        self.gate.process(&mut gated);
+
+        // Stage 2: denoise.
+        let mut suppressed = self.suppressor.process(&gated);
+
+        // Stage 3: normalize in-place.
+        self.normalizer.process(&mut suppressed);
+
+        suppressed
+    }
+
+    /// Access the gate for threshold adjustments.
+    pub fn gate_mut(&mut self) -> &mut NoiseGate {
+        &mut self.gate
+    }
+
+    /// Access the normalizer for target / smoothing adjustments.
+    pub fn normalizer_mut(&mut self) -> &mut AmplitudeNormalizer {
+        &mut self.normalizer
+    }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 fn chunk_rms(samples: &[f32]) -> f32 {

@@ -5,7 +5,10 @@ use crate::device::{infer_device_type, AudioDevice, DeviceType};
 use crate::error::AudioError;
 use crate::input::AudioInput;
 use crate::ring_buffer::{RingBuffer, DEFAULT_CAPACITY};
-use crate::preprocess::{AudioPreprocessor, NoiseGate, RNNOISE_FRAME_SIZE};
+use crate::preprocess::{
+    AmplitudeNormalizer, AudioPipeline, AudioPreprocessor, NoiseGate, NoiseSuppressor,
+    CHUNK_100MS, RNNOISE_FRAME_SIZE,
+};
 use crate::vad::{VadDecision, VoiceActivityDetector, CHUNK_SIZE, DEFAULT_THRESHOLD};
 
 // ─── AudioDevice ──────────────────────────────────────────────────────────────
@@ -1247,4 +1250,258 @@ fn preprocessor_process_under_10ms_per_frame() {
     println!(
         "AudioPreprocessor::process() RNNoise: {per_frame_us:.0} µs/frame over {ITERS} iters"
     );
+}
+
+// ─── NoiseSuppressor ──────────────────────────────────────────────────────────
+
+#[test]
+fn noise_suppressor_chunk_100ms_constant() {
+    assert_eq!(CHUNK_100MS, 1600);
+}
+
+#[test]
+fn noise_suppressor_returns_same_length_as_input() {
+    let mut ns = NoiseSuppressor::new();
+    let chunk = vec![0.3f32; CHUNK_100MS];
+    let out = ns.process(&chunk);
+    assert_eq!(out.len(), CHUNK_100MS, "output length must match input");
+}
+
+#[test]
+fn noise_suppressor_returns_same_length_for_short_chunk() {
+    let mut ns = NoiseSuppressor::new();
+    let chunk = vec![0.3f32; 100];
+    let out = ns.process(&chunk);
+    assert_eq!(out.len(), 100);
+}
+
+#[test]
+fn noise_suppressor_returns_same_length_for_exact_rnnoise_frame() {
+    let mut ns = NoiseSuppressor::new();
+    let chunk = vec![0.4f32; RNNOISE_FRAME_SIZE];
+    let out = ns.process(&chunk);
+    assert_eq!(out.len(), RNNOISE_FRAME_SIZE);
+}
+
+#[test]
+fn noise_suppressor_output_is_normalised_range() {
+    let mut ns = NoiseSuppressor::new();
+    for _ in 0..3 {
+        ns.process(&vec![0.6f32; CHUNK_100MS]);
+    }
+    let out = ns.process(&vec![0.6f32; CHUNK_100MS]);
+    for &s in &out {
+        assert!(s.abs() <= 1.0, "sample {s} outside [-1, 1]");
+    }
+}
+
+#[test]
+fn noise_suppressor_reduces_constant_noise() {
+    let mut ns = NoiseSuppressor::new();
+    // Warm up RNN state.
+    for _ in 0..5 {
+        ns.process(&vec![0.3f32; CHUNK_100MS]);
+    }
+    let input_rms = 0.3f32;
+    let out = ns.process(&vec![0.3f32; CHUNK_100MS]);
+    let out_rms = rms_of(&out);
+    assert!(
+        out_rms < input_rms,
+        "NoiseSuppressor should attenuate constant noise: {input_rms:.3} → {out_rms:.3}"
+    );
+}
+
+#[test]
+fn noise_suppressor_flush_after_process_is_empty() {
+    // process() eagerly drains staging, so flush() afterward returns nothing.
+    let mut ns = NoiseSuppressor::new();
+    let partial = vec![0.2f32; 200];
+    let out = ns.process(&partial);
+    // process() returns same length — staging was already drained internally.
+    assert_eq!(out.len(), 200);
+    let flushed = ns.flush();
+    assert!(flushed.is_empty(), "nothing left in staging after eager-flush process()");
+}
+
+// ─── AmplitudeNormalizer ──────────────────────────────────────────────────────
+
+#[test]
+fn normalizer_new_gain_starts_at_one() {
+    let n = AmplitudeNormalizer::new(0.1);
+    assert_eq!(n.current_gain(), 1.0);
+}
+
+#[test]
+fn normalizer_target_rms_stored_correctly() {
+    let n = AmplitudeNormalizer::new(0.2);
+    assert_eq!(n.target_rms(), 0.2);
+}
+
+#[test]
+fn normalizer_target_rms_clamped() {
+    let n = AmplitudeNormalizer::new(1.5);
+    assert_eq!(n.target_rms(), 1.0);
+}
+
+#[test]
+fn normalizer_does_not_modify_silence() {
+    // Silence (RMS < 1e-6) must pass through unchanged.
+    let mut n = AmplitudeNormalizer::new(0.1);
+    let mut samples = vec![0.0f32; 512];
+    n.process(&mut samples);
+    assert!(samples.iter().all(|&s| s == 0.0), "silence should not be modified");
+}
+
+#[test]
+fn normalizer_boosts_quiet_signal_toward_target() {
+    let target = 0.3f32;
+    let mut n = AmplitudeNormalizer::new(target);
+    // Input at RMS ≈ 0.05 (much quieter than target).
+    let mut samples = vec![0.05f32; 1024];
+    // Run many iterations to let the IIR converge.
+    for _ in 0..50 {
+        n.process(&mut samples);
+        samples = vec![0.05f32; 1024]; // reset input each time
+    }
+    let out_rms = rms_of(&samples);
+    // After convergence the gain should bring output above the initial RMS.
+    assert!(
+        out_rms > 0.05,
+        "normalizer should boost quiet signal; got rms {out_rms:.4}"
+    );
+}
+
+#[test]
+fn normalizer_attenuates_loud_signal_toward_target() {
+    let target = 0.1f32;
+    let mut n = AmplitudeNormalizer::new(target);
+    let input_amplitude = 0.9f32;
+    let mut samples = vec![input_amplitude; 1024];
+    for _ in 0..50 {
+        n.process(&mut samples);
+        samples = vec![input_amplitude; 1024];
+    }
+    let out_rms = rms_of(&samples);
+    assert!(
+        out_rms < input_amplitude,
+        "normalizer should attenuate loud signal; got rms {out_rms:.4}"
+    );
+}
+
+#[test]
+fn normalizer_gain_changes_smoothly() {
+    // Gain must change gradually, not instantaneously.
+    let mut n = AmplitudeNormalizer::new(0.5);
+    // Start with a very quiet signal → large target gain.
+    let quiet = vec![0.01f32; 512];
+    let mut samples = quiet.clone();
+    n.process(&mut samples);
+    let gain_after_1 = n.current_gain();
+
+    samples = quiet.clone();
+    n.process(&mut samples);
+    let gain_after_2 = n.current_gain();
+
+    // Gain should increase over successive calls (moving toward target).
+    assert!(gain_after_2 > gain_after_1, "gain must increase smoothly");
+    // But it must not jump all the way in one step (smoothing < 1.0; default max_gain = 10.0).
+    assert!(gain_after_1 < 10.0, "gain must not jump to max in one step");
+}
+
+#[test]
+fn normalizer_output_clamped_to_minus_one_plus_one() {
+    // Even with a large max_gain, output samples must be in [-1, 1].
+    let mut n = AmplitudeNormalizer::new(0.9);
+    n.set_max_gain(100.0);
+    let mut samples = vec![0.01f32; 512];
+    for _ in 0..200 {
+        n.process(&mut samples);
+        samples = vec![0.01f32; 512];
+    }
+    for &s in &samples {
+        assert!(s.abs() <= 1.0, "output {s} exceeded [-1, 1]");
+    }
+}
+
+#[test]
+fn normalizer_set_smoothing_affects_convergence_rate() {
+    // A higher smoothing coefficient → faster convergence.
+    let target = 0.5f32;
+    let input_amplitude = 0.05f32;
+
+    let gain_after_one_step = |smoothing: f32| -> f32 {
+        let mut n = AmplitudeNormalizer::new(target);
+        n.set_smoothing(smoothing);
+        let mut samples = vec![input_amplitude; 512];
+        n.process(&mut samples);
+        n.current_gain()
+    };
+
+    let slow = gain_after_one_step(0.01);
+    let fast = gain_after_one_step(0.5);
+    assert!(fast > slow, "higher smoothing should yield faster gain increase; slow={slow:.3} fast={fast:.3}");
+}
+
+// ─── AudioPipeline ────────────────────────────────────────────────────────────
+
+#[test]
+fn pipeline_returns_same_length_as_input() {
+    let mut p = AudioPipeline::new(0.02, 0.1);
+    let chunk = vec![0.5f32; CHUNK_100MS];
+    let out = p.process(&chunk);
+    assert_eq!(out.len(), CHUNK_100MS);
+}
+
+#[test]
+fn pipeline_gates_silent_input() {
+    // Gate threshold 0.5 — a near-silent chunk (0.01) should be zeroed by gate
+    // before reaching the suppressor and normalizer.
+    let mut p = AudioPipeline::new(0.5, 0.1);
+    let quiet = vec![0.01f32; CHUNK_100MS];
+    let out = p.process(&quiet);
+    // After gating at 0.5 the chunk is all-zeros → normalizer passes zeros through.
+    assert!(
+        out.iter().all(|&s| s == 0.0),
+        "pipeline should gate and zero near-silent input"
+    );
+}
+
+#[test]
+fn pipeline_passes_loud_speech_through() {
+    // Speech-like input well above gate threshold should come out non-silent.
+    let mut p = AudioPipeline::new(0.02, 0.3);
+    let speech = make_speech_like();
+    // Warm up RNN state.
+    for _ in 0..3 {
+        p.process(&speech);
+    }
+    let out = p.process(&speech);
+    let out_rms = rms_of(&out);
+    assert!(out_rms > 0.0, "speech should survive the pipeline");
+}
+
+#[test]
+fn pipeline_output_in_normalised_range() {
+    let mut p = AudioPipeline::new(0.02, 0.3);
+    let speech = make_speech_like();
+    for _ in 0..5 {
+        let out = p.process(&speech);
+        for &s in &out {
+            assert!(s.abs() <= 1.0, "pipeline output {s} outside [-1, 1]");
+        }
+    }
+}
+
+#[test]
+fn pipeline_gate_mut_updates_threshold() {
+    let mut p = AudioPipeline::new(0.05, 0.1);
+    p.gate_mut().set_threshold(0.2);
+    assert_eq!(p.gate_mut().threshold(), 0.2);
+}
+
+#[test]
+fn pipeline_normalizer_mut_updates_target_rms() {
+    let mut p = AudioPipeline::new(0.05, 0.1);
+    p.normalizer_mut().set_target_rms(0.4);
+    assert_eq!(p.normalizer_mut().target_rms(), 0.4);
 }
