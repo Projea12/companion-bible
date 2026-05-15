@@ -2708,3 +2708,93 @@ fn rolling_fill_maintains_last_30_seconds() {
         "expected last sample ≈ 1.0, got {last_sample:.5}"
     );
 }
+
+// ── Window-behaviour tests ────────────────────────────────────────────────────
+
+#[test]
+fn push_more_than_30_seconds_oldest_dropped() {
+    // Push 40 one-second chunks (40 s total).  The window holds 30 s, so the
+    // first 10 chunks must be evicted; only the last 30 chunks survive.
+    //
+    // Each chunk carries a unique constant value (i / 39) so we can identify
+    // exactly which seconds remain after the overflow.
+    let mut w = SlidingWindow::new();
+
+    const TOTAL_SECS: usize = 40;
+    let chunk_len = SAMPLE_RATE as usize;
+
+    for i in 0..TOTAL_SECS {
+        let value = i as f32 / (TOTAL_SECS - 1) as f32; // 0/39, 1/39 … 39/39
+        w.push(&vec![value; chunk_len]);
+    }
+
+    // Buffer is exactly at capacity — no more, no less.
+    assert_eq!(
+        w.len(),
+        WINDOW_CAPACITY,
+        "buffer must be exactly full after pushing {TOTAL_SECS} s into a 30 s window"
+    );
+
+    let all = w.last(w.max_duration());
+
+    // The first 10 chunks (values 0/39 … 9/39) must have been discarded.
+    // The oldest surviving sample belongs to chunk 10.
+    let expected_oldest = 10.0f32 / 39.0;
+    assert!(
+        (all.samples[0] - expected_oldest).abs() < 1e-5,
+        "oldest retained sample should be from chunk 10 (≈ {expected_oldest:.5}), got {:.5}",
+        all.samples[0]
+    );
+
+    // The newest sample belongs to chunk 39 (value 1.0).
+    assert!(
+        (all.samples[all.samples.len() - 1] - 1.0f32).abs() < 1e-5,
+        "newest sample should be chunk 39 (1.0), got {:.5}",
+        all.samples[all.samples.len() - 1]
+    );
+
+    // No sample from the dropped first 10 seconds should appear in the buffer.
+    let chunk9_value = 9.0f32 / 39.0;
+    assert!(
+        all.samples.iter().all(|&s| s >= expected_oldest - 1e-5),
+        "no sample with value ≤ chunk-9 ({chunk9_value:.5}) should remain in the buffer"
+    );
+}
+
+#[test]
+fn last_15_seconds_returns_exactly_15_seconds() {
+    // Fill the window with 30 s, then request the last 15 s.
+    // The result must contain exactly 15 × SAMPLE_RATE samples and only the
+    // second half of the pushed audio.
+    let mut w = SlidingWindow::new();
+
+    // First 15 s: value 0.25.  Second 15 s: value 0.75.
+    w.push(&vec![0.25f32; SAMPLE_RATE as usize * 15]);
+    w.push(&vec![0.75f32; SAMPLE_RATE as usize * 15]);
+
+    assert_eq!(w.len(), WINDOW_CAPACITY, "window must be full before the assertion");
+
+    let win = w.last(std::time::Duration::from_secs(15));
+
+    // ── Exact sample count ────────────────────────────────────────────────────
+    let expected_len = SAMPLE_RATE as usize * 15;
+    assert_eq!(
+        win.samples.len(),
+        expected_len,
+        "last(15 s) must return exactly {expected_len} samples (15 × {SAMPLE_RATE} Hz)"
+    );
+
+    // ── Correct content: all samples from the second half ─────────────────────
+    assert!(
+        win.samples.iter().all(|&s| (s - 0.75).abs() < 1e-6),
+        "last 15 s must contain only 0.75 samples (the second half pushed)"
+    );
+
+    // ── AudioWindow::duration() matches the requested duration ────────────────
+    let reported = win.duration();
+    assert!(
+        (reported.as_secs_f64() - 15.0).abs() < 1e-9,
+        "AudioWindow::duration() must be 15.0 s, got {:.9} s",
+        reported.as_secs_f64()
+    );
+}
