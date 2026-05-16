@@ -69,13 +69,29 @@ impl CloudAIResult {
 
 pub struct CloudAI {
     client: AnthropicClient,
+    connectivity_fn: Box<dyn Fn() -> bool + Send + Sync>,
 }
 
 impl CloudAI {
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             client: AnthropicClient::new(api_key, TIMEOUT_MS),
+            connectivity_fn: Box::new(ConnectivityMonitor::is_connected),
         }
+    }
+
+    /// Replace the HTTP client — used in tests to inject a mock-server client.
+    #[cfg(test)]
+    pub fn with_client(mut self, client: AnthropicClient) -> Self {
+        self.client = client;
+        self
+    }
+
+    /// Override the connectivity check — used in tests to simulate offline/online.
+    #[cfg(test)]
+    pub fn with_connectivity(mut self, connected: bool) -> Self {
+        self.connectivity_fn = Box::new(move || connected);
+        self
     }
 
     /// Primary entry point.  Builds the prompt from sermon context, calls the
@@ -91,7 +107,7 @@ impl CloudAI {
         recent_transcript: &str,
         anchor_scripture: Option<&str>,
     ) -> CloudAIResult {
-        if !ConnectivityMonitor::is_connected() {
+        if !(self.connectivity_fn)() {
             return CloudAIResult::Unavailable;
         }
 
@@ -224,6 +240,103 @@ mod tests {
         let result = CloudAIResult::Timeout { latency_ms: 810 };
         assert!(result.is_timeout());
         assert!(!result.is_ok());
+    }
+
+    // ── Connectivity handling ─────────────────────────────────────────────────
+
+    #[test]
+    fn detect_returns_unavailable_when_offline() {
+        let ai = CloudAI::new("key").with_connectivity(false);
+        let result = ai.detect("John 3:16", None, None, "", None);
+        assert!(result.is_unavailable());
+    }
+
+    #[test]
+    fn detect_skips_api_call_when_offline() {
+        // No mock server — if it made a network call it would fail with a
+        // connection error, not return Unavailable.
+        let ai = CloudAI::new("key").with_connectivity(false);
+        let result = ai.detect("Romans 8:28", Some("Romans"), Some(8), "recent text", None);
+        assert!(matches!(result, CloudAIResult::Unavailable));
+    }
+
+    #[test]
+    fn detect_proceeds_when_online() {
+        let mut server = mockito::Server::new();
+        let body = r#"{"content":[{"type":"text","text":"{\"book\":\"John\",\"chapter\":3,\"verse\":16,\"confidence\":0.97,\"unattributed\":false}"}]}"#;
+
+        server.mock("POST", "/")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create();
+
+        let client = crate::client::AnthropicClient::new("key", 3_000)
+            .with_endpoint(server.url());
+
+        let ai = CloudAI::new("key")
+            .with_connectivity(true)
+            .with_client(client);
+
+        let result = ai.detect("verse 16", Some("John"), Some(3), "", None);
+        // Online + valid response → Ok
+        assert!(result.is_ok());
+        let reference = result.reference().unwrap();
+        assert_eq!(reference.book.as_deref(), Some("John"));
+    }
+
+    // ── Timeout handling ──────────────────────────────────────────────────────
+
+    #[test]
+    fn detect_returns_timeout_when_deadline_exceeded() {
+        let mut server = mockito::Server::new();
+
+        server.mock("POST", "/")
+            .with_status(200)
+            .with_body_from_fn(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                Ok(())
+            })
+            .create();
+
+        // 1 ms timeout — will fire before the server responds.
+        let client = crate::client::AnthropicClient::new("key", 1)
+            .with_endpoint(server.url());
+
+        let ai = CloudAI::new("key")
+            .with_connectivity(true)
+            .with_client(client);
+
+        let result = ai.detect("test", None, None, "", None);
+        assert!(
+            matches!(result, CloudAIResult::Timeout { .. } | CloudAIResult::Error { .. }),
+            "expected Timeout or Error, got: {result:?}"
+        );
+    }
+
+    // ── Malformed API response ────────────────────────────────────────────────
+
+    #[test]
+    fn detect_returns_error_on_malformed_json_response() {
+        let mut server = mockito::Server::new();
+        // Server returns 200 but with content that isn't valid JSON for our schema.
+        let body = r#"{"content":[{"type":"text","text":"I cannot determine the reference."}]}"#;
+
+        server.mock("POST", "/")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create();
+
+        let client = crate::client::AnthropicClient::new("key", 3_000)
+            .with_endpoint(server.url());
+
+        let ai = CloudAI::new("key")
+            .with_connectivity(true)
+            .with_client(client);
+
+        let result = ai.detect("test", None, None, "", None);
+        assert!(matches!(result, CloudAIResult::Error { .. }));
     }
 
     // ── Accuracy on known references ──────────────────────────────────────────

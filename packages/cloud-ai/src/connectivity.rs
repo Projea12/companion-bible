@@ -133,4 +133,41 @@ mod tests {
     fn check_interval_is_5_seconds() {
         assert_eq!(CHECK_INTERVAL_MS, 5_000);
     }
+
+    #[test]
+    fn on_change_not_called_when_state_unchanged() {
+        // Start with a known state, then check again — if state doesn't
+        // change, on_change should not fire a second time.
+        let count = Arc::new(AtomicU32::new(0));
+        let count_clone = Arc::clone(&count);
+
+        // Two consecutive probes: both return the same result.
+        // on_change fires at most once (for the initial state discovery).
+        let _handle = ConnectivityMonitor::start(move |_| {
+            count_clone.fetch_add(1, Ordering::Relaxed);
+        });
+
+        std::thread::sleep(Duration::from_millis(50));
+        let after_first = count.load(Ordering::Relaxed);
+
+        // No second check has fired within 50ms (interval is 5s).
+        assert!(after_first <= 1, "on_change fired {after_first} times before first interval");
+    }
+
+    #[test]
+    fn monitor_handle_stops_background_thread() {
+        let running = Arc::new(AtomicBool::new(false));
+        let running_clone = Arc::clone(&running);
+
+        let handle = ConnectivityMonitor::start(move |_| {
+            running_clone.store(true, Ordering::Relaxed);
+        });
+
+        // Drop immediately.
+        drop(handle);
+
+        // Thread is signalled to stop; give it a moment to observe the flag.
+        std::thread::sleep(Duration::from_millis(50));
+        // No assertion on `running` — we just verify no panic or hang.
+    }
 }

@@ -74,13 +74,24 @@ pub enum CloudAIError {
 
 pub struct AnthropicClient {
     api_key: String,
+    endpoint: String,
     /// Per-call deadline shared across retries.
     timeout_ms: u64,
 }
 
 impl AnthropicClient {
     pub fn new(api_key: impl Into<String>, timeout_ms: u64) -> Self {
-        Self { api_key: api_key.into(), timeout_ms }
+        Self {
+            api_key: api_key.into(),
+            endpoint: ANTHROPIC_ENDPOINT.to_owned(),
+            timeout_ms,
+        }
+    }
+
+    /// Override the API endpoint — used in tests to point at a mock server.
+    pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.endpoint = endpoint.into();
+        self
     }
 
     /// Send `user_content` to Claude with `system_prompt`, retrying on
@@ -146,7 +157,7 @@ impl AnthropicClient {
         };
 
         let response = client
-            .post(ANTHROPIC_ENDPOINT)
+            .post(&self.endpoint)
             .header("x-api-key", &self.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .header("content-type", "application/json")
@@ -192,29 +203,189 @@ impl AnthropicClient {
 mod tests {
     use super::*;
 
+    fn valid_api_body(text: &str) -> String {
+        format!(r#"{{"content":[{{"type":"text","text":"{text}"}}]}}"#)
+    }
+
+    // ── Backoff ───────────────────────────────────────────────────────────────
+
     #[test]
     fn backoff_doubles_per_attempt() {
         assert_eq!(BACKOFF_BASE_MS * (1 << 0), 100);
         assert_eq!(BACKOFF_BASE_MS * (1 << 1), 200);
     }
 
+    // ── Timeout ───────────────────────────────────────────────────────────────
+
     #[test]
-    fn timeout_error_when_deadline_already_passed() {
+    fn timeout_error_when_deadline_already_expired() {
         let client = AnthropicClient::new("test-key", 0);
-        // timeout_ms=0 means deadline is already expired.
-        let result = client.complete("system", "user");
-        assert!(matches!(result, Err(CloudAIError::Timeout(_))));
+        assert!(matches!(client.complete("sys", "user"), Err(CloudAIError::Timeout(_))));
     }
 
     #[test]
-    fn cloud_ai_error_messages_are_readable() {
-        let e = CloudAIError::Timeout(800);
-        assert!(e.to_string().contains("800"));
+    fn timeout_error_from_slow_server() {
+        let mut server = mockito::Server::new();
+        // Respond after the client has already given up.
+        server.mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_body_from_fn(|_| {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                Ok(())
+            })
+            .create();
 
-        let e = CloudAIError::ApiError { status: 429, body: "rate limit".into() };
-        assert!(e.to_string().contains("429"));
+        // 1 ms timeout — server is far too slow.
+        let client = AnthropicClient::new("key", 1)
+            .with_endpoint(server.url());
 
-        let e = CloudAIError::RateLimited { attempts: 3 };
-        assert!(e.to_string().contains("3"));
+        let result = client.complete("sys", "user");
+        assert!(matches!(result, Err(CloudAIError::Timeout(_) | CloudAIError::Network(_))));
+    }
+
+    // ── Retry logic ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn retries_on_429_then_succeeds() {
+        let mut server = mockito::Server::new();
+        let json = r#"{"book":"John","chapter":3,"verse":16,"confidence":0.97,"unattributed":false}"#;
+
+        // First call → 429, second call → 200.
+        let _m1 = server.mock("POST", "/v1/messages")
+            .with_status(429)
+            .expect(1)
+            .create();
+        let _m2 = server.mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(valid_api_body(json))
+            .expect(1)
+            .create();
+
+        let client = AnthropicClient::new("key", 3_000)
+            .with_endpoint(server.url());
+
+        let result = client.complete("sys", "user");
+        // After retry the 200 response should be returned.
+        assert!(result.is_ok(), "expected Ok after retry, got: {result:?}");
+    }
+
+    #[test]
+    fn retries_on_500_then_fails_after_max_retries() {
+        let mut server = mockito::Server::new();
+
+        // All three attempts return 500.
+        let _m = server.mock("POST", "/v1/messages")
+            .with_status(500)
+            .with_body("internal error")
+            .expect(3) // initial + 2 retries
+            .create();
+
+        let client = AnthropicClient::new("key", 5_000)
+            .with_endpoint(server.url());
+
+        let result = client.complete("sys", "user");
+        assert!(matches!(result, Err(CloudAIError::ApiError { status: 500, .. })));
+        _m.assert(); // verifies exactly 3 calls were made
+    }
+
+    #[test]
+    fn no_retry_on_401_unauthorized() {
+        let mut server = mockito::Server::new();
+
+        // Only one call should be made — 401 is not retryable.
+        let _m = server.mock("POST", "/v1/messages")
+            .with_status(401)
+            .expect(1)
+            .create();
+
+        let client = AnthropicClient::new("bad-key", 3_000)
+            .with_endpoint(server.url());
+
+        let result = client.complete("sys", "user");
+        assert!(matches!(result, Err(CloudAIError::Unauthorized)));
+        _m.assert(); // exactly 1 call, no retry
+    }
+
+    #[test]
+    fn no_retry_on_400_bad_request() {
+        let mut server = mockito::Server::new();
+
+        let _m = server.mock("POST", "/v1/messages")
+            .with_status(400)
+            .with_body("bad request")
+            .expect(1)
+            .create();
+
+        let client = AnthropicClient::new("key", 3_000)
+            .with_endpoint(server.url());
+
+        let result = client.complete("sys", "user");
+        assert!(matches!(result, Err(CloudAIError::ApiError { status: 400, .. })));
+        _m.assert();
+    }
+
+    // ── Malformed API response ────────────────────────────────────────────────
+
+    #[test]
+    fn malformed_response_empty_content_array() {
+        let mut server = mockito::Server::new();
+
+        server.mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"content":[]}"#)
+            .create();
+
+        let client = AnthropicClient::new("key", 3_000)
+            .with_endpoint(server.url());
+
+        let result = client.complete("sys", "user");
+        assert!(matches!(result, Err(CloudAIError::MalformedResponse { .. })));
+    }
+
+    #[test]
+    fn malformed_response_non_json_body() {
+        let mut server = mockito::Server::new();
+
+        server.mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_body("this is not json at all")
+            .create();
+
+        let client = AnthropicClient::new("key", 3_000)
+            .with_endpoint(server.url());
+
+        let result = client.complete("sys", "user");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn successful_response_returns_text() {
+        let mut server = mockito::Server::new();
+        let text = r#"{\"book\":\"John\",\"chapter\":3,\"verse\":16,\"confidence\":0.97,\"unattributed\":false}"#;
+
+        server.mock("POST", "/v1/messages")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(valid_api_body(text))
+            .create();
+
+        let client = AnthropicClient::new("key", 3_000)
+            .with_endpoint(server.url());
+
+        let result = client.complete("sys", "user");
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("John"));
+    }
+
+    // ── Error messages ────────────────────────────────────────────────────────
+
+    #[test]
+    fn error_messages_are_human_readable() {
+        assert!(CloudAIError::Timeout(800).to_string().contains("800"));
+        assert!(CloudAIError::ApiError { status: 429, body: "limit".into() }.to_string().contains("429"));
+        assert!(CloudAIError::Unauthorized.to_string().contains("ANTHROPIC_API_KEY"));
+        assert!(CloudAIError::Unavailable.to_string().contains("internet"));
     }
 }
