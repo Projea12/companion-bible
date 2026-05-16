@@ -274,6 +274,10 @@ fn church_options_auto_detect_language() {
     assert_eq!(opts.temperature, 0.0);
     assert!(!opts.initial_prompt.is_empty(), "church preset must include a sermon prompt");
     assert!(opts.initial_prompt.contains("Genesis"), "prompt must include book names");
+    assert!(
+        opts.initial_prompt.contains("A preacher is delivering a sermon"),
+        "prompt must open with SERMON_PREAMBLE"
+    );
 }
 
 #[test]
@@ -282,6 +286,97 @@ fn church_options_prompt_contains_nt_books() {
     for book in ["Romans", "John", "Revelation", "Psalms"] {
         assert!(prompt.contains(book), "church prompt must contain '{book}'");
     }
+}
+
+// ─── build_prompt / with_context ─────────────────────────────────────────────
+
+#[test]
+fn build_prompt_none_contains_preamble_and_books() {
+    let p = TranscribeOptions::build_prompt(None);
+    assert!(p.contains(SERMON_PREAMBLE), "generic prompt must contain SERMON_PREAMBLE");
+    assert!(p.contains(BIBLE_BOOKS.split_whitespace().next().unwrap()),
+        "generic prompt must contain Bible books");
+    assert!(!p.contains("The current passage"), "generic prompt must not name a book");
+}
+
+#[test]
+fn build_prompt_with_book_names_current_book() {
+    let p = TranscribeOptions::build_prompt(Some("Romans"));
+    assert!(p.contains("The current passage is from the book of Romans"),
+        "contextual prompt must call out the current book");
+    assert!(p.contains(SERMON_PREAMBLE), "contextual prompt must still contain preamble");
+    assert!(p.contains("Genesis"), "contextual prompt must still list all books");
+}
+
+#[test]
+fn build_prompt_different_books_produce_different_prompts() {
+    let p_romans = TranscribeOptions::build_prompt(Some("Romans"));
+    let p_john = TranscribeOptions::build_prompt(Some("John"));
+    assert_ne!(p_romans, p_john, "different book contexts must produce different prompts");
+    assert!(p_romans.contains("Romans") && p_john.contains("John"));
+}
+
+#[test]
+fn with_context_none_equals_church() {
+    let a = TranscribeOptions::church();
+    let b = TranscribeOptions::with_context(None);
+    assert_eq!(a.initial_prompt, b.initial_prompt);
+    assert_eq!(a.temperature, b.temperature);
+    assert_eq!(a.no_speech_threshold, b.no_speech_threshold);
+}
+
+#[test]
+fn with_context_some_differs_from_church() {
+    let church = TranscribeOptions::church();
+    let ctx = TranscribeOptions::with_context(Some("Philippians"));
+    assert_ne!(church.initial_prompt, ctx.initial_prompt,
+        "contextual prompt must differ from generic church prompt");
+    assert!(ctx.initial_prompt.contains("Philippians"));
+}
+
+#[test]
+fn sermon_preamble_constant_is_non_empty() {
+    assert!(!SERMON_PREAMBLE.is_empty());
+    assert!(SERMON_PREAMBLE.contains("preacher"));
+    assert!(SERMON_PREAMBLE.contains("Bible"));
+}
+
+#[test]
+fn bible_books_constant_contains_all_testaments() {
+    for book in ["Genesis", "Revelation", "Psalms", "Habakkuk", "Ecclesiastes"] {
+        assert!(BIBLE_BOOKS.contains(book), "BIBLE_BOOKS must contain '{book}'");
+    }
+}
+
+// ─── WhisperTranscriber book context ─────────────────────────────────────────
+
+#[test]
+fn transcriber_set_book_context_updates_handle() {
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+    let (t, _rx) = WhisperTranscriber::new(window, TranscribeOptions::church());
+
+    let handle = t.book_context_handle();
+    assert!(handle.lock().unwrap().is_none(), "book context starts as None");
+
+    t.set_book_context(Some("Romans".into()));
+    assert_eq!(handle.lock().unwrap().as_deref(), Some("Romans"));
+
+    t.set_book_context(None);
+    assert!(handle.lock().unwrap().is_none(), "set_book_context(None) must clear");
+}
+
+#[test]
+fn book_context_handle_is_shared() {
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+    let (t, _rx) = WhisperTranscriber::new(window, TranscribeOptions::church());
+
+    let handle = t.book_context_handle();
+    // Write through the handle directly (simulates detection layer).
+    *handle.lock().unwrap() = Some("Ephesians".into());
+
+    // Read back through the transcriber's own method.
+    let ctx = t.book_context_handle();
+    assert_eq!(ctx.lock().unwrap().as_deref(), Some("Ephesians"));
 }
 
 // ─── Transcription (requires model — run manually) ────────────────────────────
