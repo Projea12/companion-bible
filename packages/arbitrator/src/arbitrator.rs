@@ -169,7 +169,7 @@ impl ConfidenceArbitrator {
     fn validate<'a>(&self, results: &'a PartialResults) -> std::borrow::Cow<'a, PartialResults> {
         let needs_fix = [&results.pattern, &results.local_ai, &results.cloud]
             .iter()
-            .flatten()
+            .filter_map(|o| o.as_ref())
             .any(|r| r.confidence < 0.0 || r.confidence > 1.0);
 
         if !needs_fix {
@@ -459,9 +459,8 @@ mod tests {
             pattern: Some(LayerResult { confidence: -0.5, ..john_3_16(0.0) }),
             ..Default::default()
         };
-        let a = arb();
-        let conf = a.calculate_weighted_confidence(&results);
-        assert!(conf >= 0.0);
+        let decision = arb().arbitrate(&results);
+        assert!(decision.confidence >= 0.0);
     }
 
     #[test]
