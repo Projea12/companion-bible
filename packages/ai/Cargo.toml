@@ -1,0 +1,17 @@
+[package]
+name = "companion-ai"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+companion-events.workspace = true
+companion-errors.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+llama-cpp-2 = "0.1"
+sysinfo = "0.31"
+sha2 = "0.10"
+reqwest = { version = "0.12", features = ["blocking"] }
+encoding_rs = "0.8"

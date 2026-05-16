@@ -10,6 +10,7 @@ members = [
     "packages/transcription",
     "packages/detection",
     "packages/context",
+    "packages/ai",
 ]
 
 [workspace.package]
@@ -30,3 +31,5 @@ companion-database = { path = "packages/database" }
 companion-audio = { path = "packages/audio" }
 companion-transcription = { path = "packages/transcription" }
 companion-detection = { path = "packages/detection" }
+companion-context = { path = "packages/context" }
+companion-ai = { path = "packages/ai" }
