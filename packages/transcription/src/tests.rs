@@ -275,6 +275,7 @@ fn church_options_prompt_contains_nt_books() {
     for book in ["Romans", "John", "Revelation", "Psalms"] {
         assert!(prompt.contains(book), "church prompt must contain '{book}'");
     }
+}
 
 // ─── Transcription (requires model — run manually) ────────────────────────────
 
@@ -310,7 +311,7 @@ fn transcribe_silence_returns_no_segments() {
 
     println!("Segments from silence: {}", segments.len());
     for s in &segments {
-        println!("  [{}-{}ms] {:?}", s.start_ms, s.end_ms, s.text);
+        println!("  [{}-{}ms] {:?}", s.audio_start_ms, s.audio_end_ms, s.text);
     }
     // Whisper may hallucinate on pure silence but the call must not panic.
     // We only assert the return type is correct, not the content.
@@ -337,7 +338,7 @@ fn transcribe_tone_does_not_panic() {
     let segs = result.unwrap();
     println!("Segments from 440 Hz tone: {}", segs.len());
     for s in &segs {
-        println!("  [{}-{}ms] {:?}", s.start_ms, s.end_ms, s.text);
+        println!("  [{}-{}ms] {:?}", s.audio_start_ms, s.audio_end_ms, s.text);
     }
 }
 
