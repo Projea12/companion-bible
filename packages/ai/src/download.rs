@@ -74,7 +74,7 @@ where
     std::fs::create_dir_all(models_dir)?;
 
     let tmp = dest.with_extension("tmp");
-    fetch_with_progress(spec.url, &tmp, &mut on_progress)?;
+    fetch_with_progress(spec.url, &tmp, &mut on_progress, spec.size_mb * 1_048_576)?;
 
     verify_sha256(&tmp, spec.sha256).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
@@ -113,10 +113,13 @@ pub fn verify_sha256(path: &Path, expected: &str) -> Result<(), DownloadError> {
 
 // ─── fetch_with_progress ──────────────────────────────────────────────────────
 
+/// Download `url` into `dest`, resuming from an existing partial `.tmp` file
+/// if present.  `total_hint` is used when the server omits `Content-Length`.
 fn fetch_with_progress<F>(
     url: &str,
     dest: &Path,
     on_progress: &mut F,
+    total_hint: u64,
 ) -> Result<(), DownloadError>
 where
     F: FnMut(u64, Option<u64>),
@@ -126,21 +129,37 @@ where
         .build()
         .map_err(|e| DownloadError::Http(e.to_string()))?;
 
-    let mut response = client
-        .get(url)
+    // Check for a partial download to resume from.
+    let already = if dest.exists() {
+        std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0)
+    } else {
+        0
+    };
+
+    let mut request = client.get(url);
+    if already > 0 {
+        request = request.header("Range", format!("bytes={already}-"));
+    }
+
+    let mut response = request
         .send()
         .map_err(|e| DownloadError::Http(e.to_string()))?;
 
-    if !response.status().is_success() {
-        return Err(DownloadError::Http(format!(
-            "HTTP {} for {url}",
-            response.status()
-        )));
+    let status = response.status();
+    // 200 OK (full) or 206 Partial Content (resume) are both valid.
+    if !status.is_success() {
+        return Err(DownloadError::Http(format!("HTTP {status} for {url}")));
     }
 
-    let total = response.content_length();
-    let mut file = std::fs::File::create(dest)?;
-    let mut downloaded: u64 = 0;
+    // If the server honoured the Range request we append; otherwise restart.
+    let (mut file, mut downloaded) = if status == reqwest::StatusCode::PARTIAL_CONTENT && already > 0 {
+        let f = std::fs::OpenOptions::new().append(true).open(dest)?;
+        (f, already)
+    } else {
+        (std::fs::File::create(dest)?, 0)
+    };
+
+    let total = response.content_length().map(|n| n + downloaded).or(if total_hint > 0 { Some(total_hint) } else { None });
     let mut buf = vec![0u8; 65_536];
 
     loop {
