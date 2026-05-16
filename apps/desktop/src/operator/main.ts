@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { AppEvent, ScreenInfo } from '@companion-bible/types';
+import type { AppEvent, AppState } from '@companion-bible/types';
 
 // ─── element references ───────────────────────────────────────────────────────
 
@@ -24,21 +24,27 @@ const screenStatus = document.getElementById('screen-status') as HTMLDivElement;
 let congregationVisible = false;
 let pendingReference: string | null = null;
 
-// ─── screen management ────────────────────────────────────────────────────────
+// ─── startup sync ─────────────────────────────────────────────────────────────
 
-function applyScreenInfo(info: ScreenInfo): void {
-  const hasSecondary = info.hasSecondaryScreen;
+function applyAppState(s: AppState): void {
+  const hasSecondary = s.hasSecondaryScreen;
   btnToggleCongregation.disabled = !hasSecondary;
-  screenStatus.textContent = `${info.totalScreens} screen${info.totalScreens === 1 ? '' : 's'}`;
+  screenStatus.textContent = `${s.totalScreens} screen${s.totalScreens === 1 ? '' : 's'}`;
   screenStatus.className = `screen-status ${hasSecondary ? 'screen-dual' : 'screen-single'}`;
 
-  if (!hasSecondary && congregationVisible) {
-    congregationVisible = false;
-    btnToggleCongregation.textContent = 'Show Congregation Window';
+  congregationVisible = s.congregationVisible;
+  btnToggleCongregation.textContent = congregationVisible
+    ? 'Hide Congregation Window'
+    : 'Show Congregation Window';
+
+  if (s.sessionActive) {
+    btnStart.hidden = true;
+    btnStop.hidden = false;
+    setDetectionStatus('active', 'Listening…');
   }
 }
 
-void invoke<ScreenInfo>('get_screen_info').then(applyScreenInfo);
+void invoke('get_app_state').then((raw) => applyAppState(raw as AppState));
 
 // ─── session controls ─────────────────────────────────────────────────────────
 
@@ -112,11 +118,8 @@ btnClear.addEventListener('click', () => {
 void listen<AppEvent>('app-event', ({ payload }) => {
   switch (payload.type) {
     case 'SECONDARY_SCREEN_CONNECTED':
-      void invoke<ScreenInfo>('get_screen_info').then(applyScreenInfo);
-      break;
-
     case 'SECONDARY_SCREEN_DISCONNECTED':
-      void invoke<ScreenInfo>('get_screen_info').then(applyScreenInfo);
+      void invoke('get_app_state').then((raw) => applyAppState(raw as AppState));
       break;
 
     case 'SCRIPTURE_REFERENCE_DETECTED': {

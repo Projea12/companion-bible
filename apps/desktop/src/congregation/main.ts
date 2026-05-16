@@ -64,6 +64,10 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       showSubPoint(payload.text);
       break;
 
+    case 'DISPLAY_BLANKED':
+      showState('blank');
+      break;
+
     case 'DISPLAY_CLEARED':
       showState('idle');
       break;
