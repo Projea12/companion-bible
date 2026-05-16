@@ -143,6 +143,7 @@ impl WhisperModel {
 
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_n_threads(options.n_threads);
+        params.set_temperature(options.temperature);
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
@@ -152,9 +153,11 @@ impl WhisperModel {
         if options.max_tokens > 0 {
             params.set_max_tokens(options.max_tokens);
         }
-
         if let Some(ref lang) = options.language {
             params.set_language(Some(lang.as_str()));
+        }
+        if !options.initial_prompt.is_empty() {
+            params.set_initial_prompt(&options.initial_prompt);
         }
 
         let _rc = state
@@ -163,18 +166,25 @@ impl WhisperModel {
 
         let n = state.full_n_segments().map_err(TranscriptionError::Whisper)?;
 
-        let mut segments = Vec::with_capacity(n as usize);
+        // ── First pass: collect text, timestamps, confidence ──────────────────
+        struct RawSegment {
+            text: String,
+            audio_start_ms: u64,
+            audio_end_ms: u64,
+            whisper_confidence: f32,
+        }
+
+        let mut raw: Vec<RawSegment> = Vec::with_capacity(n as usize);
         for i in 0..n {
             let text = state
                 .full_get_segment_text(i)
                 .map_err(TranscriptionError::Whisper)?;
-
             let text = text.trim().to_string();
             if text.is_empty() {
                 continue;
             }
 
-            // Whisper timestamps are in centiseconds → convert to milliseconds.
+            // Whisper timestamps are in centiseconds → milliseconds.
             let t0 = state
                 .full_get_segment_t0(i)
                 .map_err(TranscriptionError::Whisper)?;
@@ -182,12 +192,42 @@ impl WhisperModel {
                 .full_get_segment_t1(i)
                 .map_err(TranscriptionError::Whisper)?;
 
-            segments.push(TranscriptionSegment {
+            // Mean token probability as the confidence estimate.
+            let confidence = mean_token_prob(&state, i);
+
+            raw.push(RawSegment {
                 text,
-                start_ms: t0 * 10,
-                end_ms: t1 * 10,
+                audio_start_ms: (t0 * 10).max(0) as u64,
+                audio_end_ms: (t1 * 10).max(0) as u64,
+                whisper_confidence: confidence,
             });
         }
+
+        // ── Second pass: build context_window from neighbouring texts ─────────
+        let texts: Vec<&str> = raw.iter().map(|s| s.text.as_str()).collect();
+        let segments = raw
+            .into_iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let prev = if i > 0 { texts[i - 1] } else { "" };
+                let next = if i + 1 < texts.len() { texts[i + 1] } else { "" };
+                let context_window = [prev, next]
+                    .iter()
+                    .filter(|t| !t.is_empty())
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" ");
+
+                TranscriptionSegment {
+                    text: s.text,
+                    audio_start_ms: s.audio_start_ms,
+                    audio_end_ms: s.audio_end_ms,
+                    whisper_confidence: s.whisper_confidence,
+                    is_duplicate: false,
+                    context_window,
+                }
+            })
+            .collect();
 
         Ok(segments)
     }
@@ -202,6 +242,24 @@ impl WhisperModel {
         }
         Ok(())
     }
+}
+
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+
+/// Compute the mean token probability for segment `i` as a confidence proxy.
+/// Returns `1.0` on any error (conservative — don't discard on failure).
+fn mean_token_prob(state: &whisper_rs::WhisperState, segment: i32) -> f32 {
+    let n_tokens = match state.full_n_tokens(segment) {
+        Ok(n) => n,
+        Err(_) => return 1.0,
+    };
+    if n_tokens == 0 {
+        return 1.0;
+    }
+    let sum: f32 = (0..n_tokens)
+        .filter_map(|t| state.full_get_token_prob(segment, t).ok())
+        .sum();
+    (sum / n_tokens as f32).clamp(0.0, 1.0)
 }
 
 // ─── Memory helpers ───────────────────────────────────────────────────────────
