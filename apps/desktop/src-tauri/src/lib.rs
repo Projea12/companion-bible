@@ -106,6 +106,56 @@ fn get_screen_info(app: AppHandle) -> ScreenInfo {
     }
 }
 
+// ─── verse commands ───────────────────────────────────────────────────────────
+
+/// Parse "Book Chapter[:Verse[-VerseEnd]]" into the BibleReference JSON shape.
+/// Uses rsplitn so multi-word book names (e.g. "1 Corinthians") are preserved.
+fn parse_reference(s: &str) -> Option<serde_json::Value> {
+    let mut parts = s.rsplitn(2, ' ');
+    let chapter_verse = parts.next()?;
+    let book = parts.next()?;
+
+    if let Some((ch_str, verse_str)) = chapter_verse.split_once(':') {
+        let chapter: u8 = ch_str.parse().ok()?;
+        if let Some((from_str, to_str)) = verse_str.split_once('-') {
+            let from: u8 = from_str.parse().ok()?;
+            let to: u8 = to_str.parse().ok()?;
+            Some(serde_json::json!({ "book": book, "chapter": chapter, "verse": from, "verse_end": to }))
+        } else {
+            let verse: u8 = verse_str.parse().ok()?;
+            Some(serde_json::json!({ "book": book, "chapter": chapter, "verse": verse, "verse_end": null }))
+        }
+    } else {
+        let chapter: u8 = chapter_verse.parse().ok()?;
+        Some(serde_json::json!({ "book": book, "chapter": chapter, "verse": null, "verse_end": null }))
+    }
+}
+
+/// Display a verse on the congregation window and notify the operator.
+#[tauri::command]
+fn show_verse(app: AppHandle, reference: String, text: String) {
+    let Some(ref_json) = parse_reference(&reference) else { return };
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({
+            "type": "VERSE_LOADED",
+            "reference": ref_json.clone(),
+            "text": text,
+            "translation": "KJV",
+        }),
+    );
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({ "type": "VERSE_DISPLAYED", "reference": ref_json }),
+    );
+}
+
+/// Clear the congregation display without showing a new verse.
+#[tauri::command]
+fn discard_verse(app: AppHandle) {
+    let _ = app.emit("app-event", serde_json::json!({ "type": "DISPLAY_CLEARED" }));
+}
+
 // ─── congregation window commands ─────────────────────────────────────────────
 
 /// Make the congregation window visible on the secondary display.
@@ -179,6 +229,8 @@ pub fn run() {
             get_screen_info,
             show_congregation_window,
             hide_congregation_window,
+            show_verse,
+            discard_verse,
             start_session,
             stop_session,
             approve_detection,

@@ -81,19 +81,20 @@ btnToggleCongregation.addEventListener('click', () => {
 btnApprove.addEventListener('click', () => {
   if (!pendingReference) return;
   const ref = pendingReference;
-  void invoke('approve_detection', { reference: ref }).then(() => {
+  // show_verse fetches and emits VERSE_LOADED + VERSE_DISPLAYED; text lookup
+  // will be filled by the Bible package in a later task.
+  void invoke('show_verse', { reference: ref, text: '' }).then(() => {
     addHistoryItem(ref, 'approved');
     pendingReference = null;
     setActionButtons(false, true);
     currentReference.hidden = true;
-    setDetectionStatus('active', 'Listening…');
   });
 });
 
 btnReject.addEventListener('click', () => {
   if (!pendingReference) return;
   const ref = pendingReference;
-  void invoke('reject_detection', { reference: ref }).then(() => {
+  void invoke('discard_verse').then(() => {
     addHistoryItem(ref, 'rejected');
     pendingReference = null;
     setActionButtons(false, true);
@@ -103,7 +104,7 @@ btnReject.addEventListener('click', () => {
 });
 
 btnClear.addEventListener('click', () => {
-  void invoke('clear_congregation_display');
+  void invoke('discard_verse');
 });
 
 // ─── backend event listeners ──────────────────────────────────────────────────
