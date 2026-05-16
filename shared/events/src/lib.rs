@@ -107,6 +107,10 @@ pub enum AppEvent {
     },
     DisplayCleared,
 
+    // ── Connectivity ─────────────────────────────────────────────────────────
+    InternetConnected,
+    InternetDisconnected,
+
     // ── System ───────────────────────────────────────────────────────────────
     AppStarted {
         version: String,

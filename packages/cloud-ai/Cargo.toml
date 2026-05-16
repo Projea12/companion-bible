@@ -1,0 +1,13 @@
+[package]
+name = "companion-cloud-ai"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+companion-events.workspace = true
+companion-errors.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+reqwest = { version = "0.12", features = ["blocking", "json"] }
