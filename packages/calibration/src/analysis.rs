@@ -155,8 +155,8 @@ mod tests {
     #[test]
     fn high_discard_signals_tightening_trend() {
         let current = CalibrationThresholds::default();
-        // 20% discard rate across 3 services
-        let records: Vec<ServiceRecord> = (0..3).map(|_| rec(100, 70, 10, 20)).collect();
+        // 25% discard rate across 3 services (> both 0.15 trend trigger and 0.20 adjust trigger)
+        let records: Vec<ServiceRecord> = (0..3).map(|_| rec(100, 63, 12, 25)).collect();
         let a = compute_analysis(&records, &current);
         assert_eq!(a.trend, CalibrationTrend::TighteningUp);
         assert!(a.recommended_auto_display > current.auto_display);

@@ -47,9 +47,11 @@ impl Default for CalibrationThresholds {
 
 impl CalibrationThresholds {
     pub fn new(auto_display: f32, show_with_warning: f32) -> Self {
+        let clamped_auto = auto_display.clamp(AUTO_DISPLAY_MIN, AUTO_DISPLAY_MAX);
+        let warning_ceil = (clamped_auto - WARNING_GAP).max(WARNING_MIN);
         Self {
-            auto_display: auto_display.clamp(AUTO_DISPLAY_MIN, AUTO_DISPLAY_MAX),
-            show_with_warning: show_with_warning.clamp(WARNING_MIN, auto_display - WARNING_GAP),
+            auto_display: clamped_auto,
+            show_with_warning: show_with_warning.clamp(WARNING_MIN, warning_ceil),
             ..Default::default()
         }
     }
