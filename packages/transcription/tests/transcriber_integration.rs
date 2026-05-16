@@ -515,7 +515,7 @@ fn timestamp_dedup_partial_overlap_emitted_exactly_once() {
 
     // Run 2 may or may not emit (Whisper might hallucinate on silence).
     // Whatever it emits must not duplicate run 1 text.
-    if let Ok(run2) = rx.recv_timeout(Duration::from_secs(120)) {
+    if let Some(run2) = rx.recv_timeout(Duration::from_secs(120)) {
         let run2_texts: Vec<String> =
             run2.iter().map(|s| {
                 s.text.split_whitespace().map(|w| w.to_lowercase()).collect::<Vec<_>>().join(" ")

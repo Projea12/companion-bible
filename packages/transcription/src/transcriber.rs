@@ -92,7 +92,7 @@ pub(crate) fn normalize(text: &str) -> String {
 /// Deduplication (timestamp-primary, text-fallback)
 ///     │  only new segments
 ///     ▼
-/// mpsc::SyncSender  →  downstream scripture-detection channel
+/// SegmentSender  →  downstream scripture-detection channel
 /// ```
 ///
 /// ## Deduplication strategy
