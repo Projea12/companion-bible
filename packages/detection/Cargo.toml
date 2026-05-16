@@ -3,3 +3,6 @@ name = "companion-detection"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
+
+[dependencies]
+regex = "1"
