@@ -227,4 +227,119 @@ mod tests {
         assert!(t.auto_display >= AUTO_DISPLAY_MIN);
         assert!(t.show_with_warning >= WARNING_MIN);
     }
+
+    // ── calibration adjustment ────────────────────────────────────────────────
+
+    /// High discard rate (> 20 %) drives auto_display upward over multiple services.
+    #[test]
+    fn high_discard_rate_increases_threshold_over_services() {
+        let mut t = CalibrationThresholds::default();
+        let initial = t.auto_display;
+        // 25 % discard rate — clearly above the 20 % trigger
+        let bad_service = record(100, 65, 10, 25);
+        for _ in 0..3 {
+            t = t.adjust_for_service(&bad_service);
+        }
+        assert!(
+            t.auto_display > initial,
+            "auto_display ({}) should be above initial ({initial}) after high-discard services",
+            t.auto_display
+        );
+    }
+
+    /// Low discard and correction rates (both < 5 %) with high auto-accept (> 70 %)
+    /// drive auto_display downward over multiple services.
+    #[test]
+    fn low_discard_rate_decreases_threshold_over_services() {
+        // Start above minimum so there is room to decrease.
+        let mut t = CalibrationThresholds::new(0.97, 0.82);
+        let initial = t.auto_display;
+        // 2 % discard, 2 % correction, 80 % auto-accepted
+        let clean_service = record(100, 80, 2, 2);
+        for _ in 0..3 {
+            t = t.adjust_for_service(&clean_service);
+        }
+        assert!(
+            t.auto_display < initial,
+            "auto_display ({}) should be below initial ({initial}) after clean services",
+            t.auto_display
+        );
+    }
+
+    /// Error (correction) rate above 15 % raises auto_display even when
+    /// discard rate is low.
+    #[test]
+    fn error_rate_above_target_increases_threshold() {
+        let mut t = CalibrationThresholds::default();
+        let initial = t.auto_display;
+        // 18 % correction rate, 4 % discard — only correction trigger fires
+        let noisy_service = record(100, 78, 18, 4);
+        for _ in 0..3 {
+            t = t.adjust_for_service(&noisy_service);
+        }
+        assert!(
+            t.auto_display > initial,
+            "auto_display ({}) should rise when error rate exceeds target",
+            t.auto_display
+        );
+    }
+
+    // ── threshold bounds ──────────────────────────────────────────────────────
+
+    /// No matter how many high-discard services occur, auto_display must not
+    /// exceed 0.99.
+    #[test]
+    fn threshold_never_exceeds_0_99() {
+        let mut t = CalibrationThresholds::new(0.99, 0.88);
+        // All detections rejected — maximally bad input
+        let worst = record(100, 0, 0, 100);
+        for _ in 0..50 {
+            t = t.adjust_for_service(&worst);
+        }
+        assert!(
+            t.auto_display <= 0.99,
+            "auto_display ({}) must never exceed 0.99",
+            t.auto_display
+        );
+        assert!(
+            t.show_with_warning <= 0.99,
+            "show_with_warning ({}) must never exceed 0.99",
+            t.show_with_warning
+        );
+    }
+
+    /// No matter how many clean services occur, auto_display must not fall
+    /// below 0.85.
+    #[test]
+    fn threshold_never_falls_below_0_85() {
+        let mut t = CalibrationThresholds::new(0.85, 0.75);
+        // Perfect service — 100 % auto-accepted, zero corrections or discards
+        let perfect = record(100, 100, 0, 0);
+        for _ in 0..50 {
+            t = t.adjust_for_service(&perfect);
+        }
+        assert!(
+            t.auto_display >= 0.85,
+            "auto_display ({}) must never fall below 0.85",
+            t.auto_display
+        );
+    }
+
+    /// Boundaries hold across the full range: starting at default thresholds
+    /// and hammering with opposite extremes should always stay in [0.85, 0.99].
+    #[test]
+    fn bounds_hold_under_alternating_extreme_services() {
+        let mut t = CalibrationThresholds::default();
+        let bad = record(100, 0, 0, 100);
+        let perfect = record(100, 100, 0, 0);
+        for i in 0..100 {
+            t = t.adjust_for_service(if i % 2 == 0 { &bad } else { &perfect });
+            assert!(t.auto_display >= 0.85, "auto_display dropped below 0.85 on iteration {i}");
+            assert!(t.auto_display <= 0.99, "auto_display exceeded 0.99 on iteration {i}");
+            assert!(
+                t.show_with_warning < t.auto_display,
+                "invariant violated on iteration {i}"
+            );
+        }
+    }
 }
