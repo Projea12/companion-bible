@@ -1,4 +1,5 @@
 mod error;
+pub mod channel;
 pub mod download;
 pub mod manager;
 pub mod model;
@@ -14,6 +15,10 @@ pub use model::{
 };
 pub use transcript::{
     TranscribeOptions, TranscriptionSegment, BIBLE_BOOKS, SERMON_PREAMBLE,
+};
+pub use channel::{
+    segment_channel, segment_channel_with_capacity, SegmentReceiver, SegmentSender,
+    CHANNEL_CAPACITY,
 };
 pub use transcriber::{WhisperTranscriber, NEW_AUDIO_SECS, TRANSCRIBE_WINDOW_SECS};
 

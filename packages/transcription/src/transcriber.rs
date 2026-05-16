@@ -1,11 +1,12 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use companion_audio::{SlidingWindow, SAMPLE_RATE};
 
+use crate::channel::{segment_channel, SegmentReceiver, SegmentSender};
 use crate::model::WhisperModel;
 use crate::transcript::{TranscribeOptions, TranscriptionSegment};
 
@@ -135,19 +136,20 @@ pub struct WhisperTranscriber {
     book_context: Arc<Mutex<Option<String>>>,
     stop_flag: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
-    sender: mpsc::SyncSender<Vec<TranscriptionSegment>>,
+    sender: SegmentSender,
 }
 
 impl WhisperTranscriber {
     /// Create a transcriber and return the receiver for new-segment batches.
     ///
-    /// The internal channel is bounded to 32 batches; a slow consumer blocks
-    /// the transcription thread rather than accumulating unbounded memory.
+    /// Uses a bounded ring-buffer channel (capacity [`CHANNEL_CAPACITY`]).  A
+    /// slow consumer causes the oldest batches to be dropped rather than
+    /// blocking the transcription thread.
     pub fn new(
         window: Arc<Mutex<SlidingWindow>>,
         options: TranscribeOptions,
-    ) -> (Self, mpsc::Receiver<Vec<TranscriptionSegment>>) {
-        let (sender, receiver) = mpsc::sync_channel(32);
+    ) -> (Self, SegmentReceiver) {
+        let (sender, receiver) = segment_channel();
         let stop_flag = Arc::new(AtomicBool::new(true));
         let book_context = Arc::new(Mutex::new(None::<String>));
         (Self { window, options, book_context, stop_flag, handle: None, sender }, receiver)
@@ -232,7 +234,7 @@ fn transcription_loop(
     options: TranscribeOptions,
     book_context: Arc<Mutex<Option<String>>>,
     stop_flag: Arc<AtomicBool>,
-    sender: mpsc::SyncSender<Vec<TranscriptionSegment>>,
+    sender: SegmentSender,
 ) {
     let new_audio_dur = Duration::from_secs(NEW_AUDIO_SECS);
     let window_dur = Duration::from_secs(TRANSCRIBE_WINDOW_SECS);
