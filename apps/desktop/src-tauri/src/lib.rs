@@ -156,6 +156,24 @@ fn discard_verse(app: AppHandle) {
     let _ = app.emit("app-event", serde_json::json!({ "type": "DISPLAY_CLEARED" }));
 }
 
+/// Show a sermon title on the congregation display.
+#[tauri::command]
+fn show_sermon_title(app: AppHandle, title: String) {
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({ "type": "SERMON_TITLE_SHOWN", "title": title }),
+    );
+}
+
+/// Show a sub-point or outline item on the congregation display.
+#[tauri::command]
+fn show_sub_point(app: AppHandle, sub_point: String) {
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({ "type": "SUB_POINT_SHOWN", "text": sub_point }),
+    );
+}
+
 // ─── congregation window commands ─────────────────────────────────────────────
 
 /// Make the congregation window visible on the secondary display.
@@ -231,6 +249,8 @@ pub fn run() {
             hide_congregation_window,
             show_verse,
             discard_verse,
+            show_sermon_title,
+            show_sub_point,
             start_session,
             stop_session,
             approve_detection,

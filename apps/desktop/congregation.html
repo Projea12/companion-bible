@@ -18,7 +18,7 @@
         <div class="idle-logo">✦</div>
       </div>
 
-      <!-- Active state — shown when a verse is displayed -->
+      <!-- Verse state — shown when a scripture verse is displayed -->
       <div id="state-verse" class="congregation-state" hidden>
         <div class="verse-card">
           <div class="verse-reference" id="verse-reference">John 3:16</div>
@@ -28,6 +28,21 @@
             everlasting life.
           </div>
           <div class="verse-translation" id="verse-translation">KJV</div>
+        </div>
+      </div>
+
+      <!-- Title state — shown when a sermon title is displayed -->
+      <div id="state-title" class="congregation-state" hidden>
+        <div class="title-card">
+          <div class="title-eyebrow">Sermon</div>
+          <div class="title-text" id="title-text"></div>
+        </div>
+      </div>
+
+      <!-- Sub-point state — shown when an outline point is displayed -->
+      <div id="state-subpoint" class="congregation-state" hidden>
+        <div class="subpoint-card">
+          <div class="subpoint-text" id="subpoint-text"></div>
         </div>
       </div>
     </div>

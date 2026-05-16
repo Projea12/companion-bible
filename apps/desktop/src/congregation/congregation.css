@@ -91,3 +91,46 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
+
+/* ── sermon title card ────────────────────────────────────────────────────── */
+.title-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: min(1200px, 85vw);
+  gap: clamp(10px, 1.5vw, 20px);
+  padding: clamp(32px, 5vw, 80px);
+}
+.title-eyebrow {
+  font-family: var(--font-sans);
+  font-size: var(--trans-font-size);
+  color: #555;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.title-text {
+  font-family: var(--font-sans);
+  font-size: clamp(36px, 6vw, 90px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #fff;
+  line-height: 1.15;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
+}
+
+/* ── sub-point card ───────────────────────────────────────────────────────── */
+.subpoint-card {
+  max-width: min(1100px, 85vw);
+  padding: clamp(32px, 5vw, 80px);
+  padding-left: clamp(48px, 7vw, 100px);
+  border-left: 4px solid #333;
+}
+.subpoint-text {
+  font-family: var(--font-sans);
+  font-size: clamp(24px, 4vw, 60px);
+  font-weight: 500;
+  color: #ddd;
+  line-height: 1.45;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.8);
+}

@@ -29,6 +29,8 @@ export type AppEvent =
   // ── Display ────────────────────────────────────────────────────────────
   | { type: 'VERSE_DISPLAYED'; reference: BibleReference }
   | { type: 'DISPLAY_CLEARED' }
+  | { type: 'SERMON_TITLE_SHOWN'; title: string }
+  | { type: 'SUB_POINT_SHOWN'; text: string }
 
   // ── Screen ─────────────────────────────────────────────────────────────
   | { type: 'SECONDARY_SCREEN_CONNECTED' }

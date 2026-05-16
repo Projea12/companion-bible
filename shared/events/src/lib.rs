@@ -106,6 +106,12 @@ pub enum AppEvent {
         reference: BibleReference,
     },
     DisplayCleared,
+    SermonTitleShown {
+        title: String,
+    },
+    SubPointShown {
+        text: String,
+    },
 
     // ── Connectivity ─────────────────────────────────────────────────────────
     InternetConnected,

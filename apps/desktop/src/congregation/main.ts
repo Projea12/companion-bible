@@ -5,9 +5,24 @@ import type { AppEvent } from '@companion-bible/types';
 
 const stateIdle = document.getElementById('state-idle') as HTMLDivElement;
 const stateVerse = document.getElementById('state-verse') as HTMLDivElement;
+const stateTitle = document.getElementById('state-title') as HTMLDivElement;
+const stateSubpoint = document.getElementById('state-subpoint') as HTMLDivElement;
 const verseReference = document.getElementById('verse-reference') as HTMLDivElement;
 const verseText = document.getElementById('verse-text') as HTMLDivElement;
 const verseTranslation = document.getElementById('verse-translation') as HTMLDivElement;
+const titleText = document.getElementById('title-text') as HTMLDivElement;
+const subpointText = document.getElementById('subpoint-text') as HTMLDivElement;
+
+// ─── state machine ────────────────────────────────────────────────────────────
+
+type DisplayState = 'idle' | 'verse' | 'title' | 'subpoint';
+
+function showState(next: DisplayState): void {
+  stateIdle.hidden = next !== 'idle';
+  stateVerse.hidden = next !== 'verse';
+  stateTitle.hidden = next !== 'title';
+  stateSubpoint.hidden = next !== 'subpoint';
+}
 
 // ─── display helpers ──────────────────────────────────────────────────────────
 
@@ -15,14 +30,17 @@ function showVerse(reference: string, text: string, translation: string): void {
   verseReference.textContent = reference;
   verseText.textContent = text;
   verseTranslation.textContent = translation;
-
-  stateIdle.hidden = true;
-  stateVerse.hidden = false;
+  showState('verse');
 }
 
-function clearDisplay(): void {
-  stateVerse.hidden = true;
-  stateIdle.hidden = false;
+function showSermonTitle(title: string): void {
+  titleText.textContent = title;
+  showState('title');
+}
+
+function showSubPoint(text: string): void {
+  subpointText.textContent = text;
+  showState('subpoint');
 }
 
 // ─── backend event listeners ──────────────────────────────────────────────────
@@ -36,8 +54,16 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       break;
     }
 
+    case 'SERMON_TITLE_SHOWN':
+      showSermonTitle(payload.title);
+      break;
+
+    case 'SUB_POINT_SHOWN':
+      showSubPoint(payload.text);
+      break;
+
     case 'DISPLAY_CLEARED':
-      clearDisplay();
+      showState('idle');
       break;
   }
 });
