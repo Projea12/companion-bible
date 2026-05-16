@@ -30,6 +30,10 @@ export type AppEvent =
   | { type: 'VERSE_DISPLAYED'; reference: BibleReference }
   | { type: 'DISPLAY_CLEARED' }
 
+  // ── Screen ─────────────────────────────────────────────────────────────
+  | { type: 'SECONDARY_SCREEN_CONNECTED' }
+  | { type: 'SECONDARY_SCREEN_DISCONNECTED' }
+
   // ── System ─────────────────────────────────────────────────────────────
   | { type: 'APP_STARTED'; version: string }
   | { type: 'APP_SHUTDOWN' }
@@ -52,6 +56,11 @@ export type AppEvent =
   | { type: 'CONFIG_UPDATED'; key: string };
 
 export type AppEventType = AppEvent['type'];
+
+export interface ScreenInfo {
+  totalScreens: number;
+  hasSecondaryScreen: boolean;
+}
 
 export function isAppEvent(value: unknown): value is AppEvent {
   return (

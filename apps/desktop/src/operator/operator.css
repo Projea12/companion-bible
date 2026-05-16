@@ -197,3 +197,9 @@
 .connection-status.online {
   color: var(--color-success);
 }
+.screen-status {
+  color: var(--color-text-muted);
+}
+.screen-status.screen-dual {
+  color: var(--color-success);
+}

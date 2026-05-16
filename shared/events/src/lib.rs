@@ -111,6 +111,10 @@ pub enum AppEvent {
     InternetConnected,
     InternetDisconnected,
 
+    // ── Screen ───────────────────────────────────────────────────────────────
+    SecondaryScreenConnected,
+    SecondaryScreenDisconnected,
+
     // ── System ───────────────────────────────────────────────────────────────
     AppStarted {
         version: String,

@@ -18,7 +18,7 @@
         <div class="session-controls" id="session-controls">
           <button id="btn-start-session" class="btn btn-primary">Start Session</button>
           <button id="btn-stop-session" class="btn btn-danger" hidden>Stop Session</button>
-          <button id="btn-toggle-congregation" class="btn btn-secondary">Show Congregation Window</button>
+          <button id="btn-toggle-congregation" class="btn btn-secondary" disabled>Show Congregation Window</button>
         </div>
       </header>
 
@@ -66,6 +66,7 @@
           <span class="pipeline-badge" data-layer="local-ai" title="Local AI">L</span>
           <span class="pipeline-badge" data-layer="cloud-ai" title="Cloud AI">C</span>
         </div>
+        <div id="screen-status" class="screen-status screen-single">1 screen</div>
         <div id="connection-status" class="connection-status">Offline</div>
       </footer>
     </div>

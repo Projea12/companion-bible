@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { AppEvent } from '@companion-bible/types';
+import type { AppEvent, ScreenInfo } from '@companion-bible/types';
 
 // ─── element references ───────────────────────────────────────────────────────
 
@@ -17,11 +17,28 @@ const currentReference = document.getElementById('current-reference') as HTMLDiv
 const referenceText = document.getElementById('reference-text') as HTMLDivElement;
 const historyList = document.getElementById('detection-history') as HTMLUListElement;
 const connectionStatus = document.getElementById('connection-status') as HTMLDivElement;
+const screenStatus = document.getElementById('screen-status') as HTMLDivElement;
 
 // ─── state ────────────────────────────────────────────────────────────────────
 
 let congregationVisible = false;
 let pendingReference: string | null = null;
+
+// ─── screen management ────────────────────────────────────────────────────────
+
+function applyScreenInfo(info: ScreenInfo): void {
+  const hasSecondary = info.hasSecondaryScreen;
+  btnToggleCongregation.disabled = !hasSecondary;
+  screenStatus.textContent = `${info.totalScreens} screen${info.totalScreens === 1 ? '' : 's'}`;
+  screenStatus.className = `screen-status ${hasSecondary ? 'screen-dual' : 'screen-single'}`;
+
+  if (!hasSecondary && congregationVisible) {
+    congregationVisible = false;
+    btnToggleCongregation.textContent = 'Show Congregation Window';
+  }
+}
+
+void invoke<ScreenInfo>('get_screen_info').then(applyScreenInfo);
 
 // ─── session controls ─────────────────────────────────────────────────────────
 
@@ -93,6 +110,14 @@ btnClear.addEventListener('click', () => {
 
 void listen<AppEvent>('app-event', ({ payload }) => {
   switch (payload.type) {
+    case 'SECONDARY_SCREEN_CONNECTED':
+      void invoke<ScreenInfo>('get_screen_info').then(applyScreenInfo);
+      break;
+
+    case 'SECONDARY_SCREEN_DISCONNECTED':
+      void invoke<ScreenInfo>('get_screen_info').then(applyScreenInfo);
+      break;
+
     case 'SCRIPTURE_REFERENCE_DETECTED': {
       const ref = payload.references[0];
       if (!ref) break;
