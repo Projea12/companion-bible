@@ -1,22 +1,44 @@
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow};
 
 // ─── window labels ────────────────────────────────────────────────────────────
 
 const OPERATOR_LABEL: &str = "operator";
 const CONGREGATION_LABEL: &str = "congregation";
 
-// ─── screen info type ─────────────────────────────────────────────────────────
+// ─── application state ────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+enum DisplayMode {
+    #[default]
+    Idle,
+    Blank,
+    Verse,
+    Title,
+    Subpoint,
+}
+
+#[derive(Default)]
+struct InternalState {
+    display_mode: DisplayMode,
+    session_active: bool,
+}
+
+struct ManagedState(Mutex<InternalState>);
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ScreenInfo {
+struct AppState {
+    display_mode: DisplayMode,
+    session_active: bool,
+    congregation_visible: bool,
     total_screens: usize,
     has_secondary_screen: bool,
 }
 
 // ─── screen management ────────────────────────────────────────────────────────
 
-/// How many monitors are currently connected, as seen from the operator window.
 fn monitor_count(app: &AppHandle) -> usize {
     app.get_webview_window(OPERATOR_LABEL)
         .and_then(|w| w.available_monitors().ok())
@@ -24,7 +46,6 @@ fn monitor_count(app: &AppHandle) -> usize {
         .unwrap_or(1)
 }
 
-/// Find the first non-primary monitor.
 fn secondary_monitor(op_win: &WebviewWindow) -> Option<tauri::Monitor> {
     let primary = op_win.primary_monitor().ok().flatten()?;
     let monitors = op_win.available_monitors().ok()?;
@@ -33,8 +54,6 @@ fn secondary_monitor(op_win: &WebviewWindow) -> Option<tauri::Monitor> {
         .find(|m| m.position() != primary.position())
 }
 
-/// Move and resize the congregation window to fill the secondary monitor.
-/// Returns true if a secondary monitor was found and the window was repositioned.
 fn assign_congregation_to_secondary(app: &AppHandle) -> bool {
     let Some(cong_win) = congregation_window(app) else {
         return false;
@@ -45,7 +64,6 @@ fn assign_congregation_to_secondary(app: &AppHandle) -> bool {
     let Some(screen) = secondary_monitor(&op_win) else {
         return false;
     };
-
     let pos = screen.position();
     let size = screen.size();
     let _ = cong_win.set_position(PhysicalPosition::new(pos.x, pos.y));
@@ -53,27 +71,21 @@ fn assign_congregation_to_secondary(app: &AppHandle) -> bool {
     true
 }
 
-/// Spawn a background thread that polls monitor count every 2 s and emits
-/// SECONDARY_SCREEN_CONNECTED / SECONDARY_SCREEN_DISCONNECTED on changes.
 fn watch_screens(app: AppHandle) {
     let initial_count = monitor_count(&app);
-
     std::thread::Builder::new()
         .name("screen-watcher".into())
         .spawn(move || {
             let mut last_count = initial_count;
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(2));
-
                 let current = monitor_count(&app);
                 if current == last_count {
                     continue;
                 }
-
                 let had_secondary = last_count > 1;
                 let has_secondary = current > 1;
                 last_count = current;
-
                 if has_secondary && !had_secondary {
                     assign_congregation_to_secondary(&app);
                     let _ = app.emit(
@@ -94,19 +106,51 @@ fn watch_screens(app: AppHandle) {
         .expect("failed to spawn screen-watcher thread");
 }
 
-// ─── screen commands ──────────────────────────────────────────────────────────
+// ─── state command ────────────────────────────────────────────────────────────
 
-/// Return the current monitor count and whether a secondary screen is present.
+/// Return the full application state: display mode, session, screen info,
+/// and congregation window visibility. Called by the operator on startup.
 #[tauri::command]
-fn get_screen_info(app: AppHandle) -> ScreenInfo {
+fn get_app_state(app: AppHandle, state: State<ManagedState>) -> AppState {
+    let s = state.0.lock().unwrap();
     let count = monitor_count(&app);
-    ScreenInfo {
+    let congregation_visible = congregation_window(&app)
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    AppState {
+        display_mode: s.display_mode.clone(),
+        session_active: s.session_active,
+        congregation_visible,
         total_screens: count,
         has_secondary_screen: count > 1,
     }
 }
 
-// ─── verse commands ───────────────────────────────────────────────────────────
+// ─── screen commands ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_screen_info(app: AppHandle) -> serde_json::Value {
+    let count = monitor_count(&app);
+    serde_json::json!({ "totalScreens": count, "hasSecondaryScreen": count > 1 })
+}
+
+#[tauri::command]
+fn show_congregation_window(app: AppHandle) {
+    assign_congregation_to_secondary(&app);
+    if let Some(w) = congregation_window(&app) {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+#[tauri::command]
+fn hide_congregation_window(app: AppHandle) {
+    if let Some(w) = congregation_window(&app) {
+        let _ = w.hide();
+    }
+}
+
+// ─── display commands ─────────────────────────────────────────────────────────
 
 /// Parse "Book Chapter[:Verse[-VerseEnd]]" into the BibleReference JSON shape.
 /// Uses rsplitn so multi-word book names (e.g. "1 Corinthians") are preserved.
@@ -114,7 +158,6 @@ fn parse_reference(s: &str) -> Option<serde_json::Value> {
     let mut parts = s.rsplitn(2, ' ');
     let chapter_verse = parts.next()?;
     let book = parts.next()?;
-
     if let Some((ch_str, verse_str)) = chapter_verse.split_once(':') {
         let chapter: u8 = ch_str.parse().ok()?;
         if let Some((from_str, to_str)) = verse_str.split_once('-') {
@@ -131,9 +174,8 @@ fn parse_reference(s: &str) -> Option<serde_json::Value> {
     }
 }
 
-/// Display a verse on the congregation window and notify the operator.
 #[tauri::command]
-fn show_verse(app: AppHandle, reference: String, text: String) {
+fn show_verse(app: AppHandle, state: State<ManagedState>, reference: String, text: String) {
     let Some(ref_json) = parse_reference(&reference) else { return };
     let _ = app.emit(
         "app-event",
@@ -148,62 +190,51 @@ fn show_verse(app: AppHandle, reference: String, text: String) {
         "app-event",
         serde_json::json!({ "type": "VERSE_DISPLAYED", "reference": ref_json }),
     );
+    state.0.lock().unwrap().display_mode = DisplayMode::Verse;
 }
 
-/// Clear the congregation display without showing a new verse.
 #[tauri::command]
-fn discard_verse(app: AppHandle) {
+fn discard_verse(app: AppHandle, state: State<ManagedState>) {
     let _ = app.emit("app-event", serde_json::json!({ "type": "DISPLAY_CLEARED" }));
+    state.0.lock().unwrap().display_mode = DisplayMode::Idle;
 }
 
-/// Show a sermon title on the congregation display.
 #[tauri::command]
-fn show_sermon_title(app: AppHandle, title: String) {
+fn show_sermon_title(app: AppHandle, state: State<ManagedState>, title: String) {
     let _ = app.emit(
         "app-event",
         serde_json::json!({ "type": "SERMON_TITLE_SHOWN", "title": title }),
     );
+    state.0.lock().unwrap().display_mode = DisplayMode::Title;
 }
 
-/// Show a sub-point or outline item on the congregation display.
 #[tauri::command]
-fn show_sub_point(app: AppHandle, sub_point: String) {
+fn show_sub_point(app: AppHandle, state: State<ManagedState>, sub_point: String) {
     let _ = app.emit(
         "app-event",
         serde_json::json!({ "type": "SUB_POINT_SHOWN", "text": sub_point }),
     );
+    state.0.lock().unwrap().display_mode = DisplayMode::Subpoint;
 }
 
-// ─── congregation window commands ─────────────────────────────────────────────
-
-/// Make the congregation window visible on the secondary display.
-/// Re-assigns the window position each time in case the monitor changed.
+/// Black out the congregation display entirely — no logo, no content.
 #[tauri::command]
-fn show_congregation_window(app: AppHandle) {
-    assign_congregation_to_secondary(&app);
-    if let Some(w) = congregation_window(&app) {
-        let _ = w.show();
-        let _ = w.set_focus();
-    }
-}
-
-/// Hide the congregation window (keeps it resident in memory for fast reshow).
-#[tauri::command]
-fn hide_congregation_window(app: AppHandle) {
-    if let Some(w) = congregation_window(&app) {
-        let _ = w.hide();
-    }
+fn show_blank(app: AppHandle, state: State<ManagedState>) {
+    let _ = app.emit("app-event", serde_json::json!({ "type": "DISPLAY_BLANKED" }));
+    state.0.lock().unwrap().display_mode = DisplayMode::Blank;
 }
 
 // ─── session commands ─────────────────────────────────────────────────────────
 
 #[tauri::command]
-fn start_session(_app: AppHandle) {
+fn start_session(state: State<ManagedState>) {
+    state.0.lock().unwrap().session_active = true;
     // TODO: start audio capture pipeline
 }
 
 #[tauri::command]
-fn stop_session(_app: AppHandle) {
+fn stop_session(state: State<ManagedState>) {
+    state.0.lock().unwrap().session_active = false;
     // TODO: stop audio capture pipeline
 }
 
@@ -211,7 +242,7 @@ fn stop_session(_app: AppHandle) {
 
 #[tauri::command]
 fn approve_detection(app: AppHandle, reference: String) {
-    // TODO: load verse text and emit VERSE_LOADED event
+    // TODO: look up verse text from Bible package and call show_verse
     let _ = (app, reference);
 }
 
@@ -222,8 +253,9 @@ fn reject_detection(_app: AppHandle, reference: String) {
 }
 
 #[tauri::command]
-fn clear_congregation_display(app: AppHandle) {
+fn clear_congregation_display(app: AppHandle, state: State<ManagedState>) {
     let _ = app.emit("app-event", serde_json::json!({ "type": "DISPLAY_CLEARED" }));
+    state.0.lock().unwrap().display_mode = DisplayMode::Idle;
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -238,12 +270,14 @@ fn congregation_window(app: &AppHandle) -> Option<WebviewWindow> {
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            app.manage(ManagedState(Mutex::new(InternalState::default())));
             let handle = app.handle().clone();
             assign_congregation_to_secondary(&handle);
             watch_screens(handle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_app_state,
             get_screen_info,
             show_congregation_window,
             hide_congregation_window,
@@ -251,6 +285,7 @@ pub fn run() {
             discard_verse,
             show_sermon_title,
             show_sub_point,
+            show_blank,
             start_session,
             stop_session,
             approve_detection,

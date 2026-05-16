@@ -112,6 +112,7 @@ pub enum AppEvent {
     SubPointShown {
         text: String,
     },
+    DisplayBlanked,
 
     // ── Connectivity ─────────────────────────────────────────────────────────
     InternetConnected,

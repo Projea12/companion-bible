@@ -31,6 +31,7 @@ export type AppEvent =
   | { type: 'DISPLAY_CLEARED' }
   | { type: 'SERMON_TITLE_SHOWN'; title: string }
   | { type: 'SUB_POINT_SHOWN'; text: string }
+  | { type: 'DISPLAY_BLANKED' }
 
   // ── Screen ─────────────────────────────────────────────────────────────
   | { type: 'SECONDARY_SCREEN_CONNECTED' }
@@ -60,6 +61,16 @@ export type AppEvent =
 export type AppEventType = AppEvent['type'];
 
 export interface ScreenInfo {
+  totalScreens: number;
+  hasSecondaryScreen: boolean;
+}
+
+export type DisplayMode = 'idle' | 'blank' | 'verse' | 'title' | 'subpoint';
+
+export interface AppState {
+  displayMode: DisplayMode;
+  sessionActive: boolean;
+  congregationVisible: boolean;
   totalScreens: number;
   hasSecondaryScreen: boolean;
 }

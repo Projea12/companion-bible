@@ -134,3 +134,8 @@
   line-height: 1.45;
   text-shadow: 0 2px 16px rgba(0, 0, 0, 0.8);
 }
+
+/* ── blank ────────────────────────────────────────────────────────────────── */
+.congregation-blank {
+  background: #000;
+}

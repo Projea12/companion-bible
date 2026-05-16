@@ -7,6 +7,7 @@ const stateIdle = document.getElementById('state-idle') as HTMLDivElement;
 const stateVerse = document.getElementById('state-verse') as HTMLDivElement;
 const stateTitle = document.getElementById('state-title') as HTMLDivElement;
 const stateSubpoint = document.getElementById('state-subpoint') as HTMLDivElement;
+const stateBlank = document.getElementById('state-blank') as HTMLDivElement;
 const verseReference = document.getElementById('verse-reference') as HTMLDivElement;
 const verseText = document.getElementById('verse-text') as HTMLDivElement;
 const verseTranslation = document.getElementById('verse-translation') as HTMLDivElement;
@@ -15,10 +16,11 @@ const subpointText = document.getElementById('subpoint-text') as HTMLDivElement;
 
 // ─── state machine ────────────────────────────────────────────────────────────
 
-type DisplayState = 'idle' | 'verse' | 'title' | 'subpoint';
+type DisplayState = 'idle' | 'blank' | 'verse' | 'title' | 'subpoint';
 
 function showState(next: DisplayState): void {
   stateIdle.hidden = next !== 'idle';
+  stateBlank.hidden = next !== 'blank';
   stateVerse.hidden = next !== 'verse';
   stateTitle.hidden = next !== 'title';
   stateSubpoint.hidden = next !== 'subpoint';
