@@ -1,5 +1,6 @@
 mod error;
 pub mod channel;
+pub mod correction;
 pub mod download;
 pub mod manager;
 pub mod model;
@@ -20,6 +21,7 @@ pub use channel::{
     segment_channel, segment_channel_with_capacity, SegmentReceiver, SegmentSender,
     CHANNEL_CAPACITY,
 };
+pub use correction::{correct_batch, correct_segment, correct_text, CORRECTIONS};
 pub use transcriber::{WhisperTranscriber, NEW_AUDIO_SECS, TRANSCRIBE_WINDOW_SECS};
 
 #[cfg(test)]

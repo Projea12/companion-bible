@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use companion_audio::{SlidingWindow, SAMPLE_RATE};
 
 use crate::channel::{segment_channel, SegmentReceiver, SegmentSender};
+use crate::correction::correct_batch;
 use crate::model::WhisperModel;
 use crate::transcript::{TranscribeOptions, TranscriptionSegment};
 
@@ -272,13 +273,16 @@ fn transcription_loop(
         run_opts.initial_prompt = TranscribeOptions::build_prompt(current_book.as_deref());
 
         // Run Whisper.  Blocking; may take several seconds on CPU.
-        let raw = match model.transcribe(&audio, &run_opts) {
+        let mut raw = match model.transcribe(&audio, &run_opts) {
             Ok(segs) => segs,
             Err(_) => {
                 last_run = Instant::now();
                 continue;
             }
         };
+
+        // Apply Nigerian-English post-processing corrections before dedup.
+        correct_batch(&mut raw);
 
         // Absolute start of this Whisper window in the audio timeline (ms).
         let window_start_abs_ms = (samples_trimmed / SAMPLE_RATE as u64) * 1_000;
