@@ -33,6 +33,20 @@ const CONTEXT_UPDATE_THRESHOLD: f32 = 0.70;
 /// clock.  Separate from the per-segment decay applied inside `enrich`.
 const TIME_DECAY_PER_MS: f32 = 0.1 / 120_000.0;
 
+/// Phrases that signal a back-reference to a previously mentioned scripture.
+///
+/// Checked case-insensitively in [`SermonContext::find_backreference`].
+const BACKREFERENCE_PHRASES: &[&str] = &[
+    "as we read earlier",
+    "as i read earlier",
+    "as mentioned earlier",
+    "as we mentioned",
+    "earlier we read",
+    "the verse we read",
+    "as we saw earlier",
+    "as noted earlier",
+];
+
 // ─── SermonContext ─────────────────────────────────────────────────────────────
 
 /// Stateful context accumulator for a live sermon session.
@@ -211,7 +225,7 @@ impl SermonContext {
         self.integrate_detections(&detections, segment.audio_end_ms);
 
         // 6. Update sliding windows.
-        self.rolling_transcript.push(&corrected);
+        self.rolling_transcript.push(&corrected, segment.audio_end_ms);
         self.recent_segments.push_back(segment.clone());
         if self.recent_segments.len() > self.max_recent_segments {
             self.recent_segments.pop_front();
@@ -301,6 +315,28 @@ impl SermonContext {
             // Boost context confidence.
             let boost = d.raw_match.confidence * CONFIDENCE_BOOST_FACTOR;
             self.context_confidence = (self.context_confidence + boost).min(1.0);
+        }
+    }
+}
+
+    // ── Back-reference lookup ─────────────────────────────────────────────────
+
+    /// If `text` contains a back-reference phrase (e.g. `"as we read earlier"`),
+    /// return the most recently mentioned verse from
+    /// [`mentioned_verses`][SermonContext::mentioned_verses].
+    ///
+    /// Returns `None` when no back-reference phrase is present or when no
+    /// verses have been mentioned yet.
+    ///
+    /// This is a lightweight heuristic for the common preaching pattern:
+    /// *"as we read earlier in John 3:16…"*
+    pub fn find_backreference(&self, text: &str) -> Option<&BibleReference> {
+        let lower = text.to_lowercase();
+        let is_backreference = BACKREFERENCE_PHRASES.iter().any(|p| lower.contains(*p));
+        if is_backreference {
+            self.mentioned_verses.last().map(|(r, _)| r)
+        } else {
+            None
         }
     }
 }
