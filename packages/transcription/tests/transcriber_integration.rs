@@ -240,7 +240,7 @@ fn no_duplicate_segments_on_repeated_audio() {
     // Wait for a possible second batch.  If all text was deduplicated the
     // channel will stay empty until the timeout — that is the desired outcome.
     match rx.recv_timeout(Duration::from_secs(30)) {
-        Ok(second) => {
+        Some(second) => {
             let second_texts: Vec<String> =
                 second.iter().map(|s| s.text.to_lowercase()).collect();
             println!("Second batch ({} segs): {second_texts:?}", second.len());
@@ -267,7 +267,7 @@ fn no_duplicate_segments_on_repeated_audio() {
                 );
             }
         }
-        Err(_) => {
+        None => {
             println!("No second batch — all text correctly deduplicated");
         }
     }

@@ -303,9 +303,9 @@ fn transcription_loop(
             }
         }
 
-        // Emit batch (silently drop if receiver has disconnected).
+        // Emit batch (non-blocking; drops oldest if channel is full).
         if !new_segs.is_empty() {
-            let _ = sender.send(new_segs);
+            sender.send(new_segs);
         }
 
         // Advance the window: trim the oldest NEW_AUDIO_SECS and record it.
