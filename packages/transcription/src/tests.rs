@@ -706,14 +706,14 @@ fn transcriber_deduplicates_overlapping_windows() {
 
     // Wait for a potential second batch.
     match rx.recv_timeout(Duration::from_secs(30)) {
-        Ok(second) => {
+        Some(second) => {
             println!("Second batch: {} segments", second.len());
             // Any segments from identical audio must be duplicates — channel only
             // receives non-duplicates, so the batch should be empty (no send) or
             // contain genuinely new hallucinations.  We can't assert zero because
             // Whisper is not fully deterministic at temperature > 0.
         }
-        Err(_) => println!("No second batch — correct: all text was deduplicated"),
+        None => println!("No second batch — correct: all text was deduplicated"),
     }
 
     transcriber.stop();

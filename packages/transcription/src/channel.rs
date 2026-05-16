@@ -37,9 +37,15 @@ struct ChannelInner {
 ///
 /// Cloneable — every clone shares the same underlying queue.  The channel
 /// closes automatically when every clone is dropped.
-#[derive(Clone)]
 pub struct SegmentSender {
     inner: Arc<ChannelInner>,
+}
+
+impl Clone for SegmentSender {
+    fn clone(&self) -> Self {
+        self.inner.sender_count.fetch_add(1, Ordering::AcqRel);
+        Self { inner: Arc::clone(&self.inner) }
+    }
 }
 
 impl SegmentSender {
