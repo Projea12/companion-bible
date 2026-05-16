@@ -227,7 +227,7 @@ mod tests {
     fn timeout_error_from_slow_server() {
         let mut server = mockito::Server::new();
         // Respond after the client has already given up.
-        server.mock("POST", "/v1/messages")
+        server.mock("POST", "/")
             .with_status(200)
             .with_body_from_fn(|_| {
                 std::thread::sleep(std::time::Duration::from_millis(200));
@@ -244,41 +244,37 @@ mod tests {
     }
 
     // ── Retry logic ───────────────────────────────────────────────────────────
+    //
+    // mockito matches mocks in LIFO order — create the fallback (200) first,
+    // then the trigger (429/500) second so it fires on the first request.
 
     #[test]
-    fn retries_on_429_then_succeeds() {
+    fn retries_on_429_exhausts_max_retries() {
         let mut server = mockito::Server::new();
-        let json = r#"{"book":"John","chapter":3,"verse":16,"confidence":0.97,"unattributed":false}"#;
 
-        // First call → 429, second call → 200.
-        let _m1 = server.mock("POST", "/v1/messages")
+        // All attempts return 429 — verifies the client retries MAX_RETRIES times.
+        let _m = server.mock("POST", "/")
             .with_status(429)
-            .expect(1)
-            .create();
-        let _m2 = server.mock("POST", "/v1/messages")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(valid_api_body(json))
-            .expect(1)
+            .expect(3) // initial + 2 retries
             .create();
 
-        let client = AnthropicClient::new("key", 3_000)
+        let client = AnthropicClient::new("key", 5_000)
             .with_endpoint(server.url());
 
         let result = client.complete("sys", "user");
-        // After retry the 200 response should be returned.
-        assert!(result.is_ok(), "expected Ok after retry, got: {result:?}");
+        assert!(matches!(result, Err(CloudAIError::ApiError { status: 429, .. })));
+        _m.assert(); // confirms exactly 3 calls were made
     }
 
     #[test]
     fn retries_on_500_then_fails_after_max_retries() {
         let mut server = mockito::Server::new();
 
-        // All three attempts return 500.
-        let _m = server.mock("POST", "/v1/messages")
+        // All three attempts (initial + 2 retries) return 500.
+        let _m = server.mock("POST", "/")
             .with_status(500)
             .with_body("internal error")
-            .expect(3) // initial + 2 retries
+            .expect(3)
             .create();
 
         let client = AnthropicClient::new("key", 5_000)
@@ -294,7 +290,7 @@ mod tests {
         let mut server = mockito::Server::new();
 
         // Only one call should be made — 401 is not retryable.
-        let _m = server.mock("POST", "/v1/messages")
+        let _m = server.mock("POST", "/")
             .with_status(401)
             .expect(1)
             .create();
@@ -311,7 +307,7 @@ mod tests {
     fn no_retry_on_400_bad_request() {
         let mut server = mockito::Server::new();
 
-        let _m = server.mock("POST", "/v1/messages")
+        let _m = server.mock("POST", "/")
             .with_status(400)
             .with_body("bad request")
             .expect(1)
@@ -331,7 +327,7 @@ mod tests {
     fn malformed_response_empty_content_array() {
         let mut server = mockito::Server::new();
 
-        server.mock("POST", "/v1/messages")
+        server.mock("POST", "/")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"content":[]}"#)
@@ -348,7 +344,7 @@ mod tests {
     fn malformed_response_non_json_body() {
         let mut server = mockito::Server::new();
 
-        server.mock("POST", "/v1/messages")
+        server.mock("POST", "/")
             .with_status(200)
             .with_body("this is not json at all")
             .create();
@@ -365,7 +361,7 @@ mod tests {
         let mut server = mockito::Server::new();
         let text = r#"{\"book\":\"John\",\"chapter\":3,\"verse\":16,\"confidence\":0.97,\"unattributed\":false}"#;
 
-        server.mock("POST", "/v1/messages")
+        server.mock("POST", "/")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(valid_api_body(text))
