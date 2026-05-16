@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
+    <title>Companion Bible — Operator</title>
+    <link rel="stylesheet" href="/src/shared/base.css" />
+    <link rel="stylesheet" href="/src/operator/operator.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="operator-header">
+        <h1 class="operator-title">Companion Bible</h1>
+        <div class="session-controls" id="session-controls">
+          <button id="btn-start-session" class="btn btn-primary">Start Session</button>
+          <button id="btn-stop-session" class="btn btn-danger" hidden>Stop Session</button>
+          <button id="btn-toggle-congregation" class="btn btn-secondary">Show Congregation Window</button>
+        </div>
+      </header>
+
+      <main class="operator-main">
+        <section class="detection-panel" aria-label="Current Detection">
+          <h2>Live Detection</h2>
+          <div id="detection-status" class="detection-status status-idle">
+            <span class="status-label">Idle</span>
+          </div>
+          <div id="current-reference" class="reference-display" hidden>
+            <div class="reference-text" id="reference-text">—</div>
+            <div class="confidence-bar-wrap">
+              <div class="confidence-bar" id="confidence-bar" style="width: 0%"></div>
+            </div>
+            <div class="confidence-label" id="confidence-label">0%</div>
+          </div>
+        </section>
+
+        <section class="action-panel" aria-label="Operator Actions">
+          <h2>Actions</h2>
+          <div class="action-buttons" id="action-buttons">
+            <button id="btn-approve" class="btn btn-approve" disabled>
+              ✓ Approve &amp; Display
+            </button>
+            <button id="btn-reject" class="btn btn-reject" disabled>
+              ✗ Reject
+            </button>
+            <button id="btn-clear" class="btn btn-secondary" disabled>
+              Clear Display
+            </button>
+          </div>
+        </section>
+
+        <section class="history-panel" aria-label="Detection History">
+          <h2>Session History</h2>
+          <ul id="detection-history" class="history-list">
+            <li class="history-empty">No detections yet</li>
+          </ul>
+        </section>
+      </main>
+
+      <footer class="operator-footer">
+        <div id="pipeline-status" class="pipeline-status">
+          <span class="pipeline-badge" data-layer="pattern" title="Pattern Engine">P</span>
+          <span class="pipeline-badge" data-layer="local-ai" title="Local AI">L</span>
+          <span class="pipeline-badge" data-layer="cloud-ai" title="Cloud AI">C</span>
+        </div>
+        <div id="connection-status" class="connection-status">Offline</div>
+      </footer>
+    </div>
+    <script type="module" src="/src/operator/main.ts"></script>
+  </body>
+</html>

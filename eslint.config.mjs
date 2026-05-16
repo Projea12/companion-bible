@@ -27,8 +27,34 @@ export default [
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
   },
+  // Browser globals for Tauri frontend source files
+  {
+    files: ['apps/desktop/src/**/*.ts'],
+    languageOptions: {
+      globals: {
+        document: 'readonly',
+        window: 'readonly',
+        HTMLElement: 'readonly',
+        HTMLButtonElement: 'readonly',
+        HTMLDivElement: 'readonly',
+        HTMLUListElement: 'readonly',
+        HTMLLIElement: 'readonly',
+        Element: 'readonly',
+        Event: 'readonly',
+        MouseEvent: 'readonly',
+      },
+    },
+  },
   prettierConfig,
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/build/**', 'target/'],
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/build/**',
+      'target/',
+      '**/*.config.ts',
+      '**/*.config.mjs',
+      '**/*.config.cjs',
+    ],
   },
 ];

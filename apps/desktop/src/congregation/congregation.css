@@ -1,0 +1,93 @@
+/* ── congregation display ─────────────────────────────────────────────────── */
+:root {
+  --verse-font-size: clamp(28px, 5vw, 72px);
+  --ref-font-size: clamp(18px, 2.5vw, 36px);
+  --trans-font-size: clamp(13px, 1.5vw, 20px);
+  --fade-duration: 600ms;
+}
+
+.congregation-body {
+  background: #000;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.congregation-app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── state containers ─────────────────────────────────────────────────────── */
+.congregation-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  transition: opacity var(--fade-duration) ease;
+}
+.congregation-state[hidden] {
+  display: flex !important; /* keep in flow for transitions */
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── idle ─────────────────────────────────────────────────────────────────── */
+.idle-logo {
+  font-size: 64px;
+  color: #1a1a1a;
+  animation: pulse 4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+/* ── verse card ───────────────────────────────────────────────────────────── */
+.verse-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: min(1200px, 85vw);
+  gap: clamp(16px, 2vw, 32px);
+  padding: clamp(32px, 5vw, 80px);
+}
+
+.verse-reference {
+  font-family: var(--font-sans);
+  font-size: var(--ref-font-size);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #aaa;
+}
+
+.verse-text {
+  font-family: var(--font-serif);
+  font-size: var(--verse-font-size);
+  font-weight: 400;
+  line-height: 1.45;
+  color: #fff;
+  /* Subtle text shadow for legibility on any background */
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
+}
+
+.verse-translation {
+  font-family: var(--font-sans);
+  font-size: var(--trans-font-size);
+  color: #555;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}

@@ -15,6 +15,7 @@ members = [
     "packages/arbitrator",
     "packages/calibration",
     "packages/engine",
+    "apps/desktop/src-tauri",
 ]
 
 [workspace.package]

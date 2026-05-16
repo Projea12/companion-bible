@@ -1,0 +1,30 @@
+{
+  "congregation-capability": {
+    "identifier": "congregation-capability",
+    "description": "Display-only capabilities for the congregation window",
+    "local": true,
+    "windows": ["congregation"],
+    "permissions": ["core:default", "core:event:default"]
+  },
+  "operator-capability": {
+    "identifier": "operator-capability",
+    "description": "Full interaction capabilities for the operator window",
+    "local": true,
+    "windows": ["operator"],
+    "permissions": [
+      "core:default",
+      "core:window:allow-create",
+      "core:window:allow-start-dragging",
+      "core:window:allow-set-focus",
+      "core:window:allow-show",
+      "core:window:allow-hide",
+      "core:window:allow-close",
+      "core:window:allow-set-title",
+      "core:window:allow-maximize",
+      "core:window:allow-unmaximize",
+      "core:window:allow-minimize",
+      "core:window:allow-toggle-maximize",
+      "core:event:default"
+    ]
+  }
+}

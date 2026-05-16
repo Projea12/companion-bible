@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "congregation-capability",
+  "description": "Display-only capabilities for the congregation window",
+  "windows": ["congregation"],
+  "permissions": ["core:default", "core:event:default"]
+}

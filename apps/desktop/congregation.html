@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
+    <title>Companion Bible</title>
+    <link rel="stylesheet" href="/src/shared/base.css" />
+    <link rel="stylesheet" href="/src/congregation/congregation.css" />
+  </head>
+  <body class="congregation-body">
+    <div id="app" class="congregation-app">
+      <!-- Idle state — shown when no verse is active -->
+      <div id="state-idle" class="congregation-state">
+        <div class="idle-logo">✦</div>
+      </div>
+
+      <!-- Active state — shown when a verse is displayed -->
+      <div id="state-verse" class="congregation-state" hidden>
+        <div class="verse-card">
+          <div class="verse-reference" id="verse-reference">John 3:16</div>
+          <div class="verse-text" id="verse-text">
+            For God so loved the world, that he gave his only begotten Son,
+            that whosoever believeth in him should not perish, but have
+            everlasting life.
+          </div>
+          <div class="verse-translation" id="verse-translation">KJV</div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/congregation/main.ts"></script>
+  </body>
+</html>

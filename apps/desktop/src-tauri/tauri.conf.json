@@ -1,0 +1,53 @@
+{
+  "productName": "Companion Bible",
+  "version": "0.1.0",
+  "identifier": "com.companion.bible",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "operator",
+        "title": "Companion Bible — Operator",
+        "url": "index.html",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true,
+        "visible": true,
+        "center": true
+      },
+      {
+        "label": "congregation",
+        "title": "Companion Bible",
+        "url": "congregation.html",
+        "width": 1920,
+        "height": 1080,
+        "resizable": true,
+        "visible": false,
+        "decorations": false,
+        "alwaysOnTop": false,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

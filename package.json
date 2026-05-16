@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": [
     "shared/types",
-    "packages/bible"
+    "packages/bible",
+    "apps/desktop"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
