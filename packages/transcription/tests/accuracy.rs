@@ -34,24 +34,44 @@ fn load_model() -> WhisperModel {
 /// samples at 16 kHz.  Panics on any OS or encoding error.
 fn synthesize(text: &str, voice: &str) -> Vec<f32> {
     let dir = tempfile::tempdir().expect("tempdir");
-    let raw = dir.path().join("tts.raw");
+    let aiff = dir.path().join("tts.aiff");
 
+    // `say` always writes AIFF reliably without extra format flags.
+    // Specifying --data-format with a .raw extension causes "Opening output
+    // file failed: fmt?" on macOS because the extension is unrecognised.
     let status = std::process::Command::new("say")
-        .args([
-            "--voice",
-            voice,
-            "--data-format=LEF32@16000",
-            "-o",
-            raw.to_str().unwrap(),
-            text,
-        ])
+        .args(["--voice", voice, "-o", aiff.to_str().unwrap(), text])
         .status()
-        .expect("`say` command must be available (macOS only)");
+        .expect("`say` must be available (macOS only)");
     assert!(status.success(), "`say` failed for voice '{voice}': {text}");
 
-    let bytes = std::fs::read(&raw).expect("read TTS raw file");
-    // 4 bytes per f32, little-endian
-    bytes
+    // afconvert: AIFF → WAV with f32 PCM @ 16 kHz mono.
+    // `/dev/stdout` is not seekable so afconvert can't write the WAV header;
+    // use a temp file instead.
+    let wav = dir.path().join("tts.wav");
+    let status = std::process::Command::new("afconvert")
+        .args([
+            aiff.to_str().unwrap(),
+            wav.to_str().unwrap(),
+            "-f", "WAVE",
+            "-d", "LEF32@16000",
+            "-c", "1",
+        ])
+        .status()
+        .expect("`afconvert` must be available (macOS only)");
+    assert!(status.success(), "`afconvert` failed");
+
+    wav_to_f32(&std::fs::read(&wav).expect("read WAV"))
+}
+
+/// Extract f32 PCM samples from a WAV byte buffer by locating the `data` chunk.
+fn wav_to_f32(bytes: &[u8]) -> Vec<f32> {
+    let data_pos = bytes
+        .windows(4)
+        .position(|w| w == b"data")
+        .expect("WAV 'data' chunk not found");
+    // skip "data" marker (4 bytes) + chunk-size field (4 bytes)
+    bytes[data_pos + 8..]
         .chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         .collect()
