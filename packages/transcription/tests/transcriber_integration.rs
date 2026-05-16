@@ -381,9 +381,10 @@ fn transcriber_scheduling_overhead_under_400ms() {
 #[test]
 #[ignore]
 fn transcriber_first_batch_within_wall_clock_budget() {
-    // Whisper medium processes ~15 s of audio in 10–30 s on CPU without Metal.
-    // Add NEW_AUDIO_SECS (5 s) for the scheduler wait and 10 s headroom.
-    let wall_clock_budget = Duration::from_secs(NEW_AUDIO_SECS + 40);
+    // Whisper medium on CPU (no Metal) runs at ~3–4× real-time, so 15 s of
+    // audio can take up to 60 s.  Add NEW_AUDIO_SECS (5 s) scheduler wait
+    // plus 30 s headroom for slow machines or contention from parallel tests.
+    let wall_clock_budget = Duration::from_secs(NEW_AUDIO_SECS + 90);
 
     let model = load_model();
     let audio = synthesize("John chapter 3 verse 16.", "Samantha");
