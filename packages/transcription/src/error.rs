@@ -23,4 +23,7 @@ pub enum TranscriptionError {
 
     #[error("health check failed: {0}")]
     HealthCheck(String),
+
+    #[error("transcription failed: {0}")]
+    Transcribe(String),
 }

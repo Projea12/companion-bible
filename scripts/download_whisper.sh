@@ -12,7 +12,6 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODEL_DIR="${REPO_ROOT}/models/whisper"
 DEST="${MODEL_DIR}/ggml-medium.bin"
-TMP="${DEST}.tmp"
 URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin"
 EXPECTED_SHA1="fd9727b6e1217c2f614f9b698455c4ffd82463b4"
 
@@ -27,33 +26,42 @@ if [[ -f "${DEST}" ]]; then
         echo "✓  SHA-1 OK (${EXPECTED_SHA1})"
         exit 0
     else
-        echo "✗  Checksum mismatch!"
-        echo "   Expected : ${EXPECTED_SHA1}"
-        echo "   Got      : ${ACTUAL}"
-        echo "Re-downloading..."
+        echo "✗  Checksum mismatch — re-downloading..."
         rm -f "${DEST}"
     fi
 fi
 
-# ── Download ──────────────────────────────────────────────────────────────────
+# ── Download directly to destination ─────────────────────────────────────────
 echo "Downloading Whisper Medium GGML (~1.5 GB)..."
 echo "  URL  : ${URL}"
 echo "  Dest : ${DEST}"
-curl --location --fail --progress-bar --output "${TMP}" "${URL}"
 
-# ── Verify ────────────────────────────────────────────────────────────────────
-echo "Verifying checksum..."
-ACTUAL=$(shasum -a 1 "${TMP}" | awk '{print $1}')
-if [[ "${ACTUAL}" != "${EXPECTED_SHA1}" ]]; then
-    echo "✗  Checksum mismatch — download may be corrupt."
-    echo "   Expected : ${EXPECTED_SHA1}"
-    echo "   Got      : ${ACTUAL}"
-    rm -f "${TMP}"
+curl \
+    --location \
+    --fail \
+    --progress-bar \
+    --retry 3 \
+    --retry-delay 5 \
+    --output "${DEST}" \
+    "${URL}"
+
+if [[ ! -f "${DEST}" ]]; then
+    echo "✗  Download failed — file not created."
     exit 1
 fi
 
-mv "${TMP}" "${DEST}"
+# ── Verify ────────────────────────────────────────────────────────────────────
+echo "Verifying checksum..."
+ACTUAL=$(shasum -a 1 "${DEST}" | awk '{print $1}')
+if [[ "${ACTUAL}" != "${EXPECTED_SHA1}" ]]; then
+    echo "✗  Checksum mismatch — file may be corrupt."
+    echo "   Expected : ${EXPECTED_SHA1}"
+    echo "   Got      : ${ACTUAL}"
+    rm -f "${DEST}"
+    exit 1
+fi
+
 echo "✓  Model saved to ${DEST}"
 echo ""
 echo "Run the load test with:"
-echo "  cargo test -p companion-transcription model_load -- --ignored --nocapture"
+echo "  cargo test -p companion-transcription model_first_launch -- --ignored --nocapture"

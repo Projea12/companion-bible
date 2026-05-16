@@ -4,6 +4,7 @@ use std::time::Instant;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use crate::error::TranscriptionError;
+use crate::transcript::{TranscribeOptions, TranscriptionSegment};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
