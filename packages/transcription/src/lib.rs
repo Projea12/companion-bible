@@ -12,7 +12,9 @@ pub use model::{
     rss_mb, HealthReport, WhisperModel, GGML_MEDIUM_SHA1, GGML_MEDIUM_URL,
     MEMORY_BUDGET_MB,
 };
-pub use transcript::{TranscribeOptions, TranscriptionSegment};
+pub use transcript::{
+    TranscribeOptions, TranscriptionSegment, BIBLE_BOOKS, SERMON_PREAMBLE,
+};
 pub use transcriber::{WhisperTranscriber, NEW_AUDIO_SECS, TRANSCRIBE_WINDOW_SECS};
 
 #[cfg(test)]

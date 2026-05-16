@@ -34,6 +34,33 @@ impl TranscriptionSegment {
     }
 }
 
+// ─── Prompt constants ─────────────────────────────────────────────────────────
+
+/// Opening sentence that frames the audio for Whisper's decoder.
+///
+/// Placed at the start of every initial prompt so Whisper expects scripture
+/// vocabulary, proper nouns, and the spoken cadence of a sermon.
+pub const SERMON_PREAMBLE: &str =
+    "A preacher is delivering a sermon from the Bible. \
+     Scripture references include book names, chapter numbers, and verse numbers.";
+
+/// All 66 canonical Bible book names, space-separated.
+///
+/// Injected into the initial prompt so Whisper learns the correct spellings of
+/// uncommon names like Habakkuk, Ecclesiastes, and Zephaniah.
+pub const BIBLE_BOOKS: &str =
+    "Genesis Exodus Leviticus Numbers Deuteronomy Joshua Judges Ruth \
+     Samuel Kings Chronicles Ezra Nehemiah Esther Job Psalms Proverbs \
+     Ecclesiastes Isaiah Jeremiah Lamentations Ezekiel Daniel Hosea Joel \
+     Amos Obadiah Jonah Micah Nahum Habakkuk Zephaniah Haggai Zechariah \
+     Malachi Matthew Mark Luke John Acts Romans Corinthians Galatians \
+     Ephesians Philippians Colossians Thessalonians Timothy Titus Philemon \
+     Hebrews James Peter Jude Revelation";
+
+/// Church-specific vocabulary appended after the book list.
+const CHURCH_VOCAB: &str =
+    "amen hallelujah pastor sermon congregation church holy spirit verse chapter";
+
 // ─── TranscribeOptions ────────────────────────────────────────────────────────
 
 /// Tuning knobs passed to [`WhisperModel::transcribe`].
@@ -45,11 +72,8 @@ pub struct TranscribeOptions {
     pub language: Option<String>,
 
     /// Prompt prepended to the decoder to bias Whisper toward domain
-    /// vocabulary.  For church sermons a string like
-    /// `"Scripture Bible verse chapter John Romans Genesis"` helps Whisper
-    /// spell book names correctly and reduces hallucination on quiet passages.
-    ///
-    /// Leave empty (`String::new()`) to use no prompt.
+    /// vocabulary.  Build with [`TranscribeOptions::build_prompt`] rather
+    /// than constructing manually.
     pub initial_prompt: String,
 
     /// Decoder temperature.  `0.0` is fully deterministic (greedy); higher
@@ -81,29 +105,60 @@ impl Default for TranscribeOptions {
 }
 
 impl TranscribeOptions {
-    /// Preset for Nigerian church sermons.
+    // ── Prompt construction ───────────────────────────────────────────────────
+
+    /// Build an initial prompt for Whisper.
+    ///
+    /// The prompt always opens with [`SERMON_PREAMBLE`] and includes all 66
+    /// Bible book names.  When `book` is `Some`, the current book is called
+    /// out explicitly so Whisper can resolve bare references like "chapter 3
+    /// verse 16" without the book name being spoken.
+    ///
+    /// ```rust
+    /// use companion_transcription::TranscribeOptions;
+    ///
+    /// let generic = TranscribeOptions::build_prompt(None);
+    /// assert!(generic.contains("A preacher is delivering a sermon"));
+    ///
+    /// let contextual = TranscribeOptions::build_prompt(Some("Romans"));
+    /// assert!(contextual.contains("The current passage is from the book of Romans"));
+    /// ```
+    pub fn build_prompt(book: Option<&str>) -> String {
+        match book {
+            Some(b) => format!(
+                "{SERMON_PREAMBLE} The current passage is from the book of {b}. \
+                 {BIBLE_BOOKS} {CHURCH_VOCAB}"
+            ),
+            None => format!("{SERMON_PREAMBLE} {BIBLE_BOOKS} {CHURCH_VOCAB}"),
+        }
+    }
+
+    // ── Presets ───────────────────────────────────────────────────────────────
+
+    /// Preset for Nigerian church sermons with optional detected book context.
     ///
     /// - Language auto-detect handles Yoruba / Igbo / Pidgin code-switching.
-    /// - Initial prompt seeds Whisper with common sermon vocabulary so book
-    ///   names like "Ecclesiastes" or "Habakkuk" are spelled correctly.
+    /// - Initial prompt is built by [`build_prompt`] with the supplied book.
     /// - Temperature 0.0 keeps output deterministic.
-    pub fn church() -> Self {
+    ///
+    /// The `WhisperTranscriber` calls this every run, passing the most recently
+    /// identified book from the scripture-detection layer, so Whisper gets
+    /// progressively better at resolving ambiguous references mid-sermon.
+    pub fn with_context(book: Option<&str>) -> Self {
         Self {
             language: None,
-            initial_prompt: "Scripture Bible verse chapter Genesis Exodus Leviticus \
-                Numbers Deuteronomy Joshua Judges Ruth Samuel Kings Chronicles \
-                Ezra Nehemiah Esther Job Psalms Proverbs Ecclesiastes Isaiah \
-                Jeremiah Lamentations Ezekiel Daniel Hosea Joel Amos Obadiah \
-                Jonah Micah Nahum Habakkuk Zephaniah Haggai Zechariah Malachi \
-                Matthew Mark Luke John Acts Romans Corinthians Galatians \
-                Ephesians Philippians Colossians Thessalonians Timothy Titus \
-                Philemon Hebrews James Peter Jude Revelation amen hallelujah \
-                pastor sermon congregation church holy spirit"
-                .into(),
+            initial_prompt: Self::build_prompt(book),
             temperature: 0.0,
             n_threads: 4,
             no_speech_threshold: 0.5,
             max_tokens: 0,
         }
+    }
+
+    /// Preset for Nigerian church sermons with no book context (generic prompt).
+    ///
+    /// Equivalent to `TranscribeOptions::with_context(None)`.
+    pub fn church() -> Self {
+        Self::with_context(None)
     }
 }

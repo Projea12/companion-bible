@@ -4,7 +4,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use companion_audio::SlidingWindow;
+use companion_audio::{SlidingWindow, SAMPLE_RATE};
 
 use crate::model::WhisperModel;
 use crate::transcript::{TranscribeOptions, TranscriptionSegment};
@@ -17,18 +17,22 @@ pub const NEW_AUDIO_SECS: u64 = 5;
 /// Audio span sent to Whisper each run — includes overlap for context.
 pub const TRANSCRIBE_WINDOW_SECS: u64 = 15;
 
-/// How long to remember emitted text to filter overlapping-window duplicates.
+/// How long to remember emitted text to filter text-based duplicates.
 const DEDUP_MEMORY_SECS: u64 = 30;
 
 /// Polling interval for the transcription loop.
 const POLL_MS: u64 = 100;
 
+/// Samples consumed per run (used for absolute timestamp tracking).
+const SAMPLES_PER_RUN: u64 = NEW_AUDIO_SECS * SAMPLE_RATE as u64;
+
 // ─── EmittedSet ───────────────────────────────────────────────────────────────
 
-/// Tracks recently emitted segment text to deduplicate overlapping windows.
+/// Text-based deduplication memory for the overlap zone.
 ///
-/// Each entry stores (when_emitted, normalized_text).  Old entries are pruned
-/// lazily on every [`insert`] call.
+/// Stores `(when_emitted, normalised_text)`.  Used as a fallback when
+/// timestamp-based dedup cannot definitively rule a segment out — for example,
+/// when a segment straddles the old/new audio boundary.
 pub(crate) struct EmittedSet {
     entries: VecDeque<(Instant, String)>,
     prune_after: Duration,
@@ -79,19 +83,48 @@ pub(crate) fn normalize(text: &str) -> String {
 /// SlidingWindow (30 s audio)
 ///     │  last 15 s every 5 s
 ///     ▼
+/// build_prompt(book_context)   ← updated by scripture-detection layer
+///     │
 /// WhisperModel::transcribe
 ///     │  Vec<TranscriptionSegment>
 ///     ▼
-/// EmittedSet deduplication
+/// Deduplication (timestamp-primary, text-fallback)
 ///     │  only new segments
 ///     ▼
-/// mpsc::Sender  →  downstream scripture-detection channel
+/// mpsc::SyncSender  →  downstream scripture-detection channel
 /// ```
+///
+/// ## Deduplication strategy
+///
+/// Each Whisper run covers a 15-second window that overlaps 10 seconds with
+/// the previous run.  Deduplication uses two complementary checks:
+///
+/// 1. **Timestamp-primary**: a segment whose absolute audio start is earlier
+///    than the absolute end of the last emitted segment is in the overlap zone
+///    and is checked against the text memory.
+/// 2. **Text-fallback**: if the segment's text was already emitted (regardless
+///    of timestamp), it is a duplicate.  This covers the case where a segment
+///    straddles the exact boundary.
+///
+/// Segments that are new by both checks are emitted and added to the text
+/// memory.
+///
+/// ## Book context
+///
+/// The `book_context` handle is shared with the scripture-detection layer.
+/// Whenever the detector identifies the current book, it writes to the handle
+/// and every subsequent Whisper run gets a prompt that specifically names the
+/// book, improving accuracy for bare references like "chapter 3 verse 16".
 ///
 /// ## Usage
 /// ```rust,ignore
-/// let (transcriber, rx) = WhisperTranscriber::new(window, TranscribeOptions::church());
-/// transcriber.start(model);         // hands model ownership to background thread
+/// let (mut transcriber, rx) = WhisperTranscriber::new(window, TranscribeOptions::church());
+/// let book_ctx = transcriber.book_context_handle();
+/// transcriber.start(model);
+///
+/// // Later, when detection identifies "Romans":
+/// *book_ctx.lock().unwrap() = Some("Romans".into());
+///
 /// for batch in rx {
 ///     // `batch` contains only non-duplicate segments
 /// }
@@ -99,6 +132,7 @@ pub(crate) fn normalize(text: &str) -> String {
 pub struct WhisperTranscriber {
     window: Arc<Mutex<SlidingWindow>>,
     options: TranscribeOptions,
+    book_context: Arc<Mutex<Option<String>>>,
     stop_flag: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
     sender: mpsc::SyncSender<Vec<TranscriptionSegment>>,
@@ -107,21 +141,41 @@ pub struct WhisperTranscriber {
 impl WhisperTranscriber {
     /// Create a transcriber and return the receiver for new-segment batches.
     ///
-    /// The internal channel is bounded to 32 batches; a slow consumer causes
-    /// the transcription thread to block rather than accumulate unbounded memory.
+    /// The internal channel is bounded to 32 batches; a slow consumer blocks
+    /// the transcription thread rather than accumulating unbounded memory.
     pub fn new(
         window: Arc<Mutex<SlidingWindow>>,
         options: TranscribeOptions,
     ) -> (Self, mpsc::Receiver<Vec<TranscriptionSegment>>) {
         let (sender, receiver) = mpsc::sync_channel(32);
         let stop_flag = Arc::new(AtomicBool::new(true));
-        (Self { window, options, stop_flag, handle: None, sender }, receiver)
+        let book_context = Arc::new(Mutex::new(None::<String>));
+        (Self { window, options, book_context, stop_flag, handle: None, sender }, receiver)
     }
+
+    // ── Book context ──────────────────────────────────────────────────────────
+
+    /// Shared handle to the current book context.
+    ///
+    /// Write `Some("Romans")` to improve Whisper's accuracy for the current
+    /// passage; write `None` to revert to the generic prompt.
+    pub fn book_context_handle(&self) -> Arc<Mutex<Option<String>>> {
+        Arc::clone(&self.book_context)
+    }
+
+    /// Convenience wrapper: set the current book context.
+    pub fn set_book_context(&self, book: Option<String>) {
+        if let Ok(mut g) = self.book_context.lock() {
+            *g = book;
+        }
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     /// Start the transcription loop, taking ownership of `model`.
     ///
-    /// If the transcriber is already running it is stopped first, then
-    /// restarted with the new model.
+    /// If already running, the loop is stopped first and restarted with the
+    /// new model.
     pub fn start(&mut self, model: WhisperModel) {
         self.stop_join();
 
@@ -129,6 +183,7 @@ impl WhisperTranscriber {
 
         let window = Arc::clone(&self.window);
         let options = self.options.clone();
+        let book_context = Arc::clone(&self.book_context);
         let stop_flag = Arc::clone(&self.stop_flag);
         let sender = self.sender.clone();
 
@@ -136,7 +191,7 @@ impl WhisperTranscriber {
             std::thread::Builder::new()
                 .name("whisper-transcriber".into())
                 .spawn(move || {
-                    transcription_loop(model, window, options, stop_flag, sender);
+                    transcription_loop(model, window, options, book_context, stop_flag, sender);
                 })
                 .expect("failed to spawn whisper-transcriber thread"),
         );
@@ -175,14 +230,25 @@ fn transcription_loop(
     model: WhisperModel,
     window: Arc<Mutex<SlidingWindow>>,
     options: TranscribeOptions,
+    book_context: Arc<Mutex<Option<String>>>,
     stop_flag: Arc<AtomicBool>,
     sender: mpsc::SyncSender<Vec<TranscriptionSegment>>,
 ) {
     let new_audio_dur = Duration::from_secs(NEW_AUDIO_SECS);
     let window_dur = Duration::from_secs(TRANSCRIBE_WINDOW_SECS);
     let poll = Duration::from_millis(POLL_MS);
+
     let mut emitted = EmittedSet::new(Duration::from_secs(DEDUP_MEMORY_SECS));
-    let mut last_run = Instant::now() - new_audio_dur; // allow first run immediately
+    let mut last_run = Instant::now() - new_audio_dur; // trigger immediately on first poll
+
+    // ── Absolute audio timeline ───────────────────────────────────────────────
+    // `samples_trimmed` counts total samples removed from the window front.
+    // Dividing by SAMPLE_RATE converts to seconds, giving the absolute start
+    // time of the current Whisper window in the audio timeline.
+    let mut samples_trimmed: u64 = 0;
+    // Absolute end (ms) of the last segment we emitted.  Segments that start
+    // before this mark are in the overlap zone and undergo text-based dedup.
+    let mut last_emitted_abs_end_ms: u64 = 0;
 
     while !stop_flag.load(Ordering::Acquire) {
         std::thread::sleep(poll);
@@ -193,44 +259,58 @@ fn transcription_loop(
         }
 
         // Snapshot the last TRANSCRIBE_WINDOW_SECS of clean audio.
-        let audio = {
-            match window.lock() {
-                Ok(w) if !w.is_empty() => w.last(window_dur).samples,
-                _ => continue,
-            }
+        let audio = match window.lock() {
+            Ok(w) if !w.is_empty() => w.last(window_dur).samples,
+            _ => continue,
         };
 
-        // Run Whisper.  The call is blocking and may take several seconds.
-        let raw = match model.transcribe(&audio, &options) {
+        // Build a prompt with the current book context (read without holding lock).
+        let current_book = book_context.lock().ok().and_then(|g| g.clone());
+        let mut run_opts = options.clone();
+        run_opts.initial_prompt = TranscribeOptions::build_prompt(current_book.as_deref());
+
+        // Run Whisper.  Blocking; may take several seconds on CPU.
+        let raw = match model.transcribe(&audio, &run_opts) {
             Ok(segs) => segs,
-            Err(_e) => {
-                // Don't spam on repeated errors — just advance the clock.
+            Err(_) => {
                 last_run = Instant::now();
                 continue;
             }
         };
 
-        // Deduplicate against previously emitted text.
+        // Absolute start of this Whisper window in the audio timeline (ms).
+        let window_start_abs_ms = (samples_trimmed / SAMPLE_RATE as u64) * 1_000;
+
+        // ── Deduplication ─────────────────────────────────────────────────────
         let mut new_segs: Vec<TranscriptionSegment> = Vec::new();
         for mut seg in raw {
-            if emitted.contains(&seg.text) {
+            let abs_start = window_start_abs_ms + seg.audio_start_ms;
+            let abs_end = window_start_abs_ms + seg.audio_end_ms;
+
+            // Primary: is this segment entirely within the overlap zone?
+            let in_overlap = abs_start < last_emitted_abs_end_ms;
+
+            if in_overlap && emitted.contains(&seg.text) {
+                // Overlap zone AND text already seen — definite duplicate.
                 seg.is_duplicate = true;
-                // Duplicates are not forwarded — drop them here.
             } else {
+                // New zone, OR new text in the overlap zone (partial-overlap case).
                 emitted.insert(seg.text.clone());
+                last_emitted_abs_end_ms = last_emitted_abs_end_ms.max(abs_end);
                 new_segs.push(seg);
             }
         }
 
-        // Emit the batch (drop silently if receiver has hung up).
+        // Emit batch (silently drop if receiver has disconnected).
         if !new_segs.is_empty() {
             let _ = sender.send(new_segs);
         }
 
-        // Trim the oldest NEW_AUDIO_SECS from the window so it doesn't fill up.
+        // Advance the window: trim the oldest NEW_AUDIO_SECS and record it.
         if let Ok(mut w) = window.lock() {
             w.trim_front(new_audio_dur);
         }
+        samples_trimmed += SAMPLES_PER_RUN;
 
         last_run = Instant::now();
     }
