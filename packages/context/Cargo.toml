@@ -1,0 +1,10 @@
+[package]
+name = "companion-context"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+companion-events.workspace = true
+companion-transcription.workspace = true
+companion-detection.workspace = true

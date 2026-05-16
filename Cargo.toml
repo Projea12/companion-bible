@@ -9,6 +9,7 @@ members = [
     "packages/audio",
     "packages/transcription",
     "packages/detection",
+    "packages/context",
 ]
 
 [workspace.package]
@@ -27,3 +28,5 @@ companion-errors = { path = "shared/errors" }
 companion-config = { path = "shared/config" }
 companion-database = { path = "packages/database" }
 companion-audio = { path = "packages/audio" }
+companion-transcription = { path = "packages/transcription" }
+companion-detection = { path = "packages/detection" }
