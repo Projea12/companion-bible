@@ -317,7 +317,6 @@ impl SermonContext {
             self.context_confidence = (self.context_confidence + boost).min(1.0);
         }
     }
-}
 
     // ── Back-reference lookup ─────────────────────────────────────────────────
 
@@ -1094,5 +1093,140 @@ mod tests {
         assert_eq!(ctx.context_confidence, 0.0);
         ctx.update(BibleReference::new("Romans", 9u8).with_verse(1), 1_200_000);
         assert_eq!(ctx.context_confidence, 1.0);
+    }
+
+    // ── Required task tests: context enrichment ───────────────────────────────
+
+    /// "verse 16" with active book John and chapter 3 → John 3:16
+    #[test]
+    fn verse_16_with_active_book_john_chapter_3_resolves_to_john_3_16() {
+        let mut ctx = SermonContext::new();
+        // Establish John chapter 3 as the active context.
+        run(&mut ctx, "John 3:1");
+        assert_eq!(ctx.active_book.as_deref(), Some("John"));
+        assert_eq!(ctx.active_chapter, Some(3));
+
+        let e = run(&mut ctx, "verse 16");
+        assert_eq!(e.detections.len(), 1);
+        let d = &e.detections[0];
+        assert_eq!(d.resolution_source, ResolutionSource::BothInferred);
+        let r = d.resolved.as_ref().expect("verse 16 should resolve to John 3:16");
+        assert_eq!(r.book,    "John");
+        assert_eq!(r.chapter, 3);
+        assert_eq!(r.verse,   Some(16));
+    }
+
+    /// "as we read earlier" → matches the most recently mentioned verse
+    #[test]
+    fn as_we_read_earlier_matches_mentioned_verse() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("John", 3u8).with_verse(16), 0);
+
+        let result = ctx.find_backreference("as we read earlier");
+        let r = result.expect("should return the most recently mentioned verse");
+        assert_eq!(r.book,    "John");
+        assert_eq!(r.chapter, 3);
+        assert_eq!(r.verse,   Some(16));
+    }
+
+    /// Context confidence decays over time without an explicit reference
+    #[test]
+    fn context_confidence_decay_over_time() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("John", 3u8).with_verse(16), 0);
+        assert_eq!(ctx.context_confidence, 1.0);
+
+        // 6 minutes: 6 × (0.1 / 2 min) = 0.3 lost → ≈ 0.7
+        ctx.decay(6 * 60 * 1_000);
+        assert!(
+            (ctx.context_confidence - 0.7).abs() < 1e-4,
+            "after 6 min confidence should be ≈0.7, got {}",
+            ctx.context_confidence
+        );
+
+        // Another 14 minutes (total 20 min) → floors at 0.0
+        ctx.decay(14 * 60 * 1_000);
+        assert_eq!(ctx.context_confidence, 0.0);
+    }
+
+    // ── Back-reference lookup ─────────────────────────────────────────────────
+
+    #[test]
+    fn find_backreference_returns_none_when_no_verses_mentioned() {
+        let ctx = SermonContext::new();
+        assert!(ctx.find_backreference("as we read earlier").is_none());
+    }
+
+    #[test]
+    fn find_backreference_returns_none_for_non_backreference_text() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("John", 3u8).with_verse(16), 0);
+        assert!(ctx.find_backreference("John went to the store").is_none());
+        assert!(ctx.find_backreference("").is_none());
+    }
+
+    #[test]
+    fn find_backreference_is_case_insensitive() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("John", 3u8).with_verse(16), 0);
+        assert!(ctx.find_backreference("AS WE READ EARLIER").is_some());
+        assert!(ctx.find_backreference("As We Read Earlier").is_some());
+    }
+
+    #[test]
+    fn find_backreference_returns_most_recent_verse() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("John",   3u8).with_verse(16), 0);
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(28), 5_000);
+        let r = ctx.find_backreference("as we mentioned earlier").unwrap();
+        // Should return the LAST mentioned verse (Romans 8:28), not John 3:16.
+        assert_eq!(r.book,  "Romans");
+        assert_eq!(r.verse, Some(28));
+    }
+
+    #[test]
+    fn find_backreference_recognises_all_phrase_variants() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("John", 3u8).with_verse(16), 0);
+        let phrases = [
+            "as we read earlier",
+            "as i read earlier",
+            "as mentioned earlier",
+            "as we mentioned",
+            "earlier we read",
+            "the verse we read",
+            "as we saw earlier",
+            "as noted earlier",
+        ];
+        for phrase in &phrases {
+            assert!(
+                ctx.find_backreference(phrase).is_some(),
+                "phrase '{}' should be recognised as a back-reference",
+                phrase
+            );
+        }
+    }
+
+    // ── RollingTranscript time-based retention in context ─────────────────────
+
+    #[test]
+    fn rolling_transcript_retains_60_seconds_of_text() {
+        let mut ctx = SermonContext::new();
+        // Two segments 59 s apart — both within the 60 s window.
+        ctx.enrich(seg_at("early text", 0));
+        ctx.enrich(seg_at("later text", 59_000));
+        let text = ctx.rolling_transcript.text();
+        assert!(text.contains("early text"),  "segment at t=0 should still be retained");
+        assert!(text.contains("later text"));
+    }
+
+    #[test]
+    fn rolling_transcript_evicts_text_older_than_60_seconds() {
+        let mut ctx = SermonContext::new();
+        ctx.enrich(seg_at("old text", 0));
+        ctx.enrich(seg_at("new text", 61_000)); // 61 s later → old evicted
+        let text = ctx.rolling_transcript.text();
+        assert!(!text.contains("old text"),  "segment older than 60 s should be evicted");
+        assert!(text.contains("new text"));
     }
 }
