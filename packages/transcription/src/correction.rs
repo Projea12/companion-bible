@@ -524,10 +524,10 @@ mod tests {
     }
 
     #[test]
-    fn whitespace_only_unchanged() {
-        // split_whitespace produces no tokens; rejoin gives empty string.
-        // Acceptable: Whisper never emits whitespace-only segments.
-        assert_eq!(correct_text("   "), "");
+    fn whitespace_only_returned_as_is() {
+        // No alphabetic tokens — early-exit returns the original string intact.
+        // Whisper never emits whitespace-only segments so this is an edge case.
+        assert_eq!(correct_text("   "), "   ");
     }
 
     // ── correct_segment ───────────────────────────────────────────────────────
