@@ -13,10 +13,10 @@ pub const PHI3_MINI_URL: &str =
 
 /// Expected SHA-256 digest for `Phi-3-mini-4k-instruct-q4.gguf`.
 pub const PHI3_MINI_SHA256: &str =
-    "a7c56e4e6d6fc2a78a25e7c60c4c1023b7be7e22c2c15e5e9547a2e4b7a9f0d1";
+    "8a83c7fb9049a9b2e92266fa7ad04933bb53aa1e85136b7b30f1b8000ff2edef";
 
-/// Approximate model size in MB (2.4 GB Q4 quantised).
-pub const PHI3_MINI_SIZE_MB: u64 = 2_460;
+/// Approximate model size in MB (~2.39 GB Q4 quantised).
+pub const PHI3_MINI_SIZE_MB: u64 = 2_283;
 
 // ─── ModelSpec ────────────────────────────────────────────────────────────────
 
