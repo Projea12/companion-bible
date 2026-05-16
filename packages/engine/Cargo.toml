@@ -24,3 +24,5 @@ companion-transcription = { workspace = true }
 [dev-dependencies]
 tokio    = { workspace = true }
 tempfile = "3"
+sqlx     = { workspace = true }
+companion-detection = { workspace = true }
