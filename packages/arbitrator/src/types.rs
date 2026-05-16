@@ -6,7 +6,7 @@
 ///
 /// Each layer (pattern engine, local AI, cloud AI) converts its own result
 /// type into this common form before handing it to the arbitrator.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LayerResult {
     pub book: Option<String>,
     pub chapter: Option<u8>,
