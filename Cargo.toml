@@ -13,6 +13,7 @@ members = [
     "packages/ai",
     "packages/cloud-ai",
     "packages/arbitrator",
+    "packages/calibration",
 ]
 
 [workspace.package]
@@ -37,3 +38,4 @@ companion-context = { path = "packages/context" }
 companion-ai = { path = "packages/ai" }
 companion-cloud-ai = { path = "packages/cloud-ai" }
 companion-arbitrator = { path = "packages/arbitrator" }
+companion-calibration = { path = "packages/calibration" }
