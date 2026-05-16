@@ -1,9 +1,9 @@
 //! Conversions from each layer's native result type into the common
 //! `LayerResult` used by the confidence arbitrator.
 
-use companion_ai::{LocalAIResponse, LocalAIResult};
+use companion_ai::LocalAIResult;
 use companion_arbitrator::LayerResult;
-use companion_cloud_ai::{CloudAIResponse, CloudAIResult};
+use companion_cloud_ai::CloudAIResult;
 use companion_context::EnrichedSegment;
 
 // ─── pattern layer ────────────────────────────────────────────────────────────
