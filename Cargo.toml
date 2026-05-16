@@ -43,3 +43,10 @@ companion-arbitrator = { path = "packages/arbitrator" }
 companion-calibration = { path = "packages/calibration" }
 companion-bible       = { path = "packages/bible" }
 companion-engine      = { path = "packages/engine" }
+
+# Tauri requires panic = abort when staticlib is in crate-type
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
