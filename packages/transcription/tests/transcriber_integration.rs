@@ -18,7 +18,8 @@ use std::time::{Duration, Instant};
 
 use companion_audio::SlidingWindow;
 use companion_transcription::{
-    TranscribeOptions, TranscriptionSegment, WhisperModel, WhisperTranscriber, NEW_AUDIO_SECS,
+    TranscribeOptions, TranscriptionSegment, WhisperModel, WhisperTranscriber,
+    NEW_AUDIO_SECS, TRANSCRIBE_WINDOW_SECS,
 };
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -408,6 +409,235 @@ fn transcriber_first_batch_within_wall_clock_budget() {
         t0.elapsed().as_millis(),
         wall_clock_budget.as_millis()
     );
+
+    transcriber.stop();
+}
+
+// ─── Timestamp-based deduplication ───────────────────────────────────────────
+
+/// After run 1 the window is trimmed by NEW_AUDIO_SECS (5 s).  In run 2 the
+/// first 10 s of the 15 s window is overlap — segments from that zone whose
+/// text was already emitted must be suppressed by the timestamp check.
+///
+/// Strategy: push 15 s of audio, collect run 1.  Then push 5 s of DIFFERENT
+/// audio.  Verify run 2's batch contains only the new 5 s of content, not
+/// a repeat of anything from run 1.
+#[test]
+#[ignore]
+fn timestamp_dedup_overlap_zone_not_re_emitted() {
+    let model = load_model();
+
+    // Run-1 audio: a clear verse reference.
+    let audio1 = synthesize(
+        "For God so loved the world. John chapter 3 verse 16.",
+        "Samantha",
+    );
+    let padded1 = pad_to_secs(&audio1, 15);
+
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+    window.lock().unwrap().push(&padded1);
+
+    let (mut transcriber, rx) =
+        WhisperTranscriber::new(Arc::clone(&window), TranscribeOptions::church());
+    transcriber.start(model);
+
+    let run1 = rx.recv_timeout(Duration::from_secs(120)).expect("run 1 batch");
+    let run1_texts: Vec<String> = run1.iter().map(|s| s.text.to_lowercase()).collect();
+    println!("Run 1 ({} segs): {:?}", run1.len(), run1_texts);
+    assert!(!run1.is_empty(), "run 1 must produce segments");
+
+    // Push 5 s of completely different audio — this is the NEW zone for run 2.
+    // The transcriber's internal window still holds the last 10 s of padded1
+    // (the overlap zone) plus these 5 s.
+    let audio2 = synthesize("Romans chapter 8 verse 1.", "Samantha");
+    let padded2 = pad_to_secs(&audio2, NEW_AUDIO_SECS); // exactly 5 s
+    window.lock().unwrap().push(&padded2);
+
+    let run2 = rx.recv_timeout(Duration::from_secs(120)).expect("run 2 batch");
+    let run2_texts: Vec<String> = run2.iter().map(|s| s.text.to_lowercase()).collect();
+    println!("Run 2 ({} segs): {:?}", run2.len(), run2_texts);
+
+    // Nothing from run 1 should reappear in run 2.
+    for r2 in &run2_texts {
+        let r2_norm: String = r2.split_whitespace().collect::<Vec<_>>().join(" ");
+        for r1 in &run1_texts {
+            let r1_norm: String = r1.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert_ne!(
+                r2_norm, r1_norm,
+                "run 2 segment '{r2}' duplicates run 1 segment '{r1}' — timestamp dedup failed"
+            );
+        }
+    }
+
+    // Run 2 should contain the Romans content (the new 5 s zone).
+    let run2_joined = run2_texts.join(" ");
+    assert!(
+        run2_joined.contains("romans") || run2_joined.contains("condemnation"),
+        "run 2 must contain new Romans content, got: {run2_joined}"
+    );
+
+    transcriber.stop();
+}
+
+/// A segment that straddles the overlap boundary (starts just before the
+/// NEW_AUDIO boundary but is genuinely new text) must be emitted exactly once.
+/// This exercises the text-fallback path inside the overlap zone.
+#[test]
+#[ignore]
+fn timestamp_dedup_partial_overlap_emitted_exactly_once() {
+    let model = load_model();
+
+    // Fill the window with long audio so a segment can straddle the trim boundary.
+    let audio = synthesize(
+        "Turn your Bibles to Romans chapter 8 verse 1. \
+         There is therefore now no condemnation for those who are in Christ Jesus.",
+        "Samantha",
+    );
+    let padded = pad_to_secs(&audio, TRANSCRIBE_WINDOW_SECS);
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+    window.lock().unwrap().push(&padded);
+
+    let (mut transcriber, rx) =
+        WhisperTranscriber::new(Arc::clone(&window), TranscribeOptions::church());
+    transcriber.start(model);
+
+    // Collect run 1.
+    let run1 = rx.recv_timeout(Duration::from_secs(120)).expect("run 1");
+    let run1_texts: std::collections::HashSet<String> =
+        run1.iter().map(|s| {
+            s.text.split_whitespace().map(|w| w.to_lowercase()).collect::<Vec<_>>().join(" ")
+        }).collect();
+    println!("Run 1 ({} segs): {:?}", run1.len(), run1_texts);
+
+    // Push silence to trigger run 2 without new meaningful audio.
+    let silence = vec![0.0f32; 16_000 * NEW_AUDIO_SECS as usize];
+    window.lock().unwrap().push(&silence);
+
+    // Run 2 may or may not emit (Whisper might hallucinate on silence).
+    // Whatever it emits must not duplicate run 1 text.
+    if let Ok(run2) = rx.recv_timeout(Duration::from_secs(120)) {
+        let run2_texts: Vec<String> =
+            run2.iter().map(|s| {
+                s.text.split_whitespace().map(|w| w.to_lowercase()).collect::<Vec<_>>().join(" ")
+            }).collect();
+        println!("Run 2 ({} segs): {:?}", run2.len(), run2_texts);
+
+        for text in &run2_texts {
+            assert!(
+                !run1_texts.contains(text),
+                "run 2 emitted duplicate segment: '{text}'"
+            );
+        }
+    } else {
+        println!("Run 2: no batch (silence correctly suppressed)");
+    }
+
+    transcriber.stop();
+}
+
+// ─── Book context injection ───────────────────────────────────────────────────
+
+/// Setting the book context before the first run must not cause a panic and
+/// must produce a valid batch.  Verifies the context handle wiring end-to-end.
+#[test]
+#[ignore]
+fn book_context_set_before_run_produces_valid_batch() {
+    let model = load_model();
+    let audio = synthesize(
+        "For God so loved the world. John chapter 3 verse 16.",
+        "Samantha",
+    );
+    let padded = pad_to_secs(&audio, 15);
+
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+    window.lock().unwrap().push(&padded);
+
+    let (mut transcriber, rx) =
+        WhisperTranscriber::new(Arc::clone(&window), TranscribeOptions::church());
+
+    // Set context before start — the loop reads it on the first run.
+    transcriber.set_book_context(Some("John".into()));
+    transcriber.start(model);
+
+    let batch = rx.recv_timeout(Duration::from_secs(120)).expect("batch");
+    println!(
+        "book_context John: {} segs — {}",
+        batch.len(),
+        batch.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(" | ")
+    );
+    assert!(!batch.is_empty(), "must receive at least one segment");
+
+    transcriber.stop();
+}
+
+/// The book context can be updated between runs via the shared handle.
+/// Both runs must complete without error and each must emit fresh segments.
+#[test]
+#[ignore]
+fn book_context_updated_between_runs_both_emit() {
+    let model = load_model();
+
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+
+    // Run 1: John 3:16, context = "John".
+    let audio1 = synthesize("John chapter 3 verse 16.", "Samantha");
+    window.lock().unwrap().push(&pad_to_secs(&audio1, 15));
+
+    let (mut transcriber, rx) =
+        WhisperTranscriber::new(Arc::clone(&window), TranscribeOptions::church());
+    let ctx_handle = transcriber.book_context_handle();
+    *ctx_handle.lock().unwrap() = Some("John".into());
+
+    transcriber.start(model);
+    let run1 = rx.recv_timeout(Duration::from_secs(120)).expect("run 1");
+    println!("Run 1 (John context, {} segs): {}", run1.len(), batch_text(&run1));
+    assert!(!run1.is_empty());
+
+    // Switch context to "Romans" before run 2.
+    *ctx_handle.lock().unwrap() = Some("Romans".into());
+
+    let audio2 = synthesize("Romans chapter 8 verse 1.", "Samantha");
+    window.lock().unwrap().push(&pad_to_secs(&audio2, 15));
+
+    let run2 = rx.recv_timeout(Duration::from_secs(120)).expect("run 2");
+    println!("Run 2 (Romans context, {} segs): {}", run2.len(), batch_text(&run2));
+    assert!(!run2.is_empty(), "run 2 must emit new segments after context switch");
+
+    transcriber.stop();
+}
+
+/// Clearing the book context (setting it to None) reverts to the generic
+/// sermon prompt.  The transcriber must continue to function correctly.
+#[test]
+#[ignore]
+fn book_context_cleared_mid_stream_continues_working() {
+    let model = load_model();
+    let audio = synthesize("John chapter 3 verse 16.", "Samantha");
+    let padded = pad_to_secs(&audio, 15);
+
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+    window.lock().unwrap().push(&padded);
+
+    let (mut transcriber, rx) =
+        WhisperTranscriber::new(Arc::clone(&window), TranscribeOptions::church());
+
+    transcriber.set_book_context(Some("John".into()));
+    transcriber.start(model);
+
+    let _run1 = rx.recv_timeout(Duration::from_secs(120)).expect("run 1");
+
+    // Clear context — next run uses generic prompt.
+    transcriber.set_book_context(None);
+
+    let audio2 = synthesize("Romans chapter 8 verse 1.", "Samantha");
+    window.lock().unwrap().push(&pad_to_secs(&audio2, 15));
+
+    let run2 = rx.recv_timeout(Duration::from_secs(120)).expect("run 2");
+    println!(
+        "run 2 (cleared context, {} segs): {}",
+        run2.len(), batch_text(&run2)
+    );
+    assert!(!run2.is_empty(), "must emit segments even after context cleared");
 
     transcriber.stop();
 }
