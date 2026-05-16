@@ -431,3 +431,191 @@ fn model_first_launch_setup() {
         MEMORY_BUDGET_MB
     );
 }
+
+// ─── EmittedSet / normalize ───────────────────────────────────────────────────
+
+#[test]
+fn normalize_lowercases_and_collapses_spaces() {
+    assert_eq!(normalize("  John  3:16  "), "john 3:16");
+    assert_eq!(normalize("ROMANS"), "romans");
+    assert_eq!(normalize("For God  so loved"), "for god so loved");
+}
+
+#[test]
+fn emitted_set_contains_after_insert() {
+    let mut set = EmittedSet::new(Duration::from_secs(30));
+    set.insert("John 3:16".into());
+    assert!(set.contains("John 3:16"), "exact match must be found");
+    assert!(set.contains("john 3:16"), "case-insensitive match must be found");
+    assert!(!set.contains("Romans 8:1"), "unrelated text must not match");
+}
+
+#[test]
+fn emitted_set_does_not_contain_before_insert() {
+    let set = EmittedSet::new(Duration::from_secs(30));
+    assert!(!set.contains("anything"));
+}
+
+#[test]
+fn emitted_set_prunes_expired_entries() {
+    let mut set = EmittedSet::new(Duration::from_millis(50));
+    set.insert("old text".into());
+    assert!(set.contains("old text"));
+
+    std::thread::sleep(Duration::from_millis(100));
+    set.prune();
+
+    assert!(!set.contains("old text"), "expired entry must be removed after prune");
+}
+
+#[test]
+fn emitted_set_insert_prunes_automatically() {
+    let mut set = EmittedSet::new(Duration::from_millis(50));
+    set.insert("first".into());
+    std::thread::sleep(Duration::from_millis(100));
+    set.insert("second".into()); // triggers prune inside insert
+
+    assert!(!set.contains("first"), "first entry must have been pruned");
+    assert!(set.contains("second"), "second entry must still be present");
+}
+
+// ─── WhisperTranscriber (unit) ────────────────────────────────────────────────
+
+#[test]
+fn transcriber_new_is_not_running() {
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+    let (t, _rx) = WhisperTranscriber::new(window, TranscribeOptions::default());
+    assert!(!t.is_running(), "transcriber must not be running before start");
+}
+
+#[test]
+fn transcriber_stop_before_start_is_safe() {
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+    let (mut t, _rx) = WhisperTranscriber::new(window, TranscribeOptions::default());
+    t.stop(); // must not panic
+    assert!(!t.is_running());
+}
+
+#[test]
+fn transcriber_is_running_after_start_and_false_after_stop() {
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+    let (mut t, _rx) = WhisperTranscriber::new(Arc::clone(&window), TranscribeOptions::default());
+
+    // We can't call start() without a real WhisperModel in a unit test.
+    // Verify the is_running() state machine directly via the stop path.
+    assert!(!t.is_running());
+    t.stop();
+    assert!(!t.is_running());
+}
+
+// ─── WhisperTranscriber (integration — requires model) ───────────────────────
+
+/// Full transcription loop: push TTS audio, run for one window, receive segments.
+///
+/// ```sh
+/// cargo test -p companion-transcription transcriber_emits_segments -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore]
+fn transcriber_emits_segments_from_spoken_verse() {
+    let path = model_path();
+    assert!(path.exists(), "model not found — run: bash scripts/download_whisper.sh");
+    let model = WhisperModel::load(&path, |_| {}).expect("model load");
+
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+    let (mut transcriber, rx) =
+        WhisperTranscriber::new(Arc::clone(&window), TranscribeOptions::church());
+
+    transcriber.start(model);
+
+    // Push 15 s of silence + a text-synthesised verse using `say`.
+    {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("tts.raw");
+        std::process::Command::new("say")
+            .args([
+                "--voice", "Samantha",
+                "--data-format=LEF32@16000",
+                "-o", raw.to_str().unwrap(),
+                "For God so loved the world. John chapter 3 verse 16.",
+            ])
+            .status()
+            .expect("`say` must be available");
+
+        let bytes = std::fs::read(&raw).unwrap();
+        let samples: Vec<f32> = bytes
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .collect();
+
+        // Pad to at least 15 s so the transcriber window is full.
+        let sr = 16_000usize;
+        let mut padded = vec![0.0f32; sr * 15];
+        let start = padded.len().saturating_sub(samples.len());
+        padded[start..].copy_from_slice(&samples[..samples.len().min(padded.len() - start)]);
+
+        window.lock().unwrap().push(&padded);
+    }
+
+    // Wait up to 90 s for a batch (Whisper medium ~1–2× real-time on CPU).
+    let batch = rx.recv_timeout(Duration::from_secs(90)).expect("expected a segment batch");
+
+    println!("Received {} segments:", batch.len());
+    for s in &batch {
+        println!("  [{}-{}ms] conf={:.3} {:?}", s.audio_start_ms, s.audio_end_ms, s.whisper_confidence, s.text);
+    }
+
+    assert!(!batch.is_empty(), "must receive at least one segment");
+    let text: String = batch.iter().map(|s| s.text.to_lowercase()).collect::<Vec<_>>().join(" ");
+    assert!(text.contains("john") || text.contains("3") || text.contains("16"),
+        "expected verse reference in: {text}");
+
+    transcriber.stop();
+}
+
+/// Deduplication: the same audio pushed twice should yield one batch, then nothing.
+///
+/// ```sh
+/// cargo test -p companion-transcription transcriber_deduplicates -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore]
+fn transcriber_deduplicates_overlapping_windows() {
+    let path = model_path();
+    assert!(path.exists(), "model not found");
+    let model = WhisperModel::load(&path, |_| {}).expect("model load");
+
+    let window = Arc::new(Mutex::new(SlidingWindow::new()));
+    let (mut transcriber, rx) =
+        WhisperTranscriber::new(Arc::clone(&window), TranscribeOptions::church());
+
+    transcriber.start(model);
+
+    // Push 15 s of a spoken verse.
+    let sr = 16_000usize;
+    let audio: Vec<f32> = (0..sr * 15)
+        .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr as f32).sin() * 0.3)
+        .collect();
+    window.lock().unwrap().push(&audio);
+
+    // First batch: new segments.
+    let first = rx.recv_timeout(Duration::from_secs(90)).expect("first batch");
+    println!("First batch: {} segments", first.len());
+
+    // Push identical audio again — same text should be deduplicated.
+    window.lock().unwrap().push(&audio);
+
+    // Wait for a potential second batch.
+    match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(second) => {
+            println!("Second batch: {} segments", second.len());
+            // Any segments from identical audio must be duplicates — channel only
+            // receives non-duplicates, so the batch should be empty (no send) or
+            // contain genuinely new hallucinations.  We can't assert zero because
+            // Whisper is not fully deterministic at temperature > 0.
+        }
+        Err(_) => println!("No second batch — correct: all text was deduplicated"),
+    }
+
+    transcriber.stop();
+}

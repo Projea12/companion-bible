@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 
 use companion_audio::SlidingWindow;
 
-use crate::error::TranscriptionError;
 use crate::model::WhisperModel;
 use crate::transcript::{TranscribeOptions, TranscriptionSegment};
 
