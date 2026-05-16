@@ -717,6 +717,176 @@ mod tests {
         );
     }
 
+    // ─── Property tests ───────────────────────────────────────────────────────
+    //
+    // These tests use `proptest` to generate random inputs and verify
+    // invariants that must hold for ALL possible references.
+
+    mod property {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Lazy-loaded KJV bible shared across all property test runs.
+        fn bible() -> KjvBible {
+            KjvBible::load(kjv_path()).expect("failed to load kjv.json")
+        }
+
+        /// Strategy: pick a random valid book by index, then random valid
+        /// chapter and verse within that book's actual bounds.
+        fn valid_reference_strategy(b: &KjvBible) -> impl Strategy<Value = BibleReference> {
+            let books: Vec<(String, u8)> = b
+                .books()
+                .iter()
+                .map(|book| (book.name.clone(), book.chapter_count))
+                .collect();
+
+            // Build the full list of (book, chapter, max_verse) triples.
+            let mut triples: Vec<(String, u8, u8)> = Vec::new();
+            for (name, chapters) in &books {
+                for ch in 1..=*chapters {
+                    let max_v = b.verse_count(name, ch).unwrap();
+                    triples.push((name.clone(), ch, max_v));
+                }
+            }
+
+            let idx = 0..triples.len();
+            idx.prop_flat_map(move |i| {
+                let (name, ch, max_v) = triples[i].clone();
+                (1u8..=max_v).prop_map(move |v| BibleReference::verse(&name, ch, v))
+            })
+        }
+
+        proptest! {
+            /// Every reference drawn from the valid-reference strategy must
+            /// return `ValidationResult::Valid`.
+            #[test]
+            fn valid_references_always_return_valid(
+                idx in 0usize..31102  // upper bound slightly over total verses — clamped inside
+            ) {
+                let b = bible();
+                let books = b.books();
+
+                // Map flat index to (book, chapter, verse).
+                let mut remaining = idx % 31102;
+                let mut found = None;
+                'outer: for book in books {
+                    for ch in 1..=book.chapter_count {
+                        let max_v = b.verse_count(&book.name, ch).unwrap();
+                        if remaining < max_v as usize {
+                            found = Some(BibleReference::verse(&book.name, ch, (remaining + 1) as u8));
+                            break 'outer;
+                        }
+                        remaining -= max_v as usize;
+                    }
+                }
+
+                if let Some(r) = found {
+                    let result = BibleValidator::new(&b).validate(&r);
+                    prop_assert!(
+                        result.is_valid(),
+                        "expected Valid for {}, got: {}",
+                        r,
+                        result
+                    );
+                }
+            }
+
+            /// A reference with an unknown book name always returns `InvalidBook`.
+            #[test]
+            fn unknown_book_always_returns_invalid_book(
+                // Generate strings that are guaranteed not to be canonical book names.
+                suffix in "[0-9]{4,8}"
+            ) {
+                let b = bible();
+                let fake_book = format!("FakeBook{suffix}");
+                let r = BibleReference::verse(&fake_book, 1, 1);
+                let result = BibleValidator::new(&b).validate(&r);
+                prop_assert!(
+                    matches!(result, ValidationResult::InvalidBook { .. }),
+                    "expected InvalidBook for book={fake_book}, got: {result}"
+                );
+            }
+
+            /// A chapter of 0 always returns `InvalidChapter` for any valid book.
+            #[test]
+            fn chapter_zero_always_returns_invalid_chapter(
+                book_idx in 0usize..66
+            ) {
+                let b = bible();
+                let book = &b.books()[book_idx].name.clone();
+                let r = BibleReference::verse(book, 0, 1);
+                let result = BibleValidator::new(&b).validate(&r);
+                prop_assert!(
+                    matches!(result, ValidationResult::InvalidChapter { chapter: 0, .. }),
+                    "expected InvalidChapter(chapter=0) for {book}, got: {result}"
+                );
+            }
+
+            /// A chapter beyond the book's total always returns `InvalidChapter`.
+            #[test]
+            fn chapter_beyond_max_always_returns_invalid_chapter(
+                book_idx in 0usize..66,
+                overflow in 1u8..=20
+            ) {
+                let b = bible();
+                let book_meta = &b.books()[book_idx];
+                let book = book_meta.name.clone();
+                let bad_chapter = book_meta.chapter_count.saturating_add(overflow);
+                // Skip if addition wrapped (u8 overflow — extremely unlikely but safe).
+                prop_assume!(bad_chapter > book_meta.chapter_count);
+
+                let r = BibleReference::verse(&book, bad_chapter, 1);
+                let result = BibleValidator::new(&b).validate(&r);
+                prop_assert!(
+                    matches!(result, ValidationResult::InvalidChapter { .. }),
+                    "expected InvalidChapter for {book} ch {bad_chapter}, got: {result}"
+                );
+            }
+
+            /// A verse of 0 for any valid book+chapter always returns `InvalidVerse`.
+            #[test]
+            fn verse_zero_always_returns_invalid_verse(
+                book_idx in 0usize..66,
+                chapter_offset in 0u8..10
+            ) {
+                let b = bible();
+                let book_meta = &b.books()[book_idx];
+                let book = book_meta.name.clone();
+                let ch = (chapter_offset % book_meta.chapter_count) + 1;
+
+                let r = BibleReference::verse(&book, ch, 0);
+                let result = BibleValidator::new(&b).validate(&r);
+                prop_assert!(
+                    matches!(result, ValidationResult::InvalidVerse { verse: 0, .. }),
+                    "expected InvalidVerse(verse=0) for {book} {ch}:0, got: {result}"
+                );
+            }
+
+            /// A verse beyond the chapter's total always returns `InvalidVerse`.
+            #[test]
+            fn verse_beyond_max_always_returns_invalid_verse(
+                book_idx in 0usize..66,
+                chapter_offset in 0u8..10,
+                overflow in 1u8..=20
+            ) {
+                let b = bible();
+                let book_meta = &b.books()[book_idx];
+                let book = book_meta.name.clone();
+                let ch = (chapter_offset % book_meta.chapter_count) + 1;
+                let max_v = b.verse_count(&book, ch).unwrap();
+                let bad_verse = max_v.saturating_add(overflow);
+                prop_assume!(bad_verse > max_v);
+
+                let r = BibleReference::verse(&book, ch, bad_verse);
+                let result = BibleValidator::new(&b).validate(&r);
+                prop_assert!(
+                    matches!(result, ValidationResult::InvalidVerse { .. }),
+                    "expected InvalidVerse for {book} {ch}:{bad_verse}, got: {result}"
+                );
+            }
+        }
+    }
+
     // ─── Boundary conditions ──────────────────────────────────────────────────
 
     #[test]
