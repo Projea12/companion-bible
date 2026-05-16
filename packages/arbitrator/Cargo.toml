@@ -1,0 +1,9 @@
+[package]
+name = "companion-arbitrator"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
