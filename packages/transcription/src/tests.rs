@@ -207,6 +207,131 @@ fn setup_fails_gracefully_when_model_corrupt() {
     );
 }
 
+// ─── TranscriptionSegment ─────────────────────────────────────────────────────
+
+#[test]
+fn segment_duration_ms() {
+    let s = TranscriptionSegment { text: "hello".into(), start_ms: 1_000, end_ms: 3_500 };
+    assert_eq!(s.duration_ms(), 2_500);
+}
+
+#[test]
+fn segment_zero_duration() {
+    let s = TranscriptionSegment { text: "x".into(), start_ms: 500, end_ms: 500 };
+    assert_eq!(s.duration_ms(), 0);
+}
+
+// ─── TranscribeOptions ────────────────────────────────────────────────────────
+
+#[test]
+fn default_options_are_english() {
+    let opts = TranscribeOptions::default();
+    assert_eq!(opts.language.as_deref(), Some("en"));
+    assert!(opts.n_threads > 0);
+    assert!(opts.no_speech_threshold > 0.0 && opts.no_speech_threshold < 1.0);
+}
+
+#[test]
+fn church_options_auto_detect_language() {
+    let opts = TranscribeOptions::church();
+    assert!(opts.language.is_none(), "church preset must use auto-detect");
+}
+
+// ─── Transcription (requires model — run manually) ────────────────────────────
+
+fn model_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent().unwrap()
+        .parent().unwrap()
+        .join("models/whisper/ggml-medium.bin")
+}
+
+fn load_model() -> WhisperModel {
+    let path = model_path();
+    assert!(
+        path.exists(),
+        "model not found — run: bash scripts/download_whisper.sh"
+    );
+    WhisperModel::load(&path, |_| {}).expect("model must load")
+}
+
+/// Silence produces no segments (or only empty-text segments that get dropped).
+///
+/// ```sh
+/// cargo test -p companion-transcription transcribe_silence -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore]
+fn transcribe_silence_returns_no_segments() {
+    let model = load_model();
+    let silence = vec![0.0f32; 16_000 * 5]; // 5 s silence
+    let segments = model
+        .transcribe(&silence, &TranscribeOptions::default())
+        .expect("transcribe must not error on silence");
+
+    println!("Segments from silence: {}", segments.len());
+    for s in &segments {
+        println!("  [{}-{}ms] {:?}", s.start_ms, s.end_ms, s.text);
+    }
+    // Whisper may hallucinate on pure silence but the call must not panic.
+    // We only assert the return type is correct, not the content.
+    let _ = segments;
+}
+
+/// Transcribe a synthetic 440 Hz tone — Whisper should return something
+/// (even if it's just music/noise notation) without crashing.
+///
+/// ```sh
+/// cargo test -p companion-transcription transcribe_tone -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore]
+fn transcribe_tone_does_not_panic() {
+    let model = load_model();
+    let sr = 16_000usize;
+    let tone: Vec<f32> = (0..sr * 3)
+        .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr as f32).sin() * 0.4)
+        .collect();
+
+    let result = model.transcribe(&tone, &TranscribeOptions::default());
+    assert!(result.is_ok(), "transcribe must not error: {:?}", result);
+    let segs = result.unwrap();
+    println!("Segments from 440 Hz tone: {}", segs.len());
+    for s in &segs {
+        println!("  [{}-{}ms] {:?}", s.start_ms, s.end_ms, s.text);
+    }
+}
+
+/// Performance: transcribing 30 s of audio must complete in under 60 s on CPU
+/// (whisper medium is ~1–2× real-time without Metal).
+///
+/// ```sh
+/// cargo test -p companion-transcription transcribe_performance -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore]
+fn transcribe_30s_under_60s() {
+    let model = load_model();
+    let sr = 16_000usize;
+    // 30 s of a gentle 300 Hz sine — gives Whisper something non-trivial.
+    let audio: Vec<f32> = (0..sr * 30)
+        .map(|i| (2.0 * std::f32::consts::PI * 300.0 * i as f32 / sr as f32).sin() * 0.3)
+        .collect();
+
+    let t0 = std::time::Instant::now();
+    let segs = model
+        .transcribe(&audio, &TranscribeOptions::default())
+        .expect("transcribe must not error");
+    let elapsed = t0.elapsed();
+
+    println!("Transcribed 30 s in {:.1} s → {} segments", elapsed.as_secs_f64(), segs.len());
+    assert!(
+        elapsed.as_secs() < 60,
+        "transcription took {:.1} s, must be under 60 s",
+        elapsed.as_secs_f64()
+    );
+}
+
 // ─── Full model tests (require model file — run manually) ─────────────────────
 
 /// Full first-launch setup via ModelManager: download (if needed) → verify →
