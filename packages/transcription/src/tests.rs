@@ -6,6 +6,7 @@ use crate::download::{download_if_needed, verify_sha1, DownloadConfig};
 use crate::error::TranscriptionError;
 use crate::manager::{ModelManager, SetupProgress};
 use crate::model::{rss_mb, WhisperModel, GGML_MEDIUM_SHA1, MEMORY_BUDGET_MB};
+use crate::transcript::{TranscribeOptions, TranscriptionSegment};
 
 // ─── Checksum ─────────────────────────────────────────────────────────────────
 

@@ -123,6 +123,75 @@ impl WhisperModel {
         Ok(HealthReport { ok: true, inference_ms, n_segments })
     }
 
+    /// Transcribe `audio` (mono f32, 16 kHz, [-1, 1]) and return time-stamped
+    /// segments.
+    ///
+    /// Segments whose no-speech probability exceeds
+    /// `options.no_speech_threshold` are silently dropped, as are segments
+    /// whose text is blank after trimming.
+    ///
+    /// Whisper processes the entire slice at once — for best results pass
+    /// between 5 s and 30 s of audio.  The sliding-window buffer in the audio
+    /// pipeline is sized at 30 s for exactly this reason.
+    pub fn transcribe(
+        &self,
+        audio: &[f32],
+        options: &TranscribeOptions,
+    ) -> Result<Vec<TranscriptionSegment>, TranscriptionError> {
+        let mut state =
+            self.ctx.create_state().map_err(TranscriptionError::Whisper)?;
+
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        params.set_n_threads(options.n_threads);
+        params.set_print_progress(false);
+        params.set_print_realtime(false);
+        params.set_print_timestamps(false);
+        params.set_suppress_blank(true);
+        params.set_no_speech_thold(options.no_speech_threshold);
+
+        if options.max_tokens > 0 {
+            params.set_max_tokens(options.max_tokens);
+        }
+
+        if let Some(ref lang) = options.language {
+            params.set_language(Some(lang.as_str()));
+        }
+
+        let _rc = state
+            .full(params, audio)
+            .map_err(|e| TranscriptionError::Transcribe(e.to_string()))?;
+
+        let n = state.full_n_segments().map_err(TranscriptionError::Whisper)?;
+
+        let mut segments = Vec::with_capacity(n as usize);
+        for i in 0..n {
+            let text = state
+                .full_get_segment_text(i)
+                .map_err(TranscriptionError::Whisper)?;
+
+            let text = text.trim().to_string();
+            if text.is_empty() {
+                continue;
+            }
+
+            // Whisper timestamps are in centiseconds → convert to milliseconds.
+            let t0 = state
+                .full_get_segment_t0(i)
+                .map_err(TranscriptionError::Whisper)?;
+            let t1 = state
+                .full_get_segment_t1(i)
+                .map_err(TranscriptionError::Whisper)?;
+
+            segments.push(TranscriptionSegment {
+                text,
+                start_ms: t0 * 10,
+                end_ms: t1 * 10,
+            });
+        }
+
+        Ok(segments)
+    }
+
     /// Verify that the loaded model fits within [`MEMORY_BUDGET_MB`].
     pub fn assert_within_budget(&self) -> Result<(), TranscriptionError> {
         if self.memory_delta_mb > MEMORY_BUDGET_MB {
