@@ -27,6 +27,12 @@ const CONFIDENCE_DECAY_PER_EMPTY_SEGMENT: f32 = 0.02;
 /// references using the existing context but cannot overwrite it.
 const CONTEXT_UPDATE_THRESHOLD: f32 = 0.70;
 
+/// Time-based decay rate for `context_confidence`: loses 0.1 per 2 minutes.
+///
+/// Applied by [`SermonContext::decay`] which the caller drives from a real-time
+/// clock.  Separate from the per-segment decay applied inside `enrich`.
+const TIME_DECAY_PER_MS: f32 = 0.1 / 120_000.0;
+
 // ─── SermonContext ─────────────────────────────────────────────────────────────
 
 /// Stateful context accumulator for a live sermon session.
@@ -131,6 +137,43 @@ impl SermonContext {
     /// Advance to a new sermon sub-point.
     pub fn set_sub_point(&mut self, sub_point: SubPointRef) {
         self.current_sub_point = Some(sub_point);
+    }
+
+    /// Apply a confirmed detection result.
+    ///
+    /// Called when a detection has been positively confirmed — by the operator,
+    /// a Local AI layer, or a Cloud AI layer.  Unlike the automatic updates
+    /// inside `enrich`, this unconditionally:
+    ///
+    /// - Sets `active_book` and `active_chapter` from `reference`.
+    /// - Appends `reference` to `mentioned_verses` when it carries a verse.
+    /// - Resets `context_confidence` to `1.0` (maximum certainty).
+    ///
+    /// `audio_ms` is the audio-stream timestamp (ms from stream start) at which
+    /// the reference was spoken — used for the `mentioned_verses` record.
+    pub fn update(&mut self, reference: BibleReference, audio_ms: u64) {
+        self.active_book = Some(reference.book.clone());
+        self.active_chapter = Some(reference.chapter);
+        if reference.verse.is_some() {
+            self.mentioned_verses.push((reference, audio_ms));
+        }
+        self.context_confidence = 1.0;
+    }
+
+    /// Advance the time-based confidence decay.
+    ///
+    /// Call this periodically — typically once per audio chunk — with the
+    /// number of milliseconds that have elapsed since the last call.
+    ///
+    /// Decay rate: **0.1 confidence per 2 minutes** (= per 120 000 ms).
+    /// Starting from `1.0`, confidence reaches `0.0` after 20 minutes of
+    /// silence.  The value is floored at `0.0`.
+    ///
+    /// This decay is independent of (and additive with) the per-segment decay
+    /// applied inside [`enrich`][SermonContext::enrich].
+    pub fn decay(&mut self, elapsed_ms: u64) {
+        let loss = elapsed_ms as f32 * TIME_DECAY_PER_MS;
+        self.context_confidence = (self.context_confidence - loss).max(0.0);
     }
 
     // ── Core pipeline ─────────────────────────────────────────────────────────
@@ -841,5 +884,179 @@ mod tests {
         ctx.set_sub_point(SubPointRef { id: "sp-1".into(), title: "Intro".into(), order_index: 0 });
         ctx.set_sub_point(SubPointRef { id: "sp-2".into(), title: "Body".into(), order_index: 1 });
         assert_eq!(ctx.current_sub_point.as_ref().unwrap().id, "sp-2");
+    }
+
+    // ── update() ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn update_sets_active_book_and_chapter() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(1), 0);
+        assert_eq!(ctx.active_book.as_deref(), Some("Romans"));
+        assert_eq!(ctx.active_chapter, Some(8));
+    }
+
+    #[test]
+    fn update_replaces_previously_detected_context() {
+        let mut ctx = SermonContext::new();
+        run(&mut ctx, "John 3:16");
+        ctx.update(BibleReference::new("Hebrews", 11u8).with_verse(1), 0);
+        assert_eq!(ctx.active_book.as_deref(), Some("Hebrews"));
+        assert_eq!(ctx.active_chapter, Some(11));
+    }
+
+    #[test]
+    fn update_adds_verse_reference_to_mentioned_verses() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Ephesians", 2u8).with_verse(8), 12_000);
+        assert_eq!(ctx.mentioned_verses.len(), 1);
+        let (r, ts) = &ctx.mentioned_verses[0];
+        assert_eq!(r.book, "Ephesians");
+        assert_eq!(r.chapter, 2);
+        assert_eq!(r.verse, Some(8));
+        assert_eq!(*ts, 12_000);
+    }
+
+    #[test]
+    fn update_does_not_add_chapter_only_ref_to_mentioned_verses() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8), 0); // no verse
+        assert!(ctx.mentioned_verses.is_empty());
+    }
+
+    #[test]
+    fn update_resets_context_confidence_to_1_0() {
+        let mut ctx = SermonContext::new();
+        // Confidence starts at 0.0 — update must bring it to exactly 1.0.
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(1), 0);
+        assert_eq!(ctx.context_confidence, 1.0);
+    }
+
+    #[test]
+    fn update_resets_confidence_after_partial_decay() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(1), 0);
+        ctx.decay(60_000); // 1 minute → should lose 0.05
+        assert!(ctx.context_confidence < 1.0);
+        // Second confirmed detection: must reset back to 1.0.
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(28), 60_000);
+        assert_eq!(ctx.context_confidence, 1.0);
+    }
+
+    #[test]
+    fn update_accumulates_multiple_verse_refs_in_mentioned_verses() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("John", 3u8).with_verse(16), 5_000);
+        ctx.update(BibleReference::new("John", 3u8).with_verse(17), 10_000);
+        assert_eq!(ctx.mentioned_verses.len(), 2);
+        assert_eq!(ctx.mentioned_verses[0].0.verse, Some(16));
+        assert_eq!(ctx.mentioned_verses[1].0.verse, Some(17));
+    }
+
+    #[test]
+    fn update_with_verse_range_is_tracked_in_mentioned_verses() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8).with_range(28, 30), 0);
+        assert_eq!(ctx.mentioned_verses.len(), 1);
+        assert_eq!(ctx.mentioned_verses[0].0.verse, Some(28));
+        assert_eq!(ctx.mentioned_verses[0].0.verse_end, Some(30));
+    }
+
+    // ── decay() ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn decay_zero_elapsed_has_no_effect() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(1), 0); // set to 1.0
+        ctx.decay(0);
+        assert_eq!(ctx.context_confidence, 1.0);
+    }
+
+    #[test]
+    fn decay_2_minutes_loses_0_1_confidence() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(1), 0); // 1.0
+        ctx.decay(120_000); // 2 min
+        assert!(
+            (ctx.context_confidence - 0.9).abs() < 1e-4,
+            "expected ≈0.9, got {}",
+            ctx.context_confidence
+        );
+    }
+
+    #[test]
+    fn decay_4_minutes_loses_0_2_confidence() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(1), 0); // 1.0
+        ctx.decay(240_000); // 4 min
+        assert!(
+            (ctx.context_confidence - 0.8).abs() < 1e-4,
+            "expected ≈0.8, got {}",
+            ctx.context_confidence
+        );
+    }
+
+    #[test]
+    fn decay_20_minutes_from_full_reaches_zero() {
+        // 20 min × (0.1 / 2 min) = 1.0 total loss → floors at 0.0
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(1), 0); // 1.0
+        ctx.decay(1_200_000); // 20 min
+        assert_eq!(ctx.context_confidence, 0.0);
+    }
+
+    #[test]
+    fn decay_floors_at_zero_and_does_not_go_negative() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(1), 0); // 1.0
+        ctx.decay(99_999_999); // far beyond 20 min
+        assert_eq!(ctx.context_confidence, 0.0);
+    }
+
+    #[test]
+    fn decay_is_additive_across_multiple_calls() {
+        // Two 1-minute calls should equal one 2-minute call.
+        let mut ctx_two_calls = SermonContext::new();
+        ctx_two_calls.update(BibleReference::new("Romans", 8u8).with_verse(1), 0);
+        ctx_two_calls.decay(60_000);
+        ctx_two_calls.decay(60_000);
+
+        let mut ctx_one_call = SermonContext::new();
+        ctx_one_call.update(BibleReference::new("Romans", 8u8).with_verse(1), 0);
+        ctx_one_call.decay(120_000);
+
+        assert!(
+            (ctx_two_calls.context_confidence - ctx_one_call.context_confidence).abs() < 1e-6,
+            "two 1-min calls ({}) differ from one 2-min call ({})",
+            ctx_two_calls.context_confidence,
+            ctx_one_call.context_confidence
+        );
+    }
+
+    #[test]
+    fn decay_does_not_change_active_book_or_chapter() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(1), 0);
+        ctx.decay(240_000);
+        assert_eq!(ctx.active_book.as_deref(), Some("Romans"));
+        assert_eq!(ctx.active_chapter, Some(8));
+    }
+
+    #[test]
+    fn decay_does_not_change_mentioned_verses() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(1), 0);
+        ctx.decay(240_000);
+        assert_eq!(ctx.mentioned_verses.len(), 1);
+    }
+
+    #[test]
+    fn update_after_full_decay_restores_confidence_to_1_0() {
+        let mut ctx = SermonContext::new();
+        ctx.update(BibleReference::new("Romans", 8u8).with_verse(1), 0);
+        ctx.decay(1_200_000); // decay to 0.0
+        assert_eq!(ctx.context_confidence, 0.0);
+        ctx.update(BibleReference::new("Romans", 9u8).with_verse(1), 1_200_000);
+        assert_eq!(ctx.context_confidence, 1.0);
     }
 }
