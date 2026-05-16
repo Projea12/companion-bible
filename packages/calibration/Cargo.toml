@@ -1,0 +1,15 @@
+[package]
+name = "companion-calibration"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+tokio = { workspace = true }
+companion-database = { workspace = true }
+companion-errors = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = "3"
