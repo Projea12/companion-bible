@@ -204,13 +204,13 @@ impl WhisperModel {
         }
 
         // ── Second pass: build context_window from neighbouring texts ─────────
-        let texts: Vec<&str> = raw.iter().map(|s| s.text.as_str()).collect();
+        let texts: Vec<String> = raw.iter().map(|s| s.text.clone()).collect();
         let segments = raw
             .into_iter()
             .enumerate()
             .map(|(i, s)| {
-                let prev = if i > 0 { texts[i - 1] } else { "" };
-                let next = if i + 1 < texts.len() { texts[i + 1] } else { "" };
+                let prev = if i > 0 { texts[i - 1].as_str() } else { "" };
+                let next = if i + 1 < texts.len() { texts[i + 1].as_str() } else { "" };
                 let context_window = [prev, next]
                     .iter()
                     .filter(|t| !t.is_empty())

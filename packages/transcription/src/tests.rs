@@ -211,14 +211,42 @@ fn setup_fails_gracefully_when_model_corrupt() {
 
 #[test]
 fn segment_duration_ms() {
-    let s = TranscriptionSegment { text: "hello".into(), start_ms: 1_000, end_ms: 3_500 };
+    let s = TranscriptionSegment {
+        text: "hello".into(),
+        audio_start_ms: 1_000,
+        audio_end_ms: 3_500,
+        whisper_confidence: 0.9,
+        is_duplicate: false,
+        context_window: String::new(),
+    };
     assert_eq!(s.duration_ms(), 2_500);
 }
 
 #[test]
 fn segment_zero_duration() {
-    let s = TranscriptionSegment { text: "x".into(), start_ms: 500, end_ms: 500 };
+    let s = TranscriptionSegment {
+        text: "x".into(),
+        audio_start_ms: 500,
+        audio_end_ms: 500,
+        whisper_confidence: 1.0,
+        is_duplicate: false,
+        context_window: String::new(),
+    };
     assert_eq!(s.duration_ms(), 0);
+}
+
+#[test]
+fn segment_is_duplicate_defaults_false() {
+    let s = TranscriptionSegment {
+        text: "John 3:16".into(),
+        audio_start_ms: 0,
+        audio_end_ms: 2_000,
+        whisper_confidence: 0.95,
+        is_duplicate: false,
+        context_window: "For God so loved the world".into(),
+    };
+    assert!(!s.is_duplicate);
+    assert!(!s.context_window.is_empty());
 }
 
 // ─── TranscribeOptions ────────────────────────────────────────────────────────
@@ -229,13 +257,24 @@ fn default_options_are_english() {
     assert_eq!(opts.language.as_deref(), Some("en"));
     assert!(opts.n_threads > 0);
     assert!(opts.no_speech_threshold > 0.0 && opts.no_speech_threshold < 1.0);
+    assert_eq!(opts.temperature, 0.0, "default temperature must be 0.0");
 }
 
 #[test]
 fn church_options_auto_detect_language() {
     let opts = TranscribeOptions::church();
     assert!(opts.language.is_none(), "church preset must use auto-detect");
+    assert_eq!(opts.temperature, 0.0);
+    assert!(!opts.initial_prompt.is_empty(), "church preset must include a sermon prompt");
+    assert!(opts.initial_prompt.contains("Genesis"), "prompt must include book names");
 }
+
+#[test]
+fn church_options_prompt_contains_nt_books() {
+    let prompt = TranscribeOptions::church().initial_prompt;
+    for book in ["Romans", "John", "Revelation", "Psalms"] {
+        assert!(prompt.contains(book), "church prompt must contain '{book}'");
+    }
 
 // ─── Transcription (requires model — run manually) ────────────────────────────
 
