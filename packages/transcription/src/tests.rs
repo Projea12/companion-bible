@@ -551,8 +551,10 @@ fn transcriber_emits_segments_from_spoken_verse() {
         // Pad to at least 15 s so the transcriber window is full.
         let sr = 16_000usize;
         let mut padded = vec![0.0f32; sr * 15];
-        let start = padded.len().saturating_sub(samples.len());
-        padded[start..].copy_from_slice(&samples[..samples.len().min(padded.len() - start)]);
+        let total = padded.len();
+        let copy_len = samples.len().min(total);
+        let start = total - copy_len;
+        padded[start..].copy_from_slice(&samples[..copy_len]);
 
         window.lock().unwrap().push(&padded);
     }
