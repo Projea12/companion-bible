@@ -1,0 +1,76 @@
+/*
+ * All font sources use local() — zero network requests, works fully offline.
+ *
+ * CongregationSerif  — verse body text
+ *   macOS   : Palatino
+ *   Windows : Palatino Linotype / Book Antiqua
+ *   Fallback: Georgia (universal)
+ *
+ * CongregationSans   — titles, references, labels
+ *   macOS   : Helvetica Neue (weight-matched variants)
+ *   Windows : Segoe UI
+ *   Linux   : Ubuntu / Cantarell / DejaVu Sans
+ *   Fallback: system-ui (resolved by the browser)
+ */
+
+/* ── CongregationSerif — 400 (regular) ───────────────────────────────────── */
+@font-face {
+  font-family: 'CongregationSerif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local('Palatino'), local('Palatino Linotype'), local('Book Antiqua'), local('Georgia');
+}
+
+/* ── CongregationSerif — 400 italic ──────────────────────────────────────── */
+@font-face {
+  font-family: 'CongregationSerif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src:
+    local('Palatino Italic'), local('Palatino Linotype Italic'), local('Book Antiqua Italic'),
+    local('Georgia Italic');
+}
+
+/* ── CongregationSans — 400 (regular) ────────────────────────────────────── */
+@font-face {
+  font-family: 'CongregationSans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src:
+    local('Helvetica Neue'), local('Segoe UI'), local('Ubuntu'), local('Cantarell'),
+    local('DejaVu Sans');
+}
+
+/* ── CongregationSans — 500 (medium) ─────────────────────────────────────── */
+@font-face {
+  font-family: 'CongregationSans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src:
+    local('Helvetica Neue Medium'), local('Helvetica Neue'), local('Segoe UI Semibold'),
+    local('Segoe UI'), local('Ubuntu Medium'), local('Ubuntu');
+}
+
+/* ── CongregationSans — 600 (semibold) ───────────────────────────────────── */
+@font-face {
+  font-family: 'CongregationSans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: local('Helvetica Neue Medium'), local('Segoe UI Semibold'), local('Ubuntu Medium');
+}
+
+/* ── CongregationSans — 700 (bold) ───────────────────────────────────────── */
+@font-face {
+  font-family: 'CongregationSans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src:
+    local('Helvetica Neue Bold'), local('Helvetica Neue'), local('Segoe UI Bold'),
+    local('Segoe UI'), local('Ubuntu Bold'), local('Ubuntu');
+}
