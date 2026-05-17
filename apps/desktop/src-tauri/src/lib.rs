@@ -71,6 +71,21 @@ fn assign_congregation_to_secondary(app: &AppHandle) -> bool {
     true
 }
 
+/// Pure decision function: given previous and current monitor counts, return
+/// the event type to emit — or `None` if no boundary was crossed.
+/// Extracted for testability; called by `watch_screens`.
+fn screen_change_event(previous: usize, current: usize) -> Option<&'static str> {
+    let had_secondary = previous > 1;
+    let has_secondary = current > 1;
+    if has_secondary && !had_secondary {
+        Some("SECONDARY_SCREEN_CONNECTED")
+    } else if !has_secondary && had_secondary {
+        Some("SECONDARY_SCREEN_DISCONNECTED")
+    } else {
+        None
+    }
+}
+
 fn watch_screens(app: AppHandle) {
     let initial_count = monitor_count(&app);
     std::thread::Builder::new()
@@ -80,27 +95,15 @@ fn watch_screens(app: AppHandle) {
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(2));
                 let current = monitor_count(&app);
-                if current == last_count {
-                    continue;
-                }
-                let had_secondary = last_count > 1;
-                let has_secondary = current > 1;
-                last_count = current;
-                if has_secondary && !had_secondary {
-                    assign_congregation_to_secondary(&app);
-                    let _ = app.emit(
-                        "app-event",
-                        serde_json::json!({ "type": "SECONDARY_SCREEN_CONNECTED" }),
-                    );
-                } else if !has_secondary && had_secondary {
-                    if let Some(w) = congregation_window(&app) {
+                if let Some(event_type) = screen_change_event(last_count, current) {
+                    if event_type == "SECONDARY_SCREEN_CONNECTED" {
+                        assign_congregation_to_secondary(&app);
+                    } else if let Some(w) = congregation_window(&app) {
                         let _ = w.hide();
                     }
-                    let _ = app.emit(
-                        "app-event",
-                        serde_json::json!({ "type": "SECONDARY_SCREEN_DISCONNECTED" }),
-                    );
+                    let _ = app.emit("app-event", serde_json::json!({ "type": event_type }));
                 }
+                last_count = current;
             }
         })
         .expect("failed to spawn screen-watcher thread");
@@ -264,11 +267,226 @@ fn congregation_window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(CONGREGATION_LABEL)
 }
 
+// ─── tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_reference ────────────────────────────────────────────────────────
+
+    fn ref_val(
+        book: &str,
+        chapter: u8,
+        verse: Option<u8>,
+        verse_end: Option<u8>,
+    ) -> serde_json::Value {
+        serde_json::json!({ "book": book, "chapter": chapter, "verse": verse, "verse_end": verse_end })
+    }
+
+    #[test]
+    fn parse_explicit_verse() {
+        assert_eq!(
+            parse_reference("John 3:16"),
+            Some(ref_val("John", 3, Some(16), None))
+        );
+    }
+
+    #[test]
+    fn parse_chapter_only() {
+        assert_eq!(
+            parse_reference("Genesis 1"),
+            Some(ref_val("Genesis", 1, None, None))
+        );
+    }
+
+    #[test]
+    fn parse_verse_range() {
+        assert_eq!(
+            parse_reference("Revelation 22:20-21"),
+            Some(ref_val("Revelation", 22, Some(20), Some(21)))
+        );
+    }
+
+    #[test]
+    fn parse_multi_word_book() {
+        assert_eq!(
+            parse_reference("1 Corinthians 13:4"),
+            Some(ref_val("1 Corinthians", 13, Some(4), None))
+        );
+    }
+
+    #[test]
+    fn parse_numbered_book_chapter_only() {
+        assert_eq!(
+            parse_reference("2 Kings 5"),
+            Some(ref_val("2 Kings", 5, None, None))
+        );
+    }
+
+    #[test]
+    fn parse_three_word_book() {
+        assert_eq!(
+            parse_reference("Song of Solomon 3:2"),
+            Some(ref_val("Song of Solomon", 3, Some(2), None))
+        );
+    }
+
+    #[test]
+    fn parse_large_chapter() {
+        assert_eq!(
+            parse_reference("Psalm 119:176"),
+            Some(ref_val("Psalm", 119, Some(176), None))
+        );
+    }
+
+    #[test]
+    fn parse_empty_returns_none() {
+        assert_eq!(parse_reference(""), None);
+    }
+
+    #[test]
+    fn parse_book_only_returns_none() {
+        assert_eq!(parse_reference("John"), None);
+    }
+
+    #[test]
+    fn parse_non_numeric_chapter_returns_none() {
+        assert_eq!(parse_reference("John abc"), None);
+    }
+
+    #[test]
+    fn parse_overflow_chapter_returns_none() {
+        // u8 max is 255; 300 does not fit
+        assert_eq!(parse_reference("Psalm 300"), None);
+    }
+
+    // ── screen_change_event ────────────────────────────────────────────────────
+
+    #[test]
+    fn single_to_dual_emits_connected() {
+        assert_eq!(
+            screen_change_event(1, 2),
+            Some("SECONDARY_SCREEN_CONNECTED")
+        );
+    }
+
+    #[test]
+    fn dual_to_single_emits_disconnected() {
+        assert_eq!(
+            screen_change_event(2, 1),
+            Some("SECONDARY_SCREEN_DISCONNECTED")
+        );
+    }
+
+    #[test]
+    fn single_unchanged_emits_nothing() {
+        assert_eq!(screen_change_event(1, 1), None);
+    }
+
+    #[test]
+    fn dual_unchanged_emits_nothing() {
+        assert_eq!(screen_change_event(2, 2), None);
+    }
+
+    #[test]
+    fn single_to_three_emits_connected() {
+        assert_eq!(
+            screen_change_event(1, 3),
+            Some("SECONDARY_SCREEN_CONNECTED")
+        );
+    }
+
+    #[test]
+    fn three_to_single_emits_disconnected() {
+        assert_eq!(
+            screen_change_event(3, 1),
+            Some("SECONDARY_SCREEN_DISCONNECTED")
+        );
+    }
+
+    #[test]
+    fn dual_to_triple_emits_nothing() {
+        // Both have a secondary — boundary not crossed
+        assert_eq!(screen_change_event(2, 3), None);
+    }
+
+    #[test]
+    fn triple_to_dual_emits_nothing() {
+        assert_eq!(screen_change_event(3, 2), None);
+    }
+
+    // ── window management / state ──────────────────────────────────────────────
+
+    #[test]
+    fn display_mode_default_is_idle() {
+        let s = InternalState::default();
+        assert_eq!(s.display_mode, DisplayMode::Idle);
+    }
+
+    #[test]
+    fn session_inactive_by_default() {
+        let s = InternalState::default();
+        assert!(!s.session_active);
+    }
+
+    #[test]
+    fn display_mode_serializes_to_snake_case() {
+        let cases = [
+            (DisplayMode::Idle, "\"idle\""),
+            (DisplayMode::Blank, "\"blank\""),
+            (DisplayMode::Verse, "\"verse\""),
+            (DisplayMode::Title, "\"title\""),
+            (DisplayMode::Subpoint, "\"subpoint\""),
+        ];
+        for (mode, expected) in cases {
+            let json = serde_json::to_string(&mode).unwrap();
+            assert_eq!(json, expected);
+        }
+    }
+
+    #[test]
+    fn managed_state_tracks_display_mode() {
+        let managed = ManagedState(Mutex::new(InternalState::default()));
+        managed.0.lock().unwrap().display_mode = DisplayMode::Verse;
+        assert_eq!(managed.0.lock().unwrap().display_mode, DisplayMode::Verse);
+    }
+
+    #[test]
+    fn managed_state_tracks_session() {
+        let managed = ManagedState(Mutex::new(InternalState::default()));
+        managed.0.lock().unwrap().session_active = true;
+        assert!(managed.0.lock().unwrap().session_active);
+        managed.0.lock().unwrap().session_active = false;
+        assert!(!managed.0.lock().unwrap().session_active);
+    }
+
+    #[test]
+    fn display_mode_cycles_through_all_states() {
+        let managed = ManagedState(Mutex::new(InternalState::default()));
+        let states = [
+            DisplayMode::Verse,
+            DisplayMode::Title,
+            DisplayMode::Subpoint,
+            DisplayMode::Blank,
+            DisplayMode::Idle,
+        ];
+        for state in states {
+            managed.0.lock().unwrap().display_mode = state.clone();
+            assert_eq!(managed.0.lock().unwrap().display_mode, state);
+        }
+    }
+}
+
 // ─── entry point ──────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             app.manage(ManagedState(Mutex::new(InternalState::default())));
             let handle = app.handle().clone();
