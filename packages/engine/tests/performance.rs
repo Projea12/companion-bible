@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use companion_bible::KjvBible;
 use companion_database::{
     connect, CalibrationRepository, ChurchRepository, DetectionEventRepository, PoolConfig,
+    VerseRepository,
 };
 use companion_detection::PatternEngine;
 use companion_engine::{DetectionEngine, EngineConfig};

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use companion_bible::KjvBible;
 use companion_database::{
     connect, CalibrationRepository, ChurchRepository, DetectionEventRepository, PoolConfig,
+    VerseRepository,
 };
 use companion_engine::{DetectionEngine, EngineConfig, ValidationOutcome};
 use companion_transcription::TranscriptionSegment;
@@ -52,7 +53,8 @@ async fn setup_engine() -> (DetectionEngine, TempDir) {
         bible,
         ChurchRepository::new(pool.clone()),
         CalibrationRepository::new(pool.clone()),
-        DetectionEventRepository::new(pool),
+        DetectionEventRepository::new(pool.clone()),
+        VerseRepository::new(pool),
         None,
     )
     .await

@@ -7,7 +7,7 @@ use companion_engine::{DetectionEngine, EngineConfig, LocalAiHandle};
 use companion_audio::{AudioSystem, BuiltinMicInput, RingBuffer};
 use companion_transcription::{DeepgramTranscriber, ModelManager, SetupProgress, TranscribeOptions, WhisperTranscriber};
 use companion_ai::{LocalAI, LocalAIConfig};
-use companion_database::{CalibrationRepository, ChurchRepository, DetectionEventRepository, PoolConfig};
+use companion_database::{CalibrationRepository, ChurchRepository, DetectionEventRepository, PoolConfig, VerseRepository};
 use companion_arbitrator::DisplayAction;
 
 // ─── window labels ────────────────────────────────────────────────────────────
@@ -434,6 +434,7 @@ async fn start_session(
     let church_repo = ChurchRepository::new(pool.clone());
     let calibration_repo = CalibrationRepository::new(pool.clone());
     let detection_repo = DetectionEventRepository::new(pool.clone());
+    let verse_repo = VerseRepository::new(pool.clone());
     let _ = church_repo
         .get_or_create("companion-default", "Default Church", "local")
         .await;
@@ -477,6 +478,7 @@ async fn start_session(
         church_repo,
         calibration_repo,
         detection_repo,
+        verse_repo,
         local_ai_handle,
     )
     .await

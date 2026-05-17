@@ -2,6 +2,7 @@ mod decision;
 mod engine;
 mod fuzzy;
 mod layers;
+mod quotation;
 mod worker;
 
 pub use decision::{DetectionDecision, ValidationOutcome};

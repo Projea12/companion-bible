@@ -11,12 +11,14 @@ use companion_cloud_ai::CloudAI;
 use companion_context::SermonContext;
 use companion_database::{
     CalibrationRepository, ChurchRepository, DetectionEvent, DetectionEventRepository,
+    VerseRepository,
 };
 use companion_events::{AppEvent, BibleReference as EventBibleReference};
 use companion_transcription::TranscriptionSegment;
 
 use crate::decision::{DetectionDecision, ValidationOutcome};
 use crate::layers;
+use crate::quotation;
 use crate::worker::{collect_local_ai, LocalAiHandle};
 
 // ─── timing constants ────────────────────────────────────────────────────────
@@ -56,6 +58,7 @@ pub struct DetectionEngine {
 
     // ── persistence / events ──────────────────────────────────────────────────
     detection_repo: DetectionEventRepository,
+    verse_repo: Option<VerseRepository>,
     sermon_id: String,
     event_tx: Option<std::sync::mpsc::Sender<AppEvent>>,
 }
@@ -72,6 +75,7 @@ impl DetectionEngine {
         church_repo: ChurchRepository,
         calibration_repo: CalibrationRepository,
         detection_repo: DetectionEventRepository,
+        verse_repo: VerseRepository,
         local_ai_handle: Option<LocalAiHandle>,
     ) -> Result<Self, CalibrationError> {
         let calibrator = ChurchCalibrator::load(church_repo, calibration_repo).await?;
@@ -91,6 +95,7 @@ impl DetectionEngine {
             bible,
             calibrator,
             detection_repo,
+            verse_repo: Some(verse_repo),
             sermon_id: config.sermon_id,
             event_tx: None,
         })
@@ -151,6 +156,19 @@ impl DetectionEngine {
                 &self.context.find_in_rolling_transcript(),
             );
             rolling.or(segment_pattern)
+        };
+
+        // ── 2c. Quotation layer — FTS5 match when pattern layers found nothing ──
+        // Runs only when pattern + rolling gave no verse, to avoid latency on
+        // the fast path. Uses the rolling transcript so partial utterances
+        // accumulate enough text before a match fires.
+        let pattern_result = if pattern_result.as_ref().map(|r| r.verse.is_some()).unwrap_or(false) {
+            pattern_result
+        } else {
+            let quotation_result = self
+                .quotation_layer(&transcript, active_book.as_deref(), active_chapter)
+                .await;
+            quotation_result.or(pattern_result)
         };
 
         // ── 3. Submit to local AI worker (non-blocking) ───────────────────
@@ -279,6 +297,20 @@ impl DetectionEngine {
     }
 
     // ── private helpers ───────────────────────────────────────────────────────
+
+    async fn quotation_layer(
+        &self,
+        transcript: &str,
+        book: Option<&str>,
+        chapter: Option<u8>,
+    ) -> Option<companion_arbitrator::LayerResult> {
+        let repo = self.verse_repo.as_ref()?;
+        let candidates = repo.search_fts(transcript, book, chapter, 8).await.ok()?;
+        if candidates.is_empty() {
+            return None;
+        }
+        quotation::best_quotation_match(&candidates, transcript)
+    }
 
     fn emit_event(&self, event: AppEvent) {
         if let Some(tx) = &self.event_tx {
