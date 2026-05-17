@@ -29,6 +29,7 @@ impl WriteAheadLog for MemoryWal {
 }
 
 /// WAL that always fails — used to test error propagation.
+#[allow(dead_code)]
 pub struct FailingWal {
     pub message: String,
 }
