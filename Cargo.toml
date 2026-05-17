@@ -11,6 +11,7 @@ members = [
     "packages/detection",
     "packages/context",
     "packages/ai",
+    "packages/phi3-worker",
     "packages/cloud-ai",
     "packages/arbitrator",
     "packages/calibration",

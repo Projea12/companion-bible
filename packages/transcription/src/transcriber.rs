@@ -17,7 +17,7 @@ use crate::transcript::{TranscribeOptions, TranscriptionSegment};
 pub const NEW_AUDIO_SECS: u64 = 5;
 
 /// Audio span sent to Whisper each run — includes overlap for context.
-pub const TRANSCRIBE_WINDOW_SECS: u64 = 15;
+pub const TRANSCRIBE_WINDOW_SECS: u64 = 6;
 
 /// How long to remember emitted text to filter text-based duplicates.
 const DEDUP_MEMORY_SECS: u64 = 30;

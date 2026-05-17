@@ -169,6 +169,39 @@ pub enum AppEvent {
         key: String,
     },
 
+    // ── Audio quality ────────────────────────────────────────────────────────
+    AudioQualityDegraded,
+
+    // ── AI layers ────────────────────────────────────────────────────────────
+    AiLayersChanged {
+        layers: String,
+    },
+
+    // ── Storage ──────────────────────────────────────────────────────────────
+    StorageStatus {
+        level: String,
+        available_bytes: u64,
+    },
+
+    // ── Sermon lifecycle ─────────────────────────────────────────────────────
+    SermonStarted {
+        title: Option<String>,
+        pastor: Option<String>,
+        anchor_scripture: Option<String>,
+    },
+    SermonEnded {
+        summary: Option<String>,
+    },
+    SubPointAdded {
+        text: String,
+        index: u32,
+    },
+
+    // ── Operator ─────────────────────────────────────────────────────────────
+    OperatorManualOverride {
+        reference: String,
+    },
+
     // ── Model setup ──────────────────────────────────────────────────────────
     /// First launch: model weights are not present — setup is required.
     ModelSetupRequired,

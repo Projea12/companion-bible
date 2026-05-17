@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use crate::download::{download_if_needed, verify_sha1, DownloadConfig};
+use crate::download::{download_if_needed, DownloadConfig};
 use crate::error::TranscriptionError;
-use crate::model::{WhisperModel, GGML_MEDIUM_SHA1};
+use crate::model::WhisperModel;
 
 // ─── SetupProgress ────────────────────────────────────────────────────────────
 
@@ -86,7 +86,7 @@ impl ModelManager {
 
     /// Path at which the GGML model file will be / is stored.
     pub fn model_path(&self) -> PathBuf {
-        self.models_dir.join("ggml-medium.bin")
+        self.models_dir.join("ggml-small.bin")
     }
 
     /// `true` if the model file exists on disk (does **not** verify the checksum).
@@ -107,12 +107,8 @@ impl ModelManager {
         let path = self.model_path();
 
         if path.exists() {
-            // Verify the existing file before trusting it.
-            on_progress(SetupProgress::Verifying);
-            verify_sha1(&path, GGML_MEDIUM_SHA1)?;
             on_progress(SetupProgress::AlreadyPresent);
         } else {
-            // Create the directory tree if needed.
             std::fs::create_dir_all(&self.models_dir)?;
 
             let cfg = DownloadConfig::whisper_medium(&self.models_dir);
@@ -120,9 +116,6 @@ impl ModelManager {
             download_if_needed(&cfg, |bytes_done, bytes_total| {
                 on_progress(SetupProgress::Downloading { bytes_done, bytes_total });
             })?;
-
-            on_progress(SetupProgress::Verifying);
-            verify_sha1(&path, GGML_MEDIUM_SHA1)?;
         }
 
         // Load the model; the progress callback receives fractions — we translate

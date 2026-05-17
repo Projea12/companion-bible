@@ -122,7 +122,7 @@ impl PatternEngine {
                 + PREAMBLE
                 + r"(?P<book>"
                 + &book_alt
-                + r")\s+(?:chapter\s+)?(?P<chapter>[1-9]\d{0,2})\s*:\s*(?P<verse>[1-9]\d{0,2})"
+                + r")\s+(?:chapter\s+)?(?P<chapter>[1-9]\d{0,2})\s*[:/]\s*(?P<verse>[1-9]\d{0,2})"
         )).expect("colon_re");
 
         // ── Pattern 2: "Book [chapter] N verse N" ────────────────────────────

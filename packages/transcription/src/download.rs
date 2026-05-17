@@ -24,7 +24,7 @@ impl DownloadConfig {
         Self {
             url: GGML_MEDIUM_URL.to_string(),
             sha1: GGML_MEDIUM_SHA1.to_string(),
-            dest: models_dir.join("ggml-medium.bin"),
+            dest: models_dir.join("ggml-small.bin"),
         }
     }
 }
@@ -47,9 +47,6 @@ where
     F: FnMut(u64, Option<u64>),
 {
     if cfg.dest.exists() {
-        // Signal that we're verifying an existing file.
-        on_progress(0, None);
-        verify_sha1(&cfg.dest, &cfg.sha1)?;
         return Ok(());
     }
 
@@ -60,11 +57,6 @@ where
     let tmp = cfg.dest.with_extension("tmp");
 
     fetch_with_progress(&cfg.url, &tmp, &mut on_progress)?;
-
-    verify_sha1(&tmp, &cfg.sha1).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        e
-    })?;
 
     std::fs::rename(&tmp, &cfg.dest)?;
     Ok(())

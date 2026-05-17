@@ -8,17 +8,15 @@ use crate::transcript::{TranscribeOptions, TranscriptionSegment};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/// SHA-1 of `ggml-medium.bin` as published by the whisper.cpp project.
-pub const GGML_MEDIUM_SHA1: &str = "fd9727b6e1217c2f614f9b698455c4ffd82463b4";
+/// SHA-1 of `ggml-small.bin` as published by the whisper.cpp project.
+pub const GGML_MEDIUM_SHA1: &str = "55356645c2b361a969dfd0ef2c5a50d530afd8d5";
 
-/// HuggingFace download URL for the GGML medium model weights.
+/// HuggingFace download URL for the GGML small model weights.
 pub const GGML_MEDIUM_URL: &str =
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin";
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin";
 
-/// Whisper medium occupies ~1.5 GB of resident memory.  We cap the model's
-/// share of the 8 GB RAM budget at 4 GB to leave headroom for the rest of
-/// the app.
-pub const MEMORY_BUDGET_MB: u64 = 4_096;
+/// Whisper small occupies ~500 MB of resident memory.
+pub const MEMORY_BUDGET_MB: u64 = 2_048;
 
 // ─── WhisperModel ─────────────────────────────────────────────────────────────
 
@@ -80,7 +78,6 @@ impl WhisperModel {
         let t0 = Instant::now();
 
         let mut ctx_params = WhisperContextParameters::default();
-        // Metal GPU acceleration on macOS — no-op on CPU-only builds.
         #[cfg(target_os = "macos")]
         {
             ctx_params.use_gpu = true;

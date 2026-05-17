@@ -1,0 +1,15 @@
+[package]
+name = "phi3-worker"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "phi3-worker"
+path = "src/main.rs"
+
+[dependencies]
+llama-cpp-2 = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+encoding_rs = "0.8"

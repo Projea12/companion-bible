@@ -25,6 +25,9 @@ interface DisplayedVerse {
 export function App() {
   // session
   const [sessionActive, setSessionActive] = useState(false);
+  const [sessionStarting, setSessionStarting] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [modelDownloadPercent, setModelDownloadPercent] = useState<number | null>(null);
   const [congregationVisible, setCongregationVisible] = useState(false);
   const [totalScreens, setTotalScreens] = useState(1);
   const [hasSecondary, setHasSecondary] = useState(false);
@@ -90,6 +93,10 @@ export function App() {
   useEffect(() => {
     const unlistenPromise = listen<AppEvent>('app-event', ({ payload }) => {
       switch (payload.type) {
+        case 'MODEL_DOWNLOAD_PROGRESS':
+          setModelDownloadPercent((payload as unknown as { percent: number }).percent);
+          break;
+
         case 'SECONDARY_SCREEN_CONNECTED':
         case 'SECONDARY_SCREEN_DISCONNECTED':
           void invoke<AppState>('get_app_state').then((s) => {
@@ -217,10 +224,20 @@ export function App() {
   // ── actions ───────────────────────────────────────────────────────────────
 
   const handleStartSession = useCallback(() => {
-    void invoke('start_session').then(() => {
-      setSessionActive(true);
-      setAudio('flowing');
-    });
+    setSessionStarting(true);
+    setSessionError(null);
+    invoke('start_session')
+      .then(() => {
+        setSessionActive(true);
+        setAudio('flowing');
+        setModelDownloadPercent(null);
+      })
+      .catch((err: unknown) => {
+        setSessionError(String(err));
+      })
+      .finally(() => {
+        setSessionStarting(false);
+      });
   }, []);
 
   const handleStopSession = useCallback(() => {
@@ -345,9 +362,20 @@ export function App() {
               Stop Session
             </button>
           ) : (
-            <button className="btn btn-primary" onClick={handleStartSession}>
-              Start Session
+            <button
+              className="btn btn-primary"
+              onClick={handleStartSession}
+              disabled={sessionStarting}
+            >
+              {sessionStarting
+                ? modelDownloadPercent !== null
+                  ? `Downloading model… ${modelDownloadPercent}%`
+                  : 'Starting…'
+                : 'Start Session'}
             </button>
+          )}
+          {sessionError && (
+            <span style={{ color: 'red', fontSize: '0.75rem', maxWidth: 300 }}>{sessionError}</span>
           )}
           <button
             className="btn btn-secondary"
