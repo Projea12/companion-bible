@@ -7,12 +7,12 @@ mod wal;
 pub use controller::DisplayController;
 pub use error::DisplayError;
 pub use state::{DisplayedState, SubPoint};
-pub use wal::{MemoryWal, WalEntry, WriteAheadLog};
+pub use wal::{MemoryWal, SharedWal, WalEntry, WriteAheadLog};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wal::FailingWal;
+    use crate::wal::{FailingWal, SharedWal};
     use companion_events::BibleReference;
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -415,6 +415,250 @@ mod tests {
             .restore(DisplayedState::SermonTitle("T".into()))
             .unwrap_err();
         assert_eq!(err, DisplayError::RenderFailed("render error".into()));
+    }
+
+    // ── every state → every state transition (4 × 4 matrix) ──────────────────
+
+    // from Blank
+    #[test]
+    fn blank_to_blank() {
+        let mut c = ctrl();
+        c.show_blank().unwrap();
+        assert_eq!(*c.state(), DisplayedState::Blank);
+    }
+
+    #[test]
+    fn blank_to_sermon_title() {
+        let mut c = ctrl();
+        c.show_sermon_title("Grace").unwrap();
+        assert!(matches!(c.state(), DisplayedState::SermonTitle(_)));
+    }
+
+    #[test]
+    fn blank_to_sub_point() {
+        let mut c = ctrl();
+        c.show_sub_point(SubPoint::new("point")).unwrap();
+        assert!(matches!(c.state(), DisplayedState::SubPoint(_)));
+    }
+
+    #[test]
+    fn blank_to_verse() {
+        let mut c = ctrl();
+        c.show_verse(john_3_16(), "text").unwrap();
+        assert!(matches!(c.state(), DisplayedState::Verse(_, _)));
+    }
+
+    // from SermonTitle
+    #[test]
+    fn sermon_title_to_blank() {
+        let mut c = ctrl();
+        c.show_sermon_title("T").unwrap();
+        c.show_blank().unwrap();
+        assert_eq!(*c.state(), DisplayedState::Blank);
+    }
+
+    #[test]
+    fn sermon_title_to_sermon_title() {
+        let mut c = ctrl();
+        c.show_sermon_title("First").unwrap();
+        c.show_sermon_title("Second").unwrap();
+        assert_eq!(*c.state(), DisplayedState::SermonTitle("Second".into()));
+    }
+
+    #[test]
+    fn sermon_title_to_sub_point() {
+        let mut c = ctrl();
+        c.show_sermon_title("T").unwrap();
+        c.show_sub_point(SubPoint::new("point")).unwrap();
+        assert!(matches!(c.state(), DisplayedState::SubPoint(_)));
+    }
+
+    #[test]
+    fn sermon_title_to_verse() {
+        let mut c = ctrl();
+        c.show_sermon_title("T").unwrap();
+        c.show_verse(john_3_16(), "text").unwrap();
+        assert!(matches!(c.state(), DisplayedState::Verse(_, _)));
+    }
+
+    // from SubPoint
+    #[test]
+    fn sub_point_to_blank() {
+        let mut c = ctrl();
+        c.show_sub_point(SubPoint::new("p")).unwrap();
+        c.show_blank().unwrap();
+        assert_eq!(*c.state(), DisplayedState::Blank);
+    }
+
+    #[test]
+    fn sub_point_to_sermon_title() {
+        let mut c = ctrl();
+        c.show_sub_point(SubPoint::new("p")).unwrap();
+        c.show_sermon_title("T").unwrap();
+        assert!(matches!(c.state(), DisplayedState::SermonTitle(_)));
+    }
+
+    #[test]
+    fn sub_point_to_sub_point() {
+        let mut c = ctrl();
+        c.show_sub_point(SubPoint::new("first")).unwrap();
+        c.show_sub_point(SubPoint::new("second")).unwrap();
+        let DisplayedState::SubPoint(sp) = c.state() else {
+            panic!("expected SubPoint");
+        };
+        assert_eq!(sp.text, "second");
+    }
+
+    #[test]
+    fn sub_point_to_verse() {
+        let mut c = ctrl();
+        c.show_sub_point(SubPoint::new("p")).unwrap();
+        c.show_verse(john_3_16(), "text").unwrap();
+        assert!(matches!(c.state(), DisplayedState::Verse(_, _)));
+    }
+
+    // from Verse
+    #[test]
+    fn verse_to_blank() {
+        let mut c = ctrl();
+        c.show_verse(john_3_16(), "text").unwrap();
+        c.show_blank().unwrap();
+        assert_eq!(*c.state(), DisplayedState::Blank);
+    }
+
+    #[test]
+    fn verse_to_sermon_title() {
+        let mut c = ctrl();
+        c.show_verse(john_3_16(), "text").unwrap();
+        c.show_sermon_title("T").unwrap();
+        assert!(matches!(c.state(), DisplayedState::SermonTitle(_)));
+    }
+
+    #[test]
+    fn verse_to_sub_point() {
+        let mut c = ctrl();
+        c.show_verse(john_3_16(), "text").unwrap();
+        c.show_sub_point(SubPoint::new("application")).unwrap();
+        assert!(matches!(c.state(), DisplayedState::SubPoint(_)));
+    }
+
+    #[test]
+    fn verse_to_verse() {
+        let mut c = ctrl();
+        c.show_verse(john_3_16(), "first").unwrap();
+        c.show_verse(romans_8_28(), "second").unwrap();
+        let DisplayedState::Verse(r, t) = c.state() else {
+            panic!("expected Verse");
+        };
+        assert_eq!(*r, romans_8_28());
+        assert_eq!(t, "second");
+    }
+
+    // ── WAL-before-display guarantee ──────────────────────────────────────────
+
+    /// WAL entry is appended even when the renderer subsequently fails
+    /// (simulates a crash/error between WAL write and display update).
+    #[test]
+    fn wal_entry_written_before_render_attempt() {
+        let (wal, log) = SharedWal::new();
+        let mut c = DisplayController::new(wal, failing_renderer());
+
+        let _ = c.show_verse(john_3_16(), "For God so loved the world");
+
+        let entries = log.lock().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].from, DisplayedState::Blank);
+        assert!(matches!(entries[0].to, DisplayedState::Verse(_, _)));
+    }
+
+    /// After a crash (render failed), replaying the WAL log on a fresh controller
+    /// via `restore()` puts the display back in the correct state.
+    #[test]
+    fn wal_replay_restores_correct_state_after_crash() {
+        // Phase 1 — "original run" captures WAL entries.
+        let (wal, log) = SharedWal::new();
+        let mut original = DisplayController::new(wal, ok_renderer());
+        original.show_sermon_title("Walking by Faith").unwrap();
+        original
+            .show_verse(john_3_16(), "For God so loved the world")
+            .unwrap();
+        original
+            .show_sub_point(SubPoint::new("Faith requires trust"))
+            .unwrap();
+
+        // Capture final WAL state before "crash".
+        let entries: Vec<WalEntry> = log.lock().unwrap().clone();
+
+        // Phase 2 — fresh controller replays the WAL to recover.
+        let mut recovered = DisplayController::new(MemoryWal::new(), ok_renderer());
+        for entry in &entries {
+            recovered.restore(entry.to.clone()).unwrap();
+        }
+
+        assert_eq!(*recovered.state(), *original.state());
+    }
+
+    /// WAL sequence faithfully records every transition from → to in order.
+    #[test]
+    fn wal_records_full_transition_sequence() {
+        let (wal, log) = SharedWal::new();
+        let mut c = DisplayController::new(wal, ok_renderer());
+
+        c.show_sermon_title("T").unwrap();
+        c.show_verse(john_3_16(), "v").unwrap();
+        c.show_blank().unwrap();
+
+        let entries = log.lock().unwrap();
+        assert_eq!(entries.len(), 3);
+
+        assert_eq!(entries[0].from, DisplayedState::Blank);
+        assert!(matches!(entries[0].to, DisplayedState::SermonTitle(_)));
+
+        assert!(matches!(entries[1].from, DisplayedState::SermonTitle(_)));
+        assert!(matches!(entries[1].to, DisplayedState::Verse(_, _)));
+
+        assert!(matches!(entries[2].from, DisplayedState::Verse(_, _)));
+        assert_eq!(entries[2].to, DisplayedState::Blank);
+    }
+
+    /// discard() also writes a WAL entry (the undo itself is logged).
+    #[test]
+    fn discard_wal_entry_recorded() {
+        let (wal, log) = SharedWal::new();
+        let mut c = DisplayController::new(wal, ok_renderer());
+
+        c.show_sermon_title("T").unwrap();
+        c.discard().unwrap();
+
+        let entries = log.lock().unwrap();
+        // entry[0]: Blank → SermonTitle   (show_sermon_title)
+        // entry[1]: SermonTitle → Blank   (discard)
+        assert_eq!(entries.len(), 2);
+        assert!(matches!(entries[1].from, DisplayedState::SermonTitle(_)));
+        assert_eq!(entries[1].to, DisplayedState::Blank);
+    }
+
+    /// Simulates a crash between WAL write and render by using a renderer that
+    /// always fails.  State is updated (WAL + memory), render is not.
+    /// Replaying the WAL on a new controller with a working renderer recovers.
+    #[test]
+    fn wal_replay_after_render_crash_recovers_display() {
+        let (wal, log) = SharedWal::new();
+
+        // "Crashed" controller — renderer always fails.
+        let mut crashed = DisplayController::new(wal, failing_renderer());
+        let _ = crashed.show_verse(john_3_16(), "For God so loved the world");
+        // State is committed in memory despite render failure.
+        assert!(matches!(crashed.state(), DisplayedState::Verse(_, _)));
+
+        // Recover: build fresh controller with working renderer, replay WAL.
+        let entries: Vec<WalEntry> = log.lock().unwrap().clone();
+        let mut recovered = DisplayController::new(MemoryWal::new(), ok_renderer());
+        for entry in &entries {
+            recovered.restore(entry.to.clone()).unwrap();
+        }
+
+        assert_eq!(*recovered.state(), *crashed.state());
     }
 
     // ── full transition cycle ─────────────────────────────────────────────────
