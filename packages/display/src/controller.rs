@@ -62,6 +62,11 @@ impl DisplayController {
         self.transition(DisplayedState::Verse(reference, text.into()))
     }
 
+    /// Force the display to a specific state and re-render — for crash recovery.
+    pub fn restore(&mut self, state: DisplayedState) -> Result<(), DisplayError> {
+        self.transition(state)
+    }
+
     /// Restore the previous state from history.
     pub fn discard(&mut self) -> Result<(), DisplayError> {
         let prev = self.history.pop().ok_or(DisplayError::NoHistory)?;

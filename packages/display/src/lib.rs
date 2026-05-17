@@ -358,6 +358,65 @@ mod tests {
         assert_eq!(c.discard().unwrap_err(), DisplayError::NoHistory);
     }
 
+    // ── restore ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn restore_sets_state() {
+        let mut c = ctrl();
+        c.restore(DisplayedState::SermonTitle("Recovery".into()))
+            .unwrap();
+        assert_eq!(*c.state(), DisplayedState::SermonTitle("Recovery".into()));
+    }
+
+    #[test]
+    fn restore_verse_state() {
+        let mut c = ctrl();
+        c.restore(DisplayedState::Verse(john_3_16(), "recovered text".into()))
+            .unwrap();
+        assert!(matches!(c.state(), DisplayedState::Verse(_, _)));
+    }
+
+    #[test]
+    fn restore_writes_to_wal() {
+        let mut c = DisplayController::new(FailingWal::new("disk full"), ok_renderer());
+        let err = c
+            .restore(DisplayedState::SermonTitle("T".into()))
+            .unwrap_err();
+        assert_eq!(err, DisplayError::WalWriteFailed("disk full".into()));
+    }
+
+    #[test]
+    fn restore_wal_failure_leaves_state_unchanged() {
+        let mut c = DisplayController::new(FailingWal::new("err"), ok_renderer());
+        let _ = c.restore(DisplayedState::SermonTitle("T".into()));
+        assert_eq!(*c.state(), DisplayedState::Blank);
+    }
+
+    #[test]
+    fn restore_pushes_to_history() {
+        let mut c = ctrl();
+        c.restore(DisplayedState::SermonTitle("T".into())).unwrap();
+        assert_eq!(c.history_len(), 1);
+    }
+
+    #[test]
+    fn restore_can_be_discarded() {
+        let mut c = ctrl();
+        c.restore(DisplayedState::SermonTitle("Restored".into()))
+            .unwrap();
+        c.discard().unwrap();
+        assert_eq!(*c.state(), DisplayedState::Blank);
+    }
+
+    #[test]
+    fn restore_render_failure_returns_error() {
+        let mut c = DisplayController::new(MemoryWal::new(), failing_renderer());
+        let err = c
+            .restore(DisplayedState::SermonTitle("T".into()))
+            .unwrap_err();
+        assert_eq!(err, DisplayError::RenderFailed("render error".into()));
+    }
+
     // ── full transition cycle ─────────────────────────────────────────────────
 
     #[test]
