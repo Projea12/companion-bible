@@ -8,7 +8,7 @@ const CONGREGATION_LABEL: &str = "congregation";
 
 // ─── application state ────────────────────────────────────────────────────────
 
-#[derive(serde::Serialize, Clone, PartialEq, Default)]
+#[derive(serde::Serialize, Clone, PartialEq, Default, Debug)]
 #[serde(rename_all = "snake_case")]
 enum DisplayMode {
     #[default]
