@@ -35,6 +35,11 @@ export type AppEvent =
   | { type: 'SUB_POINT_SHOWN'; text: string }
   | { type: 'DISPLAY_BLANKED' }
 
+  // ── Sermon lifecycle ───────────────────────────────────────────────────
+  | { type: 'SERMON_STARTED'; title?: string; pastor?: string; anchor_scripture?: string }
+  | { type: 'SERMON_ENDED'; summary?: string }
+  | { type: 'SUB_POINT_ADDED'; text: string; index: number }
+
   // ── Connectivity ───────────────────────────────────────────────────────
   | { type: 'INTERNET_CONNECTED' }
   | { type: 'INTERNET_DISCONNECTED' }

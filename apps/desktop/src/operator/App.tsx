@@ -5,6 +5,8 @@ import type { AppEvent, AppState } from '@companion-bible/types';
 import { TranscriptPanel } from './TranscriptPanel';
 import { VerseQueuePanel } from './VerseQueuePanel';
 import { ManualOverride } from './ManualOverride';
+import { SermonControls } from './SermonControls';
+import type { SermonSetup } from './SermonControls';
 import { StatusBar } from './StatusBar';
 import type { AudioStatus, InternetStatus, AiStatus, StorageStatus } from './StatusBar';
 import { useTranscript } from './useTranscript';
@@ -28,8 +30,11 @@ export function App() {
   const [hasSecondary, setHasSecondary] = useState(false);
 
   // sermon context
+  const [sermonActive, setSermonActive] = useState(false);
   const [sermonTitle, setSermonTitle] = useState<string | null>(null);
   const [currentSubPoint, setCurrentSubPoint] = useState<string | null>(null);
+  const [subPoints, setSubPoints] = useState<string[]>([]);
+  const [subPointIndex, setSubPointIndex] = useState(-1);
 
   // live transcript
   const transcript = useTranscript();
@@ -129,6 +134,23 @@ export function App() {
 
         case 'SUB_POINT_SHOWN':
           setCurrentSubPoint(payload.text);
+          break;
+
+        case 'SERMON_STARTED':
+          setSermonActive(true);
+          if (payload.title) setSermonTitle(payload.title);
+          break;
+
+        case 'SERMON_ENDED':
+          setSermonActive(false);
+          setSermonTitle(null);
+          setCurrentSubPoint(null);
+          setSubPoints([]);
+          setSubPointIndex(-1);
+          break;
+
+        case 'SUB_POINT_ADDED':
+          setSubPoints((prev) => (prev.includes(payload.text) ? prev : [...prev, payload.text]));
           break;
 
         case 'INTERNET_CONNECTED':
@@ -253,6 +275,43 @@ export function App() {
     void invoke('show_verse', { reference: ref, text: '' });
   }, []);
 
+  const handleStartService = useCallback((setup: SermonSetup) => {
+    void invoke('start_sermon', {
+      title: setup.title || null,
+      pastor: setup.pastor || null,
+      anchorScripture: setup.anchorScripture || null,
+    }).then(() => {
+      setSermonActive(true);
+      if (setup.title) setSermonTitle(setup.title);
+    });
+  }, []);
+
+  const handleEndService = useCallback(() => {
+    void invoke('end_sermon').then(() => {
+      setSermonActive(false);
+      setSermonTitle(null);
+      setCurrentSubPoint(null);
+      setSubPoints([]);
+      setSubPointIndex(-1);
+    });
+  }, []);
+
+  const handleAddSubPoint = useCallback((text: string) => {
+    void invoke('add_sub_point', { text }).then(() => {
+      setSubPoints((prev) => [...prev, text]);
+    });
+  }, []);
+
+  const handleNextSubPoint = useCallback(() => {
+    void invoke('next_sub_point').then(() => {
+      setSubPointIndex((i) => {
+        const next = i + 1;
+        setCurrentSubPoint(subPoints[next] ?? null);
+        return next;
+      });
+    });
+  }, [subPoints]);
+
   // ── keyboard shortcuts ────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -330,8 +389,18 @@ export function App() {
           />
         </div>
 
-        {/* ── Right: displayed verse + discard + override + undo ── */}
+        {/* ── Right: sermon controls + verse + discard + override + undo ── */}
         <div className="op-col op-col-right">
+          <SermonControls
+            sermonActive={sermonActive}
+            subPoints={subPoints}
+            subPointIndex={subPointIndex}
+            onStartService={handleStartService}
+            onEndService={handleEndService}
+            onAddSubPoint={handleAddSubPoint}
+            onNextSubPoint={handleNextSubPoint}
+          />
+
           <section className="op-panel op-panel-verse">
             <h2 className="op-panel-heading">Currently Displayed</h2>
             {displayedVerse ? (
