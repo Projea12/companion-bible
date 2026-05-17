@@ -7,6 +7,7 @@ export type AppEvent =
   | { type: 'AUDIO_CAPTURE_STARTED'; device_id: string }
   | { type: 'AUDIO_CAPTURE_STOPPED' }
   | { type: 'AUDIO_CHUNK_CAPTURED'; chunk_id: number; duration_ms: number }
+  | { type: 'AUDIO_QUALITY_DEGRADED' }
 
   // ── Transcription ──────────────────────────────────────────────────────
   | { type: 'TRANSCRIPTION_STARTED'; chunk_id: number }
@@ -25,6 +26,7 @@ export type AppEvent =
   | { type: 'AI_QUERY_STARTED'; query_id: number }
   | { type: 'AI_RESPONSE_RECEIVED'; query_id: number; response: string }
   | { type: 'AI_QUERY_FAILED'; query_id: number; reason: string }
+  | { type: 'AI_LAYERS_CHANGED'; layers: 'all' | 'local-only' | 'pattern-only' }
 
   // ── Display ────────────────────────────────────────────────────────────
   | { type: 'VERSE_DISPLAYED'; reference: BibleReference }
@@ -36,6 +38,9 @@ export type AppEvent =
   // ── Connectivity ───────────────────────────────────────────────────────
   | { type: 'INTERNET_CONNECTED' }
   | { type: 'INTERNET_DISCONNECTED' }
+
+  // ── Storage ────────────────────────────────────────────────────────────
+  | { type: 'STORAGE_STATUS'; level: 'ample' | 'low' | 'critical'; available_bytes: number }
 
   // ── Screen ─────────────────────────────────────────────────────────────
   | { type: 'SECONDARY_SCREEN_CONNECTED' }

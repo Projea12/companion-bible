@@ -4,6 +4,8 @@ import { listen } from '@tauri-apps/api/event';
 import type { AppEvent, AppState } from '@companion-bible/types';
 import { TranscriptPanel } from './TranscriptPanel';
 import { VerseQueuePanel } from './VerseQueuePanel';
+import { StatusBar } from './StatusBar';
+import type { AudioStatus, InternetStatus, AiStatus, StorageStatus } from './StatusBar';
 import { useTranscript } from './useTranscript';
 import { useVerseQueue } from './useVerseQueue';
 
@@ -14,8 +16,6 @@ interface DisplayedVerse {
   text: string;
   translation: string;
 }
-
-type HealthStatus = 'idle' | 'active' | 'error';
 
 // ── root component ────────────────────────────────────────────────────────────
 
@@ -44,9 +44,10 @@ export function App() {
   const [undoSecsLeft, setUndoSecsLeft] = useState(0);
 
   // status
-  const [internet, setInternet] = useState<'online' | 'offline'>('offline');
-  const [audioStatus, setAudioStatus] = useState<HealthStatus>('idle');
-  const [aiStatus, setAiStatus] = useState<HealthStatus>('idle');
+  const [internet, setInternet] = useState<InternetStatus>('offline');
+  const [audio, setAudio] = useState<AudioStatus>('idle');
+  const [ai, setAi] = useState<AiStatus>('idle');
+  const [storage, setStorage] = useState<StorageStatus>('ample');
 
   // manual override
   const [overrideInput, setOverrideInput] = useState('');
@@ -59,7 +60,7 @@ export function App() {
       setCongregationVisible(s.congregationVisible);
       setTotalScreens(s.totalScreens);
       setHasSecondary(s.hasSecondaryScreen);
-      if (s.sessionActive) setAudioStatus('active');
+      if (s.sessionActive) setAudio('flowing');
     });
   }, []);
 
@@ -141,31 +142,49 @@ export function App() {
           break;
 
         case 'AUDIO_CAPTURE_STARTED':
-          setAudioStatus('active');
+          setAudio('flowing');
           break;
 
         case 'AUDIO_CAPTURE_STOPPED':
-          setAudioStatus('idle');
+          setAudio('idle');
           transcript.clear();
           queue.clear();
           break;
 
+        case 'AUDIO_QUALITY_DEGRADED':
+          setAudio('degraded');
+          break;
+
         case 'AI_QUERY_STARTED':
         case 'AI_RESPONSE_RECEIVED':
-          setAiStatus('active');
+          setAi('all-layers');
           break;
 
         case 'AI_QUERY_FAILED':
-          setAiStatus('error');
+          setAi('pattern-only');
+          break;
+
+        case 'AI_LAYERS_CHANGED': {
+          const layerMap: Record<typeof payload.layers, AiStatus> = {
+            all: 'all-layers',
+            'local-only': 'local-only',
+            'pattern-only': 'pattern-only',
+          };
+          setAi(layerMap[payload.layers]);
+          break;
+        }
+
+        case 'STORAGE_STATUS':
+          setStorage(payload.level);
           break;
 
         case 'HEALTH_CHECK_PASSED':
-          if (payload.component === 'ai') setAiStatus('active');
+          if (payload.component === 'ai') setAi('all-layers');
           break;
 
         case 'HEALTH_CHECK_FAILED':
-          if (payload.component === 'ai') setAiStatus('error');
-          if (payload.component === 'audio') setAudioStatus('error');
+          if (payload.component === 'ai') setAi('pattern-only');
+          if (payload.component === 'audio') setAudio('lost');
           break;
       }
     });
@@ -180,14 +199,14 @@ export function App() {
   const handleStartSession = useCallback(() => {
     void invoke('start_session').then(() => {
       setSessionActive(true);
-      setAudioStatus('active');
+      setAudio('flowing');
     });
   }, []);
 
   const handleStopSession = useCallback(() => {
     void invoke('stop_session').then(() => {
       setSessionActive(false);
-      setAudioStatus('idle');
+      setAudio('idle');
       transcript.clear();
       queue.clear();
     });
@@ -382,29 +401,15 @@ export function App() {
       </main>
 
       {/* ── Status Bar ── */}
-      <footer className="op-statusbar">
-        <div className="statusbar-left">
-          <StatusBadge label="Audio" status={sessionActive ? audioStatus : 'idle'} />
-          <StatusBadge label="AI" status={aiStatus} />
-        </div>
-        <div className="statusbar-center">
-          <span className="status-screens" data-dual={String(hasSecondary)}>
-            {totalScreens} screen{totalScreens !== 1 ? 's' : ''}
-            {hasSecondary ? ' ✓' : ''}
-          </span>
-          <span className="status-internet" data-online={String(internet === 'online')}>
-            {internet === 'online' ? 'Online' : 'Offline'}
-          </span>
-        </div>
-        <div className="statusbar-right">
-          <kbd>Space</kbd>
-          <span>Discard</span>
-          <kbd>Ctrl+Z</kbd>
-          <span>Undo</span>
-          <kbd>Enter</kbd>
-          <span>Override</span>
-        </div>
-      </footer>
+      <StatusBar
+        sessionActive={sessionActive}
+        audio={audio}
+        internet={internet}
+        ai={ai}
+        storage={storage}
+        totalScreens={totalScreens}
+        hasSecondary={hasSecondary}
+      />
     </div>
   );
 }
@@ -413,13 +418,4 @@ export function App() {
 
 function formatRef(book: string, chapter: number, verse: number | null | undefined): string {
   return verse != null ? `${book} ${chapter}:${verse}` : `${book} ${chapter}`;
-}
-
-function StatusBadge({ label, status }: { label: string; status: HealthStatus }) {
-  return (
-    <div className="status-badge" data-status={status}>
-      <span className="status-dot" />
-      <span className="status-label">{label}</span>
-    </div>
-  );
 }

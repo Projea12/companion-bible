@@ -623,10 +623,10 @@ kbd.key-hint {
   gap: 16px;
 }
 
-.statusbar-left {
+.statusbar-indicators {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .statusbar-center {
@@ -672,23 +672,45 @@ kbd.key-hint {
   transition: background var(--transition);
 }
 
-.status-badge[data-status='active'] .status-dot {
+.status-description {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+/* green */
+.status-badge[data-level='green'] .status-dot {
   background: var(--color-success);
 }
+.status-badge[data-level='green'] .status-label,
+.status-badge[data-level='green'] .status-description {
+  color: var(--color-success);
+  opacity: 1;
+}
 
-.status-badge[data-status='error'] .status-dot {
+/* amber */
+.status-badge[data-level='amber'] .status-dot {
+  background: var(--color-warning);
+}
+.status-badge[data-level='amber'] .status-label,
+.status-badge[data-level='amber'] .status-description {
+  color: var(--color-warning);
+  opacity: 1;
+}
+
+/* red */
+.status-badge[data-level='red'] .status-dot {
   background: var(--color-danger);
 }
-
-.status-badge[data-status='active'] .status-label {
-  color: var(--color-success);
-}
-
-.status-badge[data-status='error'] .status-label {
+.status-badge[data-level='red'] .status-label,
+.status-badge[data-level='red'] .status-description {
   color: var(--color-danger);
+  opacity: 1;
 }
 
-/* ── screen / internet indicators ────────────────────────────────────────────*/
+/* idle — dot and text stay muted */
+
+/* ── screen indicator ────────────────────────────────────────────────────────*/
 
 .status-screens {
   font-size: 11px;
@@ -696,14 +718,5 @@ kbd.key-hint {
 }
 
 .status-screens[data-dual='true'] {
-  color: var(--color-success);
-}
-
-.status-internet {
-  font-size: 11px;
-  color: var(--color-text-muted);
-}
-
-.status-internet[data-online='true'] {
   color: var(--color-success);
 }
