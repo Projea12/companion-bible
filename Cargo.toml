@@ -15,6 +15,7 @@ members = [
     "packages/arbitrator",
     "packages/calibration",
     "packages/engine",
+    "packages/display",
     "apps/desktop/src-tauri",
 ]
 
@@ -43,6 +44,7 @@ companion-arbitrator = { path = "packages/arbitrator" }
 companion-calibration = { path = "packages/calibration" }
 companion-bible       = { path = "packages/bible" }
 companion-engine      = { path = "packages/engine" }
+companion-display     = { path = "packages/display" }
 
 # Tauri requires panic = abort when staticlib is in crate-type
 [profile.dev]
