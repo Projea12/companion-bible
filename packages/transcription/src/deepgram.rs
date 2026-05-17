@@ -25,6 +25,24 @@ use crate::transcript::TranscriptionSegment;
 
 // ─── Deepgram endpoint ────────────────────────────────────────────────────────
 
+// All 66 Bible book names boosted so Deepgram recognises them even when
+// spoken with a Nigerian accent (different vowel stress, elided syllables).
+// Boost level 2 is enough to tip ambiguous phonemes without over-fitting.
+const BIBLE_KEYWORDS: &[&str] = &[
+    "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy",
+    "Joshua", "Judges", "Ruth", "Samuel", "Kings", "Chronicles",
+    "Ezra", "Nehemiah", "Esther", "Job", "Psalms", "Proverbs",
+    "Ecclesiastes", "Isaiah", "Jeremiah", "Lamentations", "Ezekiel",
+    "Daniel", "Hosea", "Joel", "Amos", "Obadiah", "Jonah", "Micah",
+    "Nahum", "Habakkuk", "Zephaniah", "Haggai", "Zechariah", "Malachi",
+    "Matthew", "Mark", "Luke", "John", "Acts", "Romans",
+    "Corinthians", "Galatians", "Ephesians", "Philippians", "Colossians",
+    "Thessalonians", "Timothy", "Titus", "Philemon", "Hebrews", "James",
+    "Peter", "Jude", "Revelation",
+    // Common spoken forms
+    "verse", "chapter", "scripture",
+];
+
 fn deepgram_url() -> String {
     // nova-2 handles diverse accents well, including Nigerian English.
     // interim_results=true + utterance_end_ms gives ~300 ms first-word latency.
@@ -32,15 +50,22 @@ fn deepgram_url() -> String {
     // to break a single spoken reference ("John chapter 3 verse 16") into
     // multiple short utterances separated by periods, which prevents the
     // pattern engine from seeing the full reference in one pass.
-    "wss://api.deepgram.com/v1/listen\
-     ?model=nova-2\
-     &language=en\
-     &interim_results=true\
-     &utterance_end_ms=1000\
-     &encoding=linear16\
-     &sample_rate=16000\
-     &channels=1"
-        .to_string()
+    let keywords: String = BIBLE_KEYWORDS
+        .iter()
+        .map(|w| format!("&keywords={}:2", w))
+        .collect();
+
+    format!(
+        "wss://api.deepgram.com/v1/listen\
+         ?model=nova-2\
+         &language=en\
+         &interim_results=true\
+         &utterance_end_ms=1000\
+         &encoding=linear16\
+         &sample_rate=16000\
+         &channels=1\
+         {keywords}"
+    )
 }
 
 // ─── Wire types ───────────────────────────────────────────────────────────────
