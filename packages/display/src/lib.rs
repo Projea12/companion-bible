@@ -1,12 +1,16 @@
 mod controller;
 mod error;
 mod history;
+mod monitor;
 mod state;
+mod undo;
 mod wal;
 
 pub use controller::DisplayController;
 pub use error::DisplayError;
+pub use monitor::{DisplayMonitor, MonitorLayout, ScreenStatus};
 pub use state::{DisplayedState, SubPoint};
+pub use undo::{ActionId, UndoError, UndoSystem, UNDO_WINDOW};
 pub use wal::{MemoryWal, SharedWal, WalEntry, WriteAheadLog};
 
 #[cfg(test)]
@@ -691,5 +695,579 @@ mod tests {
         // Undo the blank
         c.discard().unwrap();
         assert!(matches!(c.state(), DisplayedState::SubPoint(_)));
+    }
+}
+
+// ── DisplayMonitor tests ──────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod monitor_tests {
+    use super::{DisplayMonitor, MonitorLayout, ScreenStatus};
+
+    fn layout(total: usize, on_secondary: bool) -> MonitorLayout {
+        MonitorLayout::new(total, on_secondary)
+    }
+
+    // ── resolve: ScreenStatus from MonitorLayout ──────────────────────────────
+
+    #[test]
+    fn zero_monitors_is_disconnected() {
+        let m = DisplayMonitor::new(layout(0, false));
+        assert_eq!(*m.status(), ScreenStatus::Disconnected);
+    }
+
+    #[test]
+    fn one_monitor_is_disconnected() {
+        let m = DisplayMonitor::new(layout(1, false));
+        assert_eq!(*m.status(), ScreenStatus::Disconnected);
+    }
+
+    #[test]
+    fn two_monitors_congregation_on_secondary_is_connected() {
+        let m = DisplayMonitor::new(layout(2, true));
+        assert_eq!(*m.status(), ScreenStatus::Connected);
+    }
+
+    #[test]
+    fn two_monitors_congregation_not_on_secondary_is_swapped() {
+        let m = DisplayMonitor::new(layout(2, false));
+        assert_eq!(*m.status(), ScreenStatus::Swapped);
+    }
+
+    #[test]
+    fn three_monitors_congregation_on_secondary_is_connected() {
+        let m = DisplayMonitor::new(layout(3, true));
+        assert_eq!(*m.status(), ScreenStatus::Connected);
+    }
+
+    #[test]
+    fn three_monitors_congregation_not_on_secondary_is_swapped() {
+        let m = DisplayMonitor::new(layout(3, false));
+        assert_eq!(*m.status(), ScreenStatus::Swapped);
+    }
+
+    // ── update: returns Some only on status change ────────────────────────────
+
+    #[test]
+    fn update_same_status_returns_none() {
+        let mut m = DisplayMonitor::new(layout(2, true));
+        assert_eq!(m.update(layout(2, true)), None);
+    }
+
+    #[test]
+    fn update_same_disconnected_returns_none() {
+        let mut m = DisplayMonitor::new(layout(1, false));
+        assert_eq!(m.update(layout(1, false)), None);
+    }
+
+    #[test]
+    fn update_same_swapped_returns_none() {
+        let mut m = DisplayMonitor::new(layout(2, false));
+        assert_eq!(m.update(layout(2, false)), None);
+    }
+
+    // ── screen connect ────────────────────────────────────────────────────────
+
+    #[test]
+    fn disconnected_to_connected_returns_some_connected() {
+        let mut m = DisplayMonitor::new(layout(1, false));
+        assert_eq!(
+            m.update(layout(2, true)),
+            Some(ScreenStatus::Connected)
+        );
+    }
+
+    #[test]
+    fn status_is_updated_after_connect() {
+        let mut m = DisplayMonitor::new(layout(1, false));
+        m.update(layout(2, true));
+        assert_eq!(*m.status(), ScreenStatus::Connected);
+    }
+
+    // ── screen disconnect ─────────────────────────────────────────────────────
+
+    #[test]
+    fn connected_to_disconnected_returns_some_disconnected() {
+        let mut m = DisplayMonitor::new(layout(2, true));
+        assert_eq!(
+            m.update(layout(1, false)),
+            Some(ScreenStatus::Disconnected)
+        );
+    }
+
+    #[test]
+    fn status_is_updated_after_disconnect() {
+        let mut m = DisplayMonitor::new(layout(2, true));
+        m.update(layout(1, false));
+        assert_eq!(*m.status(), ScreenStatus::Disconnected);
+    }
+
+    #[test]
+    fn connected_to_zero_monitors_is_disconnected() {
+        let mut m = DisplayMonitor::new(layout(2, true));
+        assert_eq!(
+            m.update(layout(0, false)),
+            Some(ScreenStatus::Disconnected)
+        );
+    }
+
+    // ── screen swap detection ─────────────────────────────────────────────────
+
+    #[test]
+    fn connected_to_swapped_returns_some_swapped() {
+        let mut m = DisplayMonitor::new(layout(2, true));
+        assert_eq!(m.update(layout(2, false)), Some(ScreenStatus::Swapped));
+    }
+
+    #[test]
+    fn swapped_to_connected_returns_some_connected() {
+        let mut m = DisplayMonitor::new(layout(2, false));
+        assert_eq!(m.update(layout(2, true)), Some(ScreenStatus::Connected));
+    }
+
+    #[test]
+    fn disconnected_to_swapped_returns_some_swapped() {
+        let mut m = DisplayMonitor::new(layout(1, false));
+        assert_eq!(m.update(layout(2, false)), Some(ScreenStatus::Swapped));
+    }
+
+    #[test]
+    fn swapped_to_disconnected_returns_some_disconnected() {
+        let mut m = DisplayMonitor::new(layout(2, false));
+        assert_eq!(
+            m.update(layout(1, false)),
+            Some(ScreenStatus::Disconnected)
+        );
+    }
+
+    // ── reconnect after disconnect ────────────────────────────────────────────
+
+    #[test]
+    fn reconnect_after_disconnect_returns_connected() {
+        let mut m = DisplayMonitor::new(layout(2, true));
+        m.update(layout(1, false));
+        assert_eq!(
+            m.update(layout(2, true)),
+            Some(ScreenStatus::Connected)
+        );
+        assert_eq!(*m.status(), ScreenStatus::Connected);
+    }
+
+    #[test]
+    fn fix_swap_returns_connected() {
+        let mut m = DisplayMonitor::new(layout(2, false));
+        assert_eq!(*m.status(), ScreenStatus::Swapped);
+        assert_eq!(
+            m.update(layout(2, true)),
+            Some(ScreenStatus::Connected)
+        );
+    }
+
+    // ── no spurious events on startup ─────────────────────────────────────────
+
+    #[test]
+    fn initial_layout_does_not_trigger_update_event() {
+        let mut m = DisplayMonitor::new(layout(2, true));
+        // Feeding the same initial state produces no event.
+        assert_eq!(m.update(layout(2, true)), None);
+    }
+
+    // ── display formatting ────────────────────────────────────────────────────
+
+    #[test]
+    fn screen_status_display_connected() {
+        assert_eq!(ScreenStatus::Connected.to_string(), "connected");
+    }
+
+    #[test]
+    fn screen_status_display_disconnected() {
+        assert_eq!(ScreenStatus::Disconnected.to_string(), "disconnected");
+    }
+
+    #[test]
+    fn screen_status_display_swapped() {
+        assert_eq!(ScreenStatus::Swapped.to_string(), "swapped");
+    }
+
+    // ── full lifecycle ────────────────────────────────────────────────────────
+
+    #[test]
+    fn full_service_lifecycle() {
+        let mut m = DisplayMonitor::new(layout(1, false));
+        assert_eq!(*m.status(), ScreenStatus::Disconnected);
+
+        // Technician plugs in the projector.
+        assert_eq!(m.update(layout(2, true)), Some(ScreenStatus::Connected));
+
+        // Service runs — no change on repeated polls.
+        assert_eq!(m.update(layout(2, true)), None);
+        assert_eq!(m.update(layout(2, true)), None);
+
+        // Projector cable is accidentally disconnected mid-service.
+        assert_eq!(m.update(layout(1, false)), Some(ScreenStatus::Disconnected));
+
+        // Technician reconnects — congregation restored.
+        assert_eq!(m.update(layout(2, true)), Some(ScreenStatus::Connected));
+    }
+
+    #[test]
+    fn swap_detected_then_fixed_lifecycle() {
+        // Someone plugged cables into the wrong ports.
+        let mut m = DisplayMonitor::new(layout(2, false));
+        assert_eq!(*m.status(), ScreenStatus::Swapped);
+
+        // Operator uses one-click fix — assign_congregation_to_secondary fires.
+        assert_eq!(m.update(layout(2, true)), Some(ScreenStatus::Connected));
+        assert_eq!(*m.status(), ScreenStatus::Connected);
+    }
+}
+
+// ── UndoSystem tests ──────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod undo_tests {
+    use std::time::{Duration, Instant};
+    use super::{ActionId, DisplayedState, SubPoint, UndoError, UndoSystem, UNDO_WINDOW};
+    use companion_events::BibleReference;
+
+    // ── helpers ───────────────────────────────────────────────────────────────
+
+    fn john_3_16() -> DisplayedState {
+        DisplayedState::Verse(
+            BibleReference::new("John", 3).with_verse(16),
+            "For God so loved the world".into(),
+        )
+    }
+
+    fn sermon() -> DisplayedState {
+        DisplayedState::SermonTitle("Walking by Faith".into())
+    }
+
+    fn sub() -> DisplayedState {
+        DisplayedState::SubPoint(SubPoint::new("Faith requires trust"))
+    }
+
+    /// Returns (undo_system, t0) where t0 is the Instant used as "now" for
+    /// the first record_discard call.  Add durations to simulate time passing.
+    fn sys() -> (UndoSystem, Instant) {
+        (UndoSystem::new(), Instant::now())
+    }
+
+    fn within(t0: Instant) -> Instant {
+        t0 + Duration::from_millis(4_999)
+    }
+
+    fn at_boundary(t0: Instant) -> Instant {
+        t0 + UNDO_WINDOW   // exactly 5 s → expired
+    }
+
+    fn expired(t0: Instant) -> Instant {
+        t0 + UNDO_WINDOW + Duration::from_millis(1)
+    }
+
+    // ── record_discard ────────────────────────────────────────────────────────
+
+    #[test]
+    fn record_discard_returns_incrementing_ids() {
+        let (mut sys, t0) = sys();
+        let id1 = sys.record_discard(john_3_16(), t0);
+        let id2 = sys.record_discard(sermon(),    t0);
+        let id3 = sys.record_discard(sub(),       t0);
+        assert_eq!([id1, id2, id3], [1, 2, 3]);
+    }
+
+    #[test]
+    fn record_discard_grows_stack() {
+        let (mut sys, t0) = sys();
+        assert_eq!(sys.len(), 0);
+        sys.record_discard(john_3_16(), t0);
+        assert_eq!(sys.len(), 1);
+        sys.record_discard(sermon(), t0);
+        assert_eq!(sys.len(), 2);
+    }
+
+    #[test]
+    fn new_system_is_empty() {
+        let (sys, _) = sys();
+        assert!(sys.is_empty());
+    }
+
+    // ── undo within window ────────────────────────────────────────────────────
+
+    #[test]
+    fn undo_within_window_returns_previous_state() {
+        let (mut sys, t0) = sys();
+        sys.record_discard(john_3_16(), t0);
+        let id = sys.record_discard(sermon(), t0);
+        let result = sys.undo(id, within(t0)).unwrap();
+        assert_eq!(result, sermon());
+    }
+
+    #[test]
+    fn undo_within_window_removes_action_from_stack() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(john_3_16(), t0);
+        assert_eq!(sys.len(), 1);
+        sys.undo(id, within(t0)).unwrap();
+        assert_eq!(sys.len(), 0);
+    }
+
+    #[test]
+    fn undo_restores_blank_state() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(DisplayedState::Blank, t0);
+        assert_eq!(sys.undo(id, within(t0)).unwrap(), DisplayedState::Blank);
+    }
+
+    #[test]
+    fn undo_restores_verse_state() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(john_3_16(), t0);
+        assert_eq!(sys.undo(id, within(t0)).unwrap(), john_3_16());
+    }
+
+    #[test]
+    fn undo_restores_sermon_title_state() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(sermon(), t0);
+        assert_eq!(sys.undo(id, within(t0)).unwrap(), sermon());
+    }
+
+    #[test]
+    fn undo_restores_sub_point_state() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(sub(), t0);
+        assert_eq!(sys.undo(id, within(t0)).unwrap(), sub());
+    }
+
+    // ── undo after window expires ─────────────────────────────────────────────
+
+    #[test]
+    fn undo_at_boundary_returns_expired() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(john_3_16(), t0);
+        assert_eq!(
+            sys.undo(id, at_boundary(t0)).unwrap_err(),
+            UndoError::Expired(id)
+        );
+    }
+
+    #[test]
+    fn undo_after_window_returns_expired() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(john_3_16(), t0);
+        assert_eq!(
+            sys.undo(id, expired(t0)).unwrap_err(),
+            UndoError::Expired(id)
+        );
+    }
+
+    #[test]
+    fn undo_after_expiry_removes_action_from_stack() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(john_3_16(), t0);
+        let _ = sys.undo(id, expired(t0));
+        assert!(sys.is_empty());
+    }
+
+    #[test]
+    fn undo_unknown_id_returns_not_found() {
+        let (mut sys, t0) = sys();
+        assert_eq!(
+            sys.undo(99, within(t0)).unwrap_err(),
+            UndoError::NotFound(99)
+        );
+    }
+
+    #[test]
+    fn undo_same_action_twice_returns_not_found_second_time() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(john_3_16(), t0);
+        sys.undo(id, within(t0)).unwrap();
+        assert_eq!(
+            sys.undo(id, within(t0)).unwrap_err(),
+            UndoError::NotFound(id)
+        );
+    }
+
+    // ── is_within_window ─────────────────────────────────────────────────────
+
+    #[test]
+    fn is_within_window_true_before_expiry() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(john_3_16(), t0);
+        assert!(sys.is_within_window(id, within(t0)));
+    }
+
+    #[test]
+    fn is_within_window_false_at_boundary() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(john_3_16(), t0);
+        assert!(!sys.is_within_window(id, at_boundary(t0)));
+    }
+
+    #[test]
+    fn is_within_window_false_after_expiry() {
+        let (mut sys, t0) = sys();
+        let id = sys.record_discard(john_3_16(), t0);
+        assert!(!sys.is_within_window(id, expired(t0)));
+    }
+
+    #[test]
+    fn is_within_window_false_for_unknown_id() {
+        let (sys, t0) = sys();
+        assert!(!sys.is_within_window(99, within(t0)));
+    }
+
+    // ── expire_old ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn expire_old_removes_stale_actions() {
+        let (mut sys, t0) = sys();
+        sys.record_discard(john_3_16(), t0);
+        sys.record_discard(sermon(),    t0);
+        assert_eq!(sys.expire_old(expired(t0)).len(), 2);
+        assert!(sys.is_empty());
+    }
+
+    #[test]
+    fn expire_old_returns_expired_ids() {
+        let (mut sys, t0) = sys();
+        let id1 = sys.record_discard(john_3_16(), t0);
+        let id2 = sys.record_discard(sermon(),    t0);
+        let mut expired_ids = sys.expire_old(expired(t0));
+        expired_ids.sort();
+        assert_eq!(expired_ids, vec![id1, id2]);
+    }
+
+    #[test]
+    fn expire_old_leaves_fresh_actions_intact() {
+        let (mut sys, t0) = sys();
+        let old_id  = sys.record_discard(john_3_16(), t0);
+        let fresh_t = t0 + Duration::from_secs(4); // still has 1s remaining
+        let fresh_id = sys.record_discard(sermon(), fresh_t);
+
+        // Poll happens 4.5 s after t0 — old_id expired, fresh_id still valid.
+        let now = t0 + Duration::from_millis(4_500);
+        // old_id: 4500ms elapsed >= 5000ms? No. Hmm — let me recalculate.
+        // Actually old_id was recorded at t0; now is t0 + 4500ms. 4500 < 5000. Still valid.
+        // Let me use a wider gap.
+        let _ = (old_id, fresh_id);
+        // Use expired(t0) for old, but fresh was recorded only 1s ago relative to expired(t0).
+        let poll_time = t0 + Duration::from_millis(5_100);
+        let expired_ids = sys.expire_old(poll_time);
+        // old_id: recorded at t0, elapsed 5100ms >= 5000ms → expired
+        // fresh_id: recorded at t0+4000ms, elapsed 1100ms < 5000ms → still valid
+        assert_eq!(expired_ids, vec![old_id]);
+        assert_eq!(sys.len(), 1);
+        assert!(sys.is_within_window(fresh_id, poll_time));
+    }
+
+    #[test]
+    fn expire_old_on_empty_system_returns_empty() {
+        let (mut sys, t0) = sys();
+        assert_eq!(sys.expire_old(expired(t0)), Vec::<ActionId>::new());
+    }
+
+    #[test]
+    fn expire_old_within_window_returns_empty() {
+        let (mut sys, t0) = sys();
+        sys.record_discard(john_3_16(), t0);
+        assert_eq!(sys.expire_old(within(t0)), Vec::<ActionId>::new());
+        assert_eq!(sys.len(), 1);
+    }
+
+    // ── multiple sequential discards ──────────────────────────────────────────
+
+    #[test]
+    fn undo_most_recent_of_two_discards() {
+        let (mut sys, t0) = sys();
+        let id1 = sys.record_discard(john_3_16(), t0);
+        let id2 = sys.record_discard(sermon(),    t0);
+
+        // Undo only the second discard.
+        let restored = sys.undo(id2, within(t0)).unwrap();
+        assert_eq!(restored, sermon());
+
+        // First discard is still on the stack.
+        assert_eq!(sys.len(), 1);
+        assert!(sys.is_within_window(id1, within(t0)));
+    }
+
+    #[test]
+    fn undo_first_of_two_discards_leaves_second_intact() {
+        let (mut sys, t0) = sys();
+        let id1 = sys.record_discard(john_3_16(), t0);
+        let id2 = sys.record_discard(sermon(),    t0);
+
+        sys.undo(id1, within(t0)).unwrap();
+        assert_eq!(sys.len(), 1);
+        assert!(sys.is_within_window(id2, within(t0)));
+    }
+
+    #[test]
+    fn undo_all_three_sequential_discards() {
+        let (mut sys, t0) = sys();
+        let id1 = sys.record_discard(john_3_16(), t0);
+        let id2 = sys.record_discard(sermon(),    t0);
+        let id3 = sys.record_discard(sub(),       t0);
+
+        assert_eq!(sys.undo(id3, within(t0)).unwrap(), sub());
+        assert_eq!(sys.undo(id2, within(t0)).unwrap(), sermon());
+        assert_eq!(sys.undo(id1, within(t0)).unwrap(), john_3_16());
+        assert!(sys.is_empty());
+    }
+
+    #[test]
+    fn second_discard_expires_but_first_can_still_be_undone() {
+        let (mut sys, t0) = sys();
+        let id1 = sys.record_discard(john_3_16(), t0);
+        // Second discard happens 4.8 s later.
+        let t1  = t0 + Duration::from_millis(4_800);
+        let id2 = sys.record_discard(sermon(), t1);
+
+        // Poll at t0 + 5.1 s: id1 is expired (5100ms), id2 is still valid (300ms).
+        let poll = t0 + Duration::from_millis(5_100);
+        assert_eq!(
+            sys.undo(id1, poll).unwrap_err(),
+            UndoError::Expired(id1)
+        );
+        assert_eq!(sys.undo(id2, poll).unwrap(), sermon());
+        assert!(sys.is_empty());
+    }
+
+    // ── full undo lifecycle ───────────────────────────────────────────────────
+
+    #[test]
+    fn full_undo_flow() {
+        let (mut sys, t0) = sys();
+
+        // Operator discards a verse.
+        let id = sys.record_discard(john_3_16(), t0);
+        assert_eq!(sys.len(), 1);
+        assert!(sys.is_within_window(id, within(t0)));
+
+        // Operator clicks undo within 5 s.
+        let restored = sys.undo(id, within(t0)).unwrap();
+        assert_eq!(restored, john_3_16());
+        assert!(sys.is_empty());
+    }
+
+    #[test]
+    fn full_expiry_flow() {
+        let (mut sys, t0) = sys();
+
+        let id = sys.record_discard(john_3_16(), t0);
+
+        // 5 seconds pass without an undo.
+        let expired_ids = sys.expire_old(expired(t0));
+        assert_eq!(expired_ids, vec![id]);
+        assert!(sys.is_empty());
+
+        // Late undo attempt fails with NotFound (already purged by expire_old).
+        assert_eq!(
+            sys.undo(id, expired(t0)).unwrap_err(),
+            UndoError::NotFound(id)
+        );
     }
 }

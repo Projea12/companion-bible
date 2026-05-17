@@ -121,6 +121,10 @@ pub enum AppEvent {
     // ── Screen ───────────────────────────────────────────────────────────────
     SecondaryScreenConnected,
     SecondaryScreenDisconnected,
+    /// Congregation and operator windows are on the wrong screens.
+    ScreenSwapDetected,
+    /// Screen configuration has been corrected (swap fixed or reconnected).
+    ScreenRestored,
 
     // ── System ───────────────────────────────────────────────────────────────
     AppStarted {

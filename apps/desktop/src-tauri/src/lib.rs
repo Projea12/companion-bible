@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow};
+use companion_display::{DisplayMonitor, MonitorLayout};
 
 // ─── window labels ────────────────────────────────────────────────────────────
 
@@ -71,39 +72,65 @@ fn assign_congregation_to_secondary(app: &AppHandle) -> bool {
     true
 }
 
-/// Pure decision function: given previous and current monitor counts, return
-/// the event type to emit — or `None` if no boundary was crossed.
-/// Extracted for testability; called by `watch_screens`.
-fn screen_change_event(previous: usize, current: usize) -> Option<&'static str> {
-    let had_secondary = previous > 1;
-    let has_secondary = current > 1;
-    if has_secondary && !had_secondary {
-        Some("SECONDARY_SCREEN_CONNECTED")
-    } else if !has_secondary && had_secondary {
-        Some("SECONDARY_SCREEN_DISCONNECTED")
-    } else {
-        None
-    }
+/// `true` when the congregation window's top-left corner lies outside the
+/// primary monitor bounds, meaning it is positioned on the secondary screen.
+fn congregation_on_secondary(app: &AppHandle) -> bool {
+    let Some(op_win) = app.get_webview_window(OPERATOR_LABEL) else {
+        return false;
+    };
+    let Some(primary) = op_win.primary_monitor().ok().flatten() else {
+        return false;
+    };
+    let Some(cong_win) = congregation_window(app) else {
+        return false;
+    };
+    let Ok(cong_pos) = cong_win.outer_position() else {
+        return false;
+    };
+    let p_pos  = primary.position();
+    let p_size = primary.size();
+    let on_primary = cong_pos.x >= p_pos.x
+        && cong_pos.x <  p_pos.x + p_size.width  as i32
+        && cong_pos.y >= p_pos.y
+        && cong_pos.y <  p_pos.y + p_size.height as i32;
+    !on_primary
+}
+
+fn current_layout(app: &AppHandle) -> MonitorLayout {
+    MonitorLayout::new(monitor_count(app), congregation_on_secondary(app))
 }
 
 fn watch_screens(app: AppHandle) {
-    let initial_count = monitor_count(&app);
+    use companion_display::ScreenStatus;
+
+    let mut monitor = DisplayMonitor::new(current_layout(&app));
+
     std::thread::Builder::new()
         .name("screen-watcher".into())
         .spawn(move || {
-            let mut last_count = initial_count;
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(2));
-                let current = monitor_count(&app);
-                if let Some(event_type) = screen_change_event(last_count, current) {
-                    if event_type == "SECONDARY_SCREEN_CONNECTED" {
-                        assign_congregation_to_secondary(&app);
-                    } else if let Some(w) = congregation_window(&app) {
-                        let _ = w.hide();
-                    }
+                let layout = current_layout(&app);
+
+                if let Some(status) = monitor.update(layout) {
+                    let event_type = match status {
+                        ScreenStatus::Connected => {
+                            assign_congregation_to_secondary(&app);
+                            if let Some(w) = congregation_window(&app) {
+                                let _ = w.show();
+                            }
+                            "SECONDARY_SCREEN_CONNECTED"
+                        }
+                        ScreenStatus::Disconnected => {
+                            if let Some(w) = congregation_window(&app) {
+                                let _ = w.hide();
+                            }
+                            "SECONDARY_SCREEN_DISCONNECTED"
+                        }
+                        ScreenStatus::Swapped => "SCREEN_SWAP_DETECTED",
+                    };
                     let _ = app.emit("app-event", serde_json::json!({ "type": event_type }));
                 }
-                last_count = current;
             }
         })
         .expect("failed to spawn screen-watcher thread");
@@ -135,6 +162,19 @@ fn get_app_state(app: AppHandle, state: State<ManagedState>) -> AppState {
 fn get_screen_info(app: AppHandle) -> serde_json::Value {
     let count = monitor_count(&app);
     serde_json::json!({ "totalScreens": count, "hasSecondaryScreen": count > 1 })
+}
+
+/// One-click fix for the swap scenario: reassigns the congregation window to
+/// the secondary screen and emits `SCREEN_RESTORED` so the operator UI
+/// can clear the swap alert.
+#[tauri::command]
+fn fix_screen_swap(app: AppHandle) {
+    assign_congregation_to_secondary(&app);
+    if let Some(w) = congregation_window(&app) {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    let _ = app.emit("app-event", serde_json::json!({ "type": "SCREEN_RESTORED" }));
 }
 
 #[tauri::command]
@@ -361,61 +401,6 @@ mod tests {
         assert_eq!(parse_reference("Psalm 300"), None);
     }
 
-    // ── screen_change_event ────────────────────────────────────────────────────
-
-    #[test]
-    fn single_to_dual_emits_connected() {
-        assert_eq!(
-            screen_change_event(1, 2),
-            Some("SECONDARY_SCREEN_CONNECTED")
-        );
-    }
-
-    #[test]
-    fn dual_to_single_emits_disconnected() {
-        assert_eq!(
-            screen_change_event(2, 1),
-            Some("SECONDARY_SCREEN_DISCONNECTED")
-        );
-    }
-
-    #[test]
-    fn single_unchanged_emits_nothing() {
-        assert_eq!(screen_change_event(1, 1), None);
-    }
-
-    #[test]
-    fn dual_unchanged_emits_nothing() {
-        assert_eq!(screen_change_event(2, 2), None);
-    }
-
-    #[test]
-    fn single_to_three_emits_connected() {
-        assert_eq!(
-            screen_change_event(1, 3),
-            Some("SECONDARY_SCREEN_CONNECTED")
-        );
-    }
-
-    #[test]
-    fn three_to_single_emits_disconnected() {
-        assert_eq!(
-            screen_change_event(3, 1),
-            Some("SECONDARY_SCREEN_DISCONNECTED")
-        );
-    }
-
-    #[test]
-    fn dual_to_triple_emits_nothing() {
-        // Both have a secondary — boundary not crossed
-        assert_eq!(screen_change_event(2, 3), None);
-    }
-
-    #[test]
-    fn triple_to_dual_emits_nothing() {
-        assert_eq!(screen_change_event(3, 2), None);
-    }
-
     // ── window management / state ──────────────────────────────────────────────
 
     #[test]
@@ -499,6 +484,7 @@ pub fn run() {
             get_screen_info,
             show_congregation_window,
             hide_congregation_window,
+            fix_screen_swap,
             show_verse,
             discard_verse,
             show_sermon_title,

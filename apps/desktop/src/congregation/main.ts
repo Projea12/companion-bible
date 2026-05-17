@@ -1,5 +1,6 @@
 import { listen } from '@tauri-apps/api/event';
 import type { AppEvent } from '@companion-bible/types';
+import { createStateMachine } from './state-machine';
 
 // ─── element references ───────────────────────────────────────────────────────
 
@@ -17,52 +18,13 @@ const subpointText = document.getElementById('subpoint-text') as HTMLElement;
 
 // ─── state machine ────────────────────────────────────────────────────────────
 
-type DisplayState = 'idle' | 'blank' | 'verse' | 'title' | 'subpoint';
-
-const panels: Record<DisplayState, HTMLDivElement> = {
+const { showState } = createStateMachine({
   idle: stateIdle,
   blank: stateBlank,
   verse: stateVerse,
   title: stateTitle,
   subpoint: stateSubpoint,
-};
-
-let currentState: DisplayState = 'idle';
-
-/**
- * Cross-fade to a new display state.
- *
- * Content MUST be written to the panel's DOM nodes before calling this
- * function so that the panel is never visible mid-update (the panel is at
- * opacity 0 while hidden).  When the next state equals the current one
- * (same-type content swap), the panel fades out, a `transitionend` callback
- * fires the reveal so the content swap is never seen.
- */
-function showState(next: DisplayState, update?: () => void): void {
-  if (next === currentState && update) {
-    // Same panel, new content — hide it, then apply update + reveal once
-    // the fade-out has completed.
-    const panel = panels[next];
-    panel.hidden = true;
-    panel.addEventListener(
-      'transitionend',
-      (e: TransitionEvent) => {
-        if (e.propertyName !== 'opacity') return;
-        update();
-        panel.hidden = false;
-      },
-      { once: true },
-    );
-    return;
-  }
-
-  // Different state — update content first (panel is at opacity 0), then reveal.
-  update?.();
-  currentState = next;
-  for (const [state, panel] of Object.entries(panels) as [DisplayState, HTMLDivElement][]) {
-    panel.hidden = state !== next;
-  }
-}
+});
 
 // ─── display helpers ──────────────────────────────────────────────────────────
 
