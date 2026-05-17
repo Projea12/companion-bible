@@ -1,4 +1,5 @@
 // @vitest-environment node
+// CSS tests read from disk — no DOM needed.
 
 /**
  * CSS specification tests — parsed from the actual source files.

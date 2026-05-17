@@ -1,14 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { AppEvent, AppState } from '@companion-bible/types';
+import { TranscriptPanel } from './TranscriptPanel';
+import { useTranscript } from './useTranscript';
 
 // ── types ─────────────────────────────────────────────────────────────────────
-
-interface TranscriptLine {
-  id: number;
-  text: string;
-}
 
 interface PendingDetection {
   label: string;
@@ -37,9 +34,7 @@ export function App() {
   const [currentSubPoint, setCurrentSubPoint] = useState<string | null>(null);
 
   // live transcript
-  const [transcriptLines, setTranscriptLines] = useState<TranscriptLine[]>([]);
-  const transcriptIdRef = useRef(0);
-  const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const transcript = useTranscript();
 
   // detection
   const [pendingDetection, setPendingDetection] = useState<PendingDetection | null>(null);
@@ -70,12 +65,6 @@ export function App() {
       if (s.sessionActive) setAudioStatus('active');
     });
   }, []);
-
-  // ── auto-scroll transcript ─────────────────────────────────────────────────
-
-  useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [transcriptLines]);
 
   // ── undo countdown ─────────────────────────────────────────────────────────
 
@@ -108,17 +97,16 @@ export function App() {
           });
           break;
 
-        case 'TRANSCRIPTION_COMPLETED': {
-          const id = ++transcriptIdRef.current;
-          setTranscriptLines((prev) => [...prev, { id, text: payload.text }].slice(-8));
+        case 'TRANSCRIPTION_COMPLETED':
+          transcript.addLine(payload.chunk_id, payload.text);
           break;
-        }
 
         case 'SCRIPTURE_REFERENCE_DETECTED': {
           const ref = payload.references[0];
           if (!ref) break;
           const label = formatRef(ref.book, ref.chapter, ref.verse);
           setPendingDetection({ label, confidence: 85 });
+          transcript.markDetection(payload.source_text, label);
           break;
         }
 
@@ -165,6 +153,7 @@ export function App() {
 
         case 'AUDIO_CAPTURE_STOPPED':
           setAudioStatus('idle');
+          transcript.clear();
           break;
 
         case 'AI_QUERY_STARTED':
@@ -190,7 +179,7 @@ export function App() {
     return () => {
       void unlistenPromise.then((fn) => fn());
     };
-  }, []);
+  }, [transcript]);
 
   // ── actions ───────────────────────────────────────────────────────────────
 
@@ -206,8 +195,9 @@ export function App() {
       setSessionActive(false);
       setAudioStatus('idle');
       setPendingDetection(null);
+      transcript.clear();
     });
-  }, []);
+  }, [transcript]);
 
   const handleToggleCongregation = useCallback(() => {
     const cmd = congregationVisible ? 'hide_congregation_window' : 'show_congregation_window';
@@ -316,18 +306,7 @@ export function App() {
         <div className="op-col op-col-left">
           <section className="op-panel op-panel-transcript">
             <h2 className="op-panel-heading">Live Transcript</h2>
-            <div className="transcript-scroll">
-              {transcriptLines.length === 0 ? (
-                <p className="transcript-empty">Waiting for audio…</p>
-              ) : (
-                transcriptLines.map((line) => (
-                  <p key={line.id} className="transcript-line">
-                    {line.text}
-                  </p>
-                ))
-              )}
-              <div ref={transcriptEndRef} />
-            </div>
+            <TranscriptPanel lines={transcript.lines} sessionActive={sessionActive} />
           </section>
 
           <section className="op-panel op-panel-detection">
