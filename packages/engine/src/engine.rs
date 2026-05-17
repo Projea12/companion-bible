@@ -135,7 +135,23 @@ impl DetectionEngine {
             .map(|r| r.to_string());
 
         // ── 2. Pattern layer (sync, embedded in enrichment) ───────────────
-        let pattern_result = layers::pattern_layer(&enriched);
+        // First try the current utterance alone.  If it doesn't yield a full
+        // reference (book + chapter + verse), re-run the pattern engine over
+        // the rolling transcript buffer — this re-assembles references that
+        // Deepgram fragmented across several short utterances (e.g. "John." /
+        // "chapter 3." / "verse 16" each arriving as separate events).
+        let segment_pattern = layers::pattern_layer(&enriched);
+        let has_full_ref = segment_pattern.as_ref()
+            .map(|r| r.book.is_some() && r.chapter.is_some() && r.verse.is_some())
+            .unwrap_or(false);
+        let pattern_result = if has_full_ref {
+            segment_pattern
+        } else {
+            let rolling = layers::pattern_layer_from_results(
+                &self.context.find_in_rolling_transcript(),
+            );
+            rolling.or(segment_pattern)
+        };
 
         // ── 3. Submit to local AI worker (non-blocking) ───────────────────
         let local_rx = self.local_ai.as_ref().and_then(|h| {

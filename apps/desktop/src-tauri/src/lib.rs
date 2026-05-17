@@ -5,7 +5,7 @@ use companion_events::AppEvent;
 use companion_bible::KjvBible;
 use companion_engine::{DetectionEngine, EngineConfig, LocalAiHandle};
 use companion_audio::{AudioSystem, BuiltinMicInput, RingBuffer};
-use companion_transcription::{ModelManager, SetupProgress, TranscribeOptions, WhisperTranscriber};
+use companion_transcription::{DeepgramTranscriber, ModelManager, SetupProgress, TranscribeOptions, WhisperTranscriber};
 use companion_ai::{LocalAI, LocalAIConfig};
 use companion_database::{CalibrationRepository, ChurchRepository, DetectionEventRepository, PoolConfig};
 use companion_arbitrator::DisplayAction;
@@ -30,13 +30,33 @@ enum DisplayMode {
 
 // ─── pipeline ─────────────────────────────────────────────────────────────────
 
-struct Pipeline {
-    audio: AudioSystem,
-    transcriber: WhisperTranscriber,
+enum AnyTranscriber {
+    Whisper(WhisperTranscriber),
+    Deepgram(DeepgramTranscriber),
 }
 
-// SAFETY: AudioSystem and WhisperTranscriber are Send — their internals use
-// Arc/Mutex/AtomicBool/JoinHandle, all of which are Send.
+impl AnyTranscriber {
+    fn stop(&mut self) {
+        match self {
+            Self::Whisper(t) => t.stop(),
+            Self::Deepgram(t) => t.stop(),
+        }
+    }
+
+    fn mode_label(&self) -> &'static str {
+        match self {
+            Self::Whisper(_) => "whisper",
+            Self::Deepgram(_) => "deepgram",
+        }
+    }
+}
+
+struct Pipeline {
+    audio: AudioSystem,
+    transcriber: AnyTranscriber,
+}
+
+// SAFETY: AudioSystem, WhisperTranscriber, and DeepgramTranscriber are Send.
 unsafe impl Send for Pipeline {}
 
 // ─── internal state ───────────────────────────────────────────────────────────
@@ -51,6 +71,7 @@ struct InternalState {
     sub_points: Vec<String>,
     current_sub_point_index: i32,
     selected_device_id: Option<String>,
+    deepgram_api_key: Option<String>,
     pipeline: Option<Pipeline>,
 }
 
@@ -66,6 +87,7 @@ impl Default for InternalState {
             sub_points: Vec::new(),
             current_sub_point_index: -1,
             selected_device_id: None,
+            deepgram_api_key: None,
             pipeline: None,
         }
     }
@@ -477,13 +499,50 @@ async fn start_session(
 
     *state.engine.lock().await = Some(engine);
 
-    // ── 7. Build audio system + transcriber ───────────────────────────────────
+    // ── 7. Build audio system ────────────────────────────────────────────────
     eprintln!("[start_session] step 7: building audio system");
     let buffer = Arc::new(RingBuffer::<f32>::with_default_capacity());
     let audio = AudioSystem::new(Box::new(BuiltinMicInput::new()), Arc::clone(&buffer));
     let window = audio.window();
-    let (transcriber, seg_rx) = WhisperTranscriber::new(window, TranscribeOptions::default());
     eprintln!("[start_session] step 7 done: audio system built");
+
+    // ── 7a. Choose transcription backend (Deepgram primary / Whisper fallback)
+    let deepgram_key = state.inner.lock().unwrap().deepgram_api_key.clone();
+    let use_deepgram = if let Some(ref key) = deepgram_key {
+        eprintln!("[start_session] step 7a: testing Deepgram connection…");
+        match DeepgramTranscriber::try_connect(key).await {
+            Ok(_) => {
+                eprintln!("[start_session] step 7a: Deepgram OK — using streaming transcription");
+                true
+            }
+            Err(e) => {
+                eprintln!("[start_session] step 7a: Deepgram failed ({e}) — falling back to Whisper");
+                let _ = app.emit("app-event", serde_json::json!({
+                    "type": "TRANSCRIPTION_MODE_CHANGED",
+                    "mode": "whisper",
+                    "reason": format!("Deepgram unavailable: {e}"),
+                }));
+                false
+            }
+        }
+    } else {
+        eprintln!("[start_session] step 7a: no Deepgram key — using Whisper");
+        false
+    };
+
+    // ── 7b. Create transcriber and get seg_rx ────────────────────────────────
+    let (seg_rx_raw, transcriber) = if use_deepgram {
+        let key = deepgram_key.unwrap();
+        let (mut dg, rx) = DeepgramTranscriber::new(key, window.clone());
+        dg.start();
+        let _ = app.emit("app-event", serde_json::json!({
+            "type": "TRANSCRIPTION_MODE_CHANGED", "mode": "deepgram",
+        }));
+        (rx, AnyTranscriber::Deepgram(dg))
+    } else {
+        let (t, rx) = WhisperTranscriber::new(window.clone(), TranscribeOptions::default());
+        (rx, AnyTranscriber::Whisper(t))
+    };
 
     // ── 8. Bridge blocking SegmentReceiver → tokio channel ───────────────────
     eprintln!("[start_session] step 8: spawning seg-bridge thread");
@@ -493,7 +552,7 @@ async fn start_session(
     std::thread::Builder::new()
         .name("seg-bridge".into())
         .spawn(move || {
-            while let Some(batch) = seg_rx.recv() {
+            while let Some(batch) = seg_rx_raw.recv() {
                 for seg in batch {
                     if seg_tx.blocking_send(seg).is_err() {
                         break;
@@ -570,65 +629,69 @@ async fn start_session(
         }
     });
 
-    // ── 10. Load Whisper model (blocking) ─────────────────────────────────────
-    eprintln!("[start_session] step 10: loading Whisper model (may take a while)");
-    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    eprintln!("[start_session] app_data_dir: {}", app_data_dir.display());
-    let app_progress = app.clone();
-    let model = tokio::task::spawn_blocking(move || {
-        eprintln!("[start_session] step 10: ModelManager::setup starting");
-        let result = ModelManager::new(&app_data_dir).setup(|progress| {
-            eprintln!("[start_session] step 10: model download progress {:?}", progress);
-            match &progress {
-                SetupProgress::Downloading { bytes_done, bytes_total } => {
-                    let pct = bytes_total
-                        .filter(|&t| t > 0)
-                        .map(|t| ((*bytes_done as f64 / t as f64) * 100.0) as u8)
-                        .unwrap_or(0);
-                    let _ = app_progress.emit("app-event", serde_json::json!({
-                        "type": "MODEL_DOWNLOAD_PROGRESS",
-                        "bytesDone": bytes_done,
-                        "bytesTotal": bytes_total,
-                        "percent": pct,
-                    }));
+    // ── 10. Load Whisper model (only when not using Deepgram) ────────────────
+    let mut transcriber = transcriber;
+    if !use_deepgram {
+        eprintln!("[start_session] step 10: loading Whisper model (may take a while)");
+        let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+        eprintln!("[start_session] app_data_dir: {}", app_data_dir.display());
+        let app_progress = app.clone();
+        let model = tokio::task::spawn_blocking(move || {
+            eprintln!("[start_session] step 10: ModelManager::setup starting");
+            let result = ModelManager::new(&app_data_dir).setup(|progress| {
+                eprintln!("[start_session] step 10: model download progress {:?}", progress);
+                match &progress {
+                    SetupProgress::Downloading { bytes_done, bytes_total } => {
+                        let pct = bytes_total
+                            .filter(|&t| t > 0)
+                            .map(|t| ((*bytes_done as f64 / t as f64) * 100.0) as u8)
+                            .unwrap_or(0);
+                        let _ = app_progress.emit("app-event", serde_json::json!({
+                            "type": "MODEL_DOWNLOAD_PROGRESS",
+                            "bytesDone": bytes_done,
+                            "bytesTotal": bytes_total,
+                            "percent": pct,
+                        }));
+                    }
+                    SetupProgress::Loading => {
+                        let _ = app_progress.emit("app-event", serde_json::json!({
+                            "type": "MODEL_DOWNLOAD_PROGRESS",
+                            "bytesDone": 0u64,
+                            "bytesTotal": Option::<u64>::None,
+                            "percent": 100u8,
+                            "label": "Loading model…",
+                        }));
+                    }
+                    _ => {}
                 }
-                SetupProgress::Loading => {
-                    let _ = app_progress.emit("app-event", serde_json::json!({
-                        "type": "MODEL_DOWNLOAD_PROGRESS",
-                        "bytesDone": 0u64,
-                        "bytesTotal": Option::<u64>::None,
-                        "percent": 100u8,
-                        "label": "Loading model…",
-                    }));
-                }
-                _ => {}
-            }
-        });
-        eprintln!("[start_session] step 10: ModelManager::setup finished: {}", result.is_ok());
-        result
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
-    eprintln!("[start_session] step 10 done: Whisper model loaded");
+            });
+            eprintln!("[start_session] step 10: ModelManager::setup finished: {}", result.is_ok());
+            result
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+        eprintln!("[start_session] step 10 done: Whisper model loaded");
+        if let AnyTranscriber::Whisper(ref mut wt) = transcriber {
+            wt.start(model);
+        }
+    } else {
+        eprintln!("[start_session] step 10: skipped (Deepgram active)");
+    }
 
-    // ── 11. Start audio capture + transcription ───────────────────────────────
+    // ── 11. Start audio capture ───────────────────────────────────────────────
     eprintln!("[start_session] step 11: starting audio capture");
     let mut audio = audio;
     audio
         .start(Arc::clone(&buffer), 0.005, 0.1)
         .map_err(|e| e.to_string())?;
-    eprintln!("[start_session] step 11: audio started, starting transcriber");
-
-    let mut transcriber = transcriber;
-    transcriber.start(model);
-    eprintln!("[start_session] step 11 done: transcriber started");
+    eprintln!("[start_session] step 11 done: audio started");
 
     // ── 12. Store pipeline + mark session active ──────────────────────────────
     eprintln!("[start_session] step 12: storing pipeline");
     {
         let mut s = state.inner.lock().unwrap();
-        s.pipeline = Some(Pipeline { audio, transcriber });
+        s.pipeline = Some(Pipeline { audio, transcriber: transcriber });
         s.session_active = true;
     }
     eprintln!("[start_session] step 12 done: session active!");
@@ -659,7 +722,7 @@ async fn stop_session(
     };
 
     if let Some(mut p) = pipeline_opt {
-        p.transcriber.stop();
+        p.transcriber.stop();  // works for both Whisper and Deepgram
         p.audio.stop();
     }
 
@@ -760,6 +823,26 @@ fn approve_detection(app: AppHandle, state: State<ManagedState>, reference: Stri
 fn reject_detection(_app: AppHandle, reference: String) {
     // Detection event is already logged by the engine; no additional DB call needed.
     let _ = reference;
+}
+
+// ─── transcription config commands ───────────────────────────────────────────
+
+#[tauri::command]
+fn set_deepgram_key(state: State<ManagedState>, key: String) {
+    state.inner.lock().unwrap().deepgram_api_key = if key.trim().is_empty() {
+        None
+    } else {
+        Some(key.trim().to_string())
+    };
+}
+
+#[tauri::command]
+fn get_transcription_mode(state: State<ManagedState>) -> String {
+    let s = state.inner.lock().unwrap();
+    match &s.pipeline {
+        Some(p) => p.transcriber.mode_label().to_string(),
+        None => if s.deepgram_api_key.is_some() { "deepgram".into() } else { "whisper".into() },
+    }
 }
 
 // ─── verse navigation commands ────────────────────────────────────────────────
@@ -1177,6 +1260,8 @@ pub fn run() {
             reject_detection,
             next_verse,
             previous_verse,
+            set_deepgram_key,
+            get_transcription_mode,
             get_audio_devices,
             select_audio_device,
             get_system_health,

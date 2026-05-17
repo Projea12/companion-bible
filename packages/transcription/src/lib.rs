@@ -1,6 +1,7 @@
 mod error;
 pub mod channel;
 pub mod correction;
+pub mod deepgram;
 pub mod download;
 pub mod manager;
 pub mod model;
@@ -22,6 +23,7 @@ pub use channel::{
     CHANNEL_CAPACITY,
 };
 pub use correction::{correct_batch, correct_segment, correct_text, CORRECTIONS};
+pub use deepgram::DeepgramTranscriber;
 pub use transcriber::{WhisperTranscriber, NEW_AUDIO_SECS, TRANSCRIBE_WINDOW_SECS};
 
 #[cfg(test)]

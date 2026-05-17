@@ -190,6 +190,16 @@ impl SermonContext {
         self.context_confidence = (self.context_confidence - loss).max(0.0);
     }
 
+    /// Run the pattern engine over the full rolling transcript buffer.
+    ///
+    /// Used by the detection engine as a fallback when the current utterance
+    /// alone does not yield a complete scripture reference — re-assembles
+    /// references that Deepgram split across multiple short utterances.
+    pub fn find_in_rolling_transcript(&self) -> Vec<companion_detection::PatternResult> {
+        let normalized = self.normalizer.normalize(&self.rolling_transcript.text());
+        self.engine.find_all(&normalized)
+    }
+
     // ── Core pipeline ─────────────────────────────────────────────────────────
 
     /// Process a transcription segment through the full enrichment pipeline.
@@ -225,7 +235,11 @@ impl SermonContext {
         self.integrate_detections(&detections, segment.audio_end_ms);
 
         // 6. Update sliding windows.
-        self.rolling_transcript.push(&corrected, segment.audio_end_ms);
+        // Strip trailing punctuation before storing — Deepgram (even without
+        // smart_format) may still emit periods that would break cross-utterance
+        // pattern matching when segments are re-joined by rolling_transcript.text().
+        let corrected_clean = corrected.trim_end_matches(|c: char| ".!?,;:".contains(c)).trim().to_owned();
+        self.rolling_transcript.push(&corrected_clean, segment.audio_end_ms);
         self.recent_segments.push_back(segment.clone());
         if self.recent_segments.len() > self.max_recent_segments {
             self.recent_segments.pop_front();
@@ -248,7 +262,7 @@ impl SermonContext {
 
         let (resolved, resolution_source) = match p.completeness {
             // All parts are present in the matched text.
-            FullCanonical | BookChapterVerse => {
+            FullCanonical | BookChapterVerse | BookChapterVerseSpaced => {
                 let r = build_reference(p.book.as_deref(), p.chapter, p.verse);
                 (r, ResolutionSource::Explicit)
             }
@@ -799,7 +813,8 @@ mod tests {
         run(&mut ctx, "Good morning.");
         run(&mut ctx, "Romans 8:1.");
         let text = ctx.rolling_transcript.text();
-        assert!(text.contains("Good morning."));
+        // Trailing punctuation is stripped before storage.
+        assert!(text.contains("Good morning"));
         assert!(text.contains("Romans"));
     }
 

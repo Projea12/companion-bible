@@ -39,7 +39,7 @@ impl Default for CalibrationThresholds {
     fn default() -> Self {
         Self {
             auto_display: 0.95,
-            show_with_warning: 0.75,
+            show_with_warning: 0.65,
             minimum_services_for_calibration: 5,
         }
     }
@@ -140,7 +140,7 @@ mod tests {
     fn defaults_are_correct() {
         let t = CalibrationThresholds::default();
         assert_eq!(t.auto_display, 0.95);
-        assert_eq!(t.show_with_warning, 0.75);
+        assert_eq!(t.show_with_warning, 0.65);
         assert_eq!(t.minimum_services_for_calibration, 5);
     }
 

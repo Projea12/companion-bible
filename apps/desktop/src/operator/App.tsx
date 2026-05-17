@@ -48,6 +48,10 @@ export function App() {
   // display
   const [displayedVerse, setDisplayedVerse] = useState<DisplayedVerse | null>(null);
 
+  // transcription
+  const [deepgramKey, setDeepgramKey] = useState('');
+  const [transcriptionMode, setTranscriptionMode] = useState<'deepgram' | 'whisper'>('whisper');
+
   // undo (5-second window enforced on the frontend)
   const [undoExpiresAt, setUndoExpiresAt] = useState<number | null>(null);
   const [undoSecsLeft, setUndoSecsLeft] = useState(0);
@@ -167,6 +171,12 @@ export function App() {
         case 'INTERNET_DISCONNECTED':
           setInternet('offline');
           break;
+
+        case 'TRANSCRIPTION_MODE_CHANGED': {
+          const mode = (payload as unknown as { mode: string }).mode;
+          setTranscriptionMode(mode === 'deepgram' ? 'deepgram' : 'whisper');
+          break;
+        }
 
         case 'AUDIO_CAPTURE_STARTED':
           setAudio('flowing');
@@ -292,6 +302,10 @@ export function App() {
     void invoke('show_verse', { reference: ref, text: '' });
   }, []);
 
+  const handleSaveDeepgramKey = useCallback(() => {
+    void invoke('set_deepgram_key', { key: deepgramKey });
+  }, [deepgramKey]);
+
   const handleNextVerse = useCallback(() => {
     void invoke('next_verse');
   }, []);
@@ -402,6 +416,34 @@ export function App() {
           </button>
         </div>
       </header>
+
+      {/* ── Deepgram API key (shown only when session is not active) ── */}
+      {!sessionActive && (
+        <div className="op-deepgram-bar">
+          <span className="deepgram-label">Deepgram API Key</span>
+          <input
+            className="deepgram-input"
+            type="password"
+            placeholder="Paste your Deepgram key for Nigerian accent support…"
+            value={deepgramKey}
+            onChange={(e) => setDeepgramKey(e.target.value)}
+            onBlur={handleSaveDeepgramKey}
+          />
+          <button className="btn btn-secondary" onClick={handleSaveDeepgramKey}>
+            Save
+          </button>
+          <span className="deepgram-hint">
+            {deepgramKey ? '✓ Deepgram enabled' : 'Leave blank to use Whisper (offline)'}
+          </span>
+        </div>
+      )}
+      {sessionActive && (
+        <div className="op-deepgram-bar">
+          <span className={`transcription-mode-badge transcription-mode-${transcriptionMode}`}>
+            {transcriptionMode === 'deepgram' ? '🎙 Deepgram' : '🤫 Whisper (offline)'}
+          </span>
+        </div>
+      )}
 
       {/* ── Sermon Bar ── */}
       <div className="op-sermon-bar">

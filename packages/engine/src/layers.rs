@@ -34,6 +34,25 @@ pub fn pattern_layer(enriched: &EnrichedSegment) -> Option<LayerResult> {
         })
 }
 
+/// Extract the best `LayerResult` from a raw slice of `PatternResult`s.
+///
+/// Used to run the pattern engine over the rolling transcript buffer so that
+/// references split across multiple Deepgram utterances can be re-assembled.
+/// Prefers results that include a verse number over chapter-only results.
+pub fn pattern_layer_from_results(results: &[companion_detection::PatternResult]) -> Option<LayerResult> {
+    // Prefer full references (with verse) over partial ones.
+    let best = results.iter()
+        .filter(|r| r.confidence > 0.0 && r.verse.is_some())
+        .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap_or(std::cmp::Ordering::Equal));
+
+    best.map(|r| LayerResult {
+        book: r.book.clone(),
+        chapter: r.chapter,
+        verse: r.verse,
+        confidence: r.confidence,
+    })
+}
+
 // ─── local AI layer ──────────────────────────────────────────────────────────
 
 /// Convert a `LocalAIResult` into a `LayerResult`.
