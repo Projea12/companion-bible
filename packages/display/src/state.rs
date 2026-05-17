@@ -14,7 +14,6 @@ impl SubPoint {
 
 /// Every distinct state the congregation display can be in.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DisplayedState {
     /// Screen is completely black — used during transitions or blackout moments.
     Blank,
