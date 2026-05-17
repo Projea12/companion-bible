@@ -1,61 +1,100 @@
 use companion_events::BibleReference;
 
-use crate::state::{DisplayedState, SubPoint};
+use crate::{
+    error::DisplayError,
+    history::StateHistory,
+    state::{DisplayedState, SubPoint},
+    wal::{WalEntry, WriteAheadLog},
+};
 
-/// Owns the current congregation display state and enforces valid transitions.
-///
-/// Callers mutate state through the typed methods rather than assigning
-/// `DisplayedState` directly, which lets the controller enforce invariants
-/// and keeps transition logic in one place.
+type Renderer = Box<dyn Fn(&DisplayedState) -> Result<(), String> + Send>;
+
 pub struct DisplayController {
     current: DisplayedState,
-}
-
-impl Default for DisplayController {
-    fn default() -> Self {
-        Self::new()
-    }
+    history: StateHistory,
+    wal: Box<dyn WriteAheadLog>,
+    renderer: Renderer,
 }
 
 impl DisplayController {
-    /// Create a new controller; the display starts blank.
-    pub fn new() -> Self {
+    pub fn new(wal: impl WriteAheadLog + 'static, renderer: Renderer) -> Self {
         Self {
             current: DisplayedState::Blank,
+            history: StateHistory::new(),
+            wal: Box::new(wal),
+            renderer,
         }
     }
 
     // ── Observers ─────────────────────────────────────────────────────────────
 
-    /// The current display state.
     pub fn state(&self) -> &DisplayedState {
         &self.current
     }
 
-    /// `true` when the display is blank (no content shown).
     pub fn is_blank(&self) -> bool {
         matches!(self.current, DisplayedState::Blank)
     }
 
+    pub fn history_len(&self) -> usize {
+        self.history.len()
+    }
+
     // ── Transitions ───────────────────────────────────────────────────────────
 
-    /// Black out the congregation display entirely.
-    pub fn show_blank(&mut self) {
-        self.current = DisplayedState::Blank;
+    pub fn show_blank(&mut self) -> Result<(), DisplayError> {
+        self.transition(DisplayedState::Blank)
     }
 
-    /// Show a sermon title full-screen.
-    pub fn show_sermon_title(&mut self, title: impl Into<String>) {
-        self.current = DisplayedState::SermonTitle(title.into());
+    pub fn show_sermon_title(&mut self, title: impl Into<String>) -> Result<(), DisplayError> {
+        self.transition(DisplayedState::SermonTitle(title.into()))
     }
 
-    /// Show a sermon outline sub-point.
-    pub fn show_sub_point(&mut self, sub_point: SubPoint) {
-        self.current = DisplayedState::SubPoint(sub_point);
+    pub fn show_sub_point(&mut self, sub_point: SubPoint) -> Result<(), DisplayError> {
+        self.transition(DisplayedState::SubPoint(sub_point))
     }
 
-    /// Show a scripture verse with its reference.
-    pub fn show_verse(&mut self, reference: BibleReference, text: impl Into<String>) {
-        self.current = DisplayedState::Verse(reference, text.into());
+    pub fn show_verse(
+        &mut self,
+        reference: BibleReference,
+        text: impl Into<String>,
+    ) -> Result<(), DisplayError> {
+        self.transition(DisplayedState::Verse(reference, text.into()))
+    }
+
+    /// Restore the previous state from history.
+    pub fn discard(&mut self) -> Result<(), DisplayError> {
+        let prev = self.history.pop().ok_or(DisplayError::NoHistory)?;
+
+        let entry = WalEntry {
+            from: self.current.clone(),
+            to: prev.clone(),
+        };
+        self.wal
+            .append(entry)
+            .map_err(DisplayError::WalWriteFailed)?;
+
+        self.current = prev;
+        self.renderer(&self.current.clone())
+    }
+
+    // ── Private ───────────────────────────────────────────────────────────────
+
+    fn transition(&mut self, next: DisplayedState) -> Result<(), DisplayError> {
+        let entry = WalEntry {
+            from: self.current.clone(),
+            to: next.clone(),
+        };
+        self.wal
+            .append(entry)
+            .map_err(DisplayError::WalWriteFailed)?;
+
+        self.history.push(self.current.clone());
+        self.current = next;
+        self.renderer(&self.current.clone())
+    }
+
+    fn renderer(&self, state: &DisplayedState) -> Result<(), DisplayError> {
+        (self.renderer)(state).map_err(DisplayError::RenderFailed)
     }
 }
