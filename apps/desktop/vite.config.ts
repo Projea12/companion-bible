@@ -1,9 +1,11 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import react from '@vitejs/plugin-react';
 
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
+  plugins: [react()],
   // Vite options tailored for Tauri development
   clearScreen: false,
   server: {

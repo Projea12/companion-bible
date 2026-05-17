@@ -29,19 +29,26 @@ export default [
   },
   // Browser globals for Tauri frontend source files
   {
-    files: ['apps/desktop/src/**/*.ts'],
+    files: ['apps/desktop/src/**/*.{ts,tsx}'],
     languageOptions: {
       globals: {
         document: 'readonly',
         window: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
         HTMLElement: 'readonly',
         HTMLButtonElement: 'readonly',
         HTMLDivElement: 'readonly',
+        HTMLInputElement: 'readonly',
         HTMLUListElement: 'readonly',
         HTMLLIElement: 'readonly',
         Element: 'readonly',
         Event: 'readonly',
+        KeyboardEvent: 'readonly',
         MouseEvent: 'readonly',
+        TransitionEvent: 'readonly',
       },
     },
   },

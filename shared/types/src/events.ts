@@ -33,9 +33,15 @@ export type AppEvent =
   | { type: 'SUB_POINT_SHOWN'; text: string }
   | { type: 'DISPLAY_BLANKED' }
 
+  // ── Connectivity ───────────────────────────────────────────────────────
+  | { type: 'INTERNET_CONNECTED' }
+  | { type: 'INTERNET_DISCONNECTED' }
+
   // ── Screen ─────────────────────────────────────────────────────────────
   | { type: 'SECONDARY_SCREEN_CONNECTED' }
   | { type: 'SECONDARY_SCREEN_DISCONNECTED' }
+  | { type: 'SCREEN_SWAP_DETECTED' }
+  | { type: 'SCREEN_RESTORED' }
 
   // ── System ─────────────────────────────────────────────────────────────
   | { type: 'APP_STARTED'; version: string }

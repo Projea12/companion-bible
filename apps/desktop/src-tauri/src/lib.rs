@@ -24,6 +24,8 @@ enum DisplayMode {
 struct InternalState {
     display_mode: DisplayMode,
     session_active: bool,
+    /// Last shown verse — stored so `undo_discard` can restore it.
+    last_verse: Option<(String, String)>, // (reference_label, text)
 }
 
 struct ManagedState(Mutex<InternalState>);
@@ -225,7 +227,7 @@ fn show_verse(app: AppHandle, state: State<ManagedState>, reference: String, tex
         serde_json::json!({
             "type": "VERSE_LOADED",
             "reference": ref_json.clone(),
-            "text": text,
+            "text": text.clone(),
             "translation": "KJV",
         }),
     );
@@ -233,7 +235,9 @@ fn show_verse(app: AppHandle, state: State<ManagedState>, reference: String, tex
         "app-event",
         serde_json::json!({ "type": "VERSE_DISPLAYED", "reference": ref_json }),
     );
-    state.0.lock().unwrap().display_mode = DisplayMode::Verse;
+    let mut s = state.0.lock().unwrap();
+    s.display_mode = DisplayMode::Verse;
+    s.last_verse = Some((reference, text));
 }
 
 #[tauri::command]
@@ -265,6 +269,30 @@ fn show_sub_point(app: AppHandle, state: State<ManagedState>, sub_point: String)
 fn show_blank(app: AppHandle, state: State<ManagedState>) {
     let _ = app.emit("app-event", serde_json::json!({ "type": "DISPLAY_BLANKED" }));
     state.0.lock().unwrap().display_mode = DisplayMode::Blank;
+}
+
+/// Restores the last discarded verse within the 5-second undo window.
+/// The window enforcement is handled on the frontend; this command simply
+/// re-emits the stored verse events.
+#[tauri::command]
+fn undo_discard(app: AppHandle, state: State<ManagedState>) {
+    let last = state.0.lock().unwrap().last_verse.clone();
+    let Some((reference, text)) = last else { return };
+    let Some(ref_json) = parse_reference(&reference) else { return };
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({
+            "type": "VERSE_LOADED",
+            "reference": ref_json.clone(),
+            "text": text,
+            "translation": "KJV",
+        }),
+    );
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({ "type": "VERSE_DISPLAYED", "reference": ref_json }),
+    );
+    state.0.lock().unwrap().display_mode = DisplayMode::Verse;
 }
 
 // ─── session commands ─────────────────────────────────────────────────────────
@@ -490,6 +518,7 @@ pub fn run() {
             show_sermon_title,
             show_sub_point,
             show_blank,
+            undo_discard,
             start_session,
             stop_session,
             approve_detection,

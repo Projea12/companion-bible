@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 /**
  * CSS specification tests — parsed from the actual source files.
  *
