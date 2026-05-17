@@ -689,6 +689,10 @@ async fn start_session(
         .map_err(|e| e.to_string())?;
     eprintln!("[start_session] step 11 done: audio started");
 
+    // ── 11b. Audio level diagnostic (before audio is moved into pipeline) ───────
+    // If reading stays 0.000, macOS microphone permission is likely denied.
+    eprintln!("[audio-check] immediate level: {:.4}", audio.current_level());
+
     // ── 12. Store pipeline + mark session active ──────────────────────────────
     eprintln!("[start_session] step 12: storing pipeline");
     {

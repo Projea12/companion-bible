@@ -200,13 +200,24 @@ async fn stream_loop(
         }
         let text = match msg? {
             Message::Text(t) => t,
-            Message::Close(_) => break,
-            _ => continue,
+            Message::Close(frame) => {
+                eprintln!("[deepgram] server closed connection: {:?}", frame);
+                break;
+            }
+            other => {
+                eprintln!("[deepgram] non-text message: {:?}", other);
+                continue;
+            }
         };
+
+        eprintln!("[deepgram] raw msg: {text}");
 
         let result: DgResult = match serde_json::from_str(&text) {
             Ok(r) => r,
-            Err(_) => continue,
+            Err(e) => {
+                eprintln!("[deepgram] parse error: {e}");
+                continue;
+            }
         };
 
         // Accept speech_final (end of utterance) or is_final (end of chunk).

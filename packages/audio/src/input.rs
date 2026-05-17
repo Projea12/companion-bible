@@ -126,16 +126,29 @@ impl AudioInput for CpalInput {
             .default_input_config()
             .map_err(|e| AudioError::CpalConfig(e.to_string()))?;
 
+        let native_rate = config.sample_rate().0;
+        let native_channels = config.channels() as usize;
+        eprintln!(
+            "[audio] device='{}' native={}Hz/{}ch/{:?}",
+            device.name().unwrap_or_default(),
+            native_rate, native_channels, config.sample_format()
+        );
+
         let level = Arc::clone(&self.level);
         let err_fn = |e: cpal::StreamError| eprintln!("audio stream error: {e}");
 
+        // Build the stream at the device's native rate, then downsample to
+        // 16 kHz in the callback so the SlidingWindow and Deepgram always
+        // receive 16 kHz mono audio regardless of the device's native rate.
         let stream = match config.sample_format() {
             SampleFormat::F32 => device.build_input_stream(
                 &config.into(),
                 move |data: &[f32], _| {
-                    let peak = data.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+                    let mono = to_mono_f32(data, native_channels);
+                    let resampled = downsample(&mono, native_rate, 16_000);
+                    let peak = resampled.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
                     level.store(peak.to_bits(), Ordering::Relaxed);
-                    callback(data.to_vec());
+                    callback(resampled);
                 },
                 err_fn,
                 None,
@@ -143,11 +156,12 @@ impl AudioInput for CpalInput {
             SampleFormat::I16 => device.build_input_stream(
                 &config.into(),
                 move |data: &[i16], _| {
-                    let samples: Vec<f32> =
-                        data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
-                    let peak = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+                    let f32s: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
+                    let mono = to_mono_f32(&f32s, native_channels);
+                    let resampled = downsample(&mono, native_rate, 16_000);
+                    let peak = resampled.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
                     level.store(peak.to_bits(), Ordering::Relaxed);
-                    callback(samples);
+                    callback(resampled);
                 },
                 err_fn,
                 None,
@@ -155,22 +169,17 @@ impl AudioInput for CpalInput {
             SampleFormat::U16 => device.build_input_stream(
                 &config.into(),
                 move |data: &[u16], _| {
-                    let samples: Vec<f32> = data
-                        .iter()
-                        .map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0)
-                        .collect();
-                    let peak = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+                    let f32s: Vec<f32> = data.iter().map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0).collect();
+                    let mono = to_mono_f32(&f32s, native_channels);
+                    let resampled = downsample(&mono, native_rate, 16_000);
+                    let peak = resampled.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
                     level.store(peak.to_bits(), Ordering::Relaxed);
-                    callback(samples);
+                    callback(resampled);
                 },
                 err_fn,
                 None,
             ),
-            fmt => {
-                return Err(AudioError::StreamBuild(format!(
-                    "unsupported sample format: {fmt:?}"
-                )))
-            }
+            fmt => return Err(AudioError::StreamBuild(format!("unsupported sample format: {fmt:?}"))),
         }
         .map_err(|e| AudioError::StreamBuild(e.to_string()))?;
 
@@ -290,4 +299,37 @@ impl AudioInput for BuiltinMicInput {
     fn current_level(&self) -> f32 {
         self.0.current_level()
     }
+}
+
+// ─── Audio helpers ────────────────────────────────────────────────────────────
+
+/// Average multi-channel interleaved samples down to mono.
+fn to_mono_f32(samples: &[f32], channels: usize) -> Vec<f32> {
+    if channels <= 1 {
+        return samples.to_vec();
+    }
+    samples
+        .chunks_exact(channels)
+        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+        .collect()
+}
+
+/// Linear-interpolation downsample from `from_hz` to `to_hz`.
+fn downsample(samples: &[f32], from_hz: u32, to_hz: u32) -> Vec<f32> {
+    if from_hz == to_hz || samples.is_empty() {
+        return samples.to_vec();
+    }
+    let ratio = from_hz as f64 / to_hz as f64;
+    let out_len = ((samples.len() as f64) / ratio).ceil() as usize;
+    let mut out = Vec::with_capacity(out_len);
+    let mut pos = 0.0f64;
+    while pos < samples.len() as f64 {
+        let i = pos as usize;
+        let frac = (pos - i as f64) as f32;
+        let s0 = samples[i];
+        let s1 = samples.get(i + 1).copied().unwrap_or(s0);
+        out.push(s0 + (s1 - s0) * frac);
+        pos += ratio;
+    }
+    out
 }
