@@ -1,0 +1,8 @@
+[package]
+name = "companion-display"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+companion-events = { workspace = true }
+serde             = { workspace = true }
