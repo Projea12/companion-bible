@@ -1140,7 +1140,7 @@ async fn migration_versions_are_sequential() {
     let pool = open_db(dir.path()).await;
     let applied = migration::list_applied(&pool).await.unwrap();
     let versions: Vec<i64> = applied.iter().map(|m| m.version).collect();
-    assert_eq!(versions, vec![1, 2, 3, 4], "versions must be 1..4 in order");
+    assert_eq!(versions, vec![1, 2, 3, 4, 5], "versions must be 1..5 in order");
     close(pool).await;
 }
 
