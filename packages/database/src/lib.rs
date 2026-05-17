@@ -12,8 +12,8 @@ pub use models::{
     SubPoint, Verse,
 };
 pub use repositories::{
-    CalibrationRepository, ChurchRepository, DetectionEventRepository, SermonRepository,
-    VerseRepository,
+    CalibrationRepository, ChurchRepository, DetectionEventRepository, FtsResult,
+    SermonRepository, VerseRepository,
 };
 pub use persist::{AppStateSerializer, PersistError};
 pub use wal::{AppState, WalEntry, WalError, WriteAheadLog};
