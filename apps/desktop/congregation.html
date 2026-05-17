@@ -13,41 +13,44 @@
   </head>
   <body class="congregation-body">
     <div id="app" class="congregation-app">
-      <!-- Idle state — shown when no verse is active -->
+
+      <!-- Idle — shown when no content is active -->
       <div id="state-idle" class="congregation-state">
-        <div class="idle-logo">✦</div>
+        <div class="idle-mark" aria-hidden="true">✦</div>
       </div>
 
-      <!-- Verse state — shown when a scripture verse is displayed -->
+      <!-- Verse — scripture text with reference below -->
       <div id="state-verse" class="congregation-state" hidden>
         <div class="verse-card">
-          <div class="verse-reference" id="verse-reference">John 3:16</div>
           <div class="verse-text" id="verse-text">
             For God so loved the world, that he gave his only begotten Son,
-            that whosoever believeth in him should not perish, but have
-            everlasting life.
+            that whosoever believeth in him should not perish,
+            but have everlasting life.
           </div>
+          <div class="verse-rule" aria-hidden="true"></div>
+          <div class="verse-reference" id="verse-reference">John 3:16</div>
           <div class="verse-translation" id="verse-translation">KJV</div>
         </div>
       </div>
 
-      <!-- Title state — shown when a sermon title is displayed -->
+      <!-- SermonTitle — full-screen title with eyebrow label -->
       <div id="state-title" class="congregation-state" hidden>
         <div class="title-card">
-          <div class="title-eyebrow">Sermon</div>
+          <div class="title-eyebrow" aria-label="Sermon">Sermon</div>
           <div class="title-text" id="title-text"></div>
         </div>
       </div>
 
-      <!-- Sub-point state — shown when an outline point is displayed -->
+      <!-- SubPoint — outline point with accent left border -->
       <div id="state-subpoint" class="congregation-state" hidden>
         <div class="subpoint-card">
           <div class="subpoint-text" id="subpoint-text"></div>
         </div>
       </div>
 
-      <!-- Blank state — complete blackout, no content shown -->
+      <!-- Blank — complete blackout, no content -->
       <div id="state-blank" class="congregation-state congregation-blank" hidden></div>
+
     </div>
     <script type="module" src="/src/congregation/main.ts"></script>
   </body>

@@ -1,13 +1,31 @@
-/* ── congregation display ─────────────────────────────────────────────────── */
+/* ── congregation display design tokens ───────────────────────────────────── */
 :root {
-  --verse-font-size: clamp(28px, 5vw, 72px);
-  --ref-font-size: clamp(18px, 2.5vw, 36px);
-  --trans-font-size: clamp(13px, 1.5vw, 20px);
-  --fade-duration: 600ms;
+  /* background — deep midnight navy, not pure black */
+  --cb-bg: #080d1a;
+
+  /* text */
+  --cb-text: #f5f0e8; /* warm white — easier on eyes at distance */
+  --cb-text-dim: #8a8fa8; /* muted supporting text */
+  --cb-text-ghost: #2a2f45; /* barely visible (idle mark) */
+
+  /* accent — warm gold used for references and eyebrows */
+  --cb-accent: #c9a96e;
+
+  /* fade timing — 300 ms in, 300 ms out */
+  --cb-fade: 300ms;
+
+  /* type scale — clamp keeps everything legible at 10 m */
+  --size-verse: clamp(30px, 4.8vw, 76px);
+  --size-ref: clamp(17px, 2.2vw, 30px);
+  --size-trans: clamp(11px, 1.1vw, 16px);
+  --size-title: clamp(38px, 6.5vw, 100px);
+  --size-eyebrow: clamp(11px, 1.2vw, 17px);
+  --size-subpoint: clamp(24px, 4vw, 62px);
 }
 
+/* ── body / app shell ─────────────────────────────────────────────────────── */
 .congregation-body {
-  background: #000;
+  background: var(--cb-bg);
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
@@ -22,35 +40,40 @@
   justify-content: center;
 }
 
-/* ── state containers ─────────────────────────────────────────────────────── */
+/* ── state layer — cross-fade between screens ─────────────────────────────── */
 .congregation-state {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+
+  /* fade IN */
   opacity: 1;
-  transition: opacity var(--fade-duration) ease;
+  transition: opacity var(--cb-fade) ease;
 }
+
 .congregation-state[hidden] {
-  display: flex !important; /* keep in flow for transitions */
+  /* override UA display:none so the opacity transition can play (fade OUT) */
+  display: flex !important;
   opacity: 0;
   pointer-events: none;
 }
 
 /* ── idle ─────────────────────────────────────────────────────────────────── */
-.idle-logo {
-  font-size: 64px;
-  color: #1a1a1a;
-  animation: pulse 4s ease-in-out infinite;
+.idle-mark {
+  font-size: 72px;
+  color: var(--cb-text-ghost);
+  animation: idle-pulse 5s ease-in-out infinite;
 }
-@keyframes pulse {
+
+@keyframes idle-pulse {
   0%,
   100% {
-    opacity: 0.3;
+    opacity: 0.2;
   }
   50% {
-    opacity: 0.7;
+    opacity: 0.5;
   }
 }
 
@@ -60,36 +83,49 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: min(1200px, 85vw);
-  gap: clamp(16px, 2vw, 32px);
-  padding: clamp(32px, 5vw, 80px);
-}
-
-.verse-reference {
-  font-family: var(--font-sans);
-  font-size: var(--ref-font-size);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #aaa;
+  max-width: min(1300px, 84vw);
+  gap: 0; /* controlled by margins below */
+  padding: clamp(40px, 6vw, 100px) clamp(32px, 5vw, 80px);
 }
 
 .verse-text {
   font-family: var(--font-serif);
-  font-size: var(--verse-font-size);
+  font-size: var(--size-verse);
   font-weight: 400;
-  line-height: 1.45;
-  color: #fff;
-  /* Subtle text shadow for legibility on any background */
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
+  line-height: 1.5;
+  color: var(--cb-text);
+  /* lift text above any bleed-through from background */
+  text-shadow: 0 2px 32px rgba(0, 0, 0, 0.9);
+  margin-bottom: clamp(24px, 3vw, 48px);
+}
+
+/* thin gold rule between verse body and reference */
+.verse-rule {
+  width: clamp(40px, 6vw, 80px);
+  height: 1px;
+  background: var(--cb-accent);
+  opacity: 0.6;
+  margin-bottom: clamp(20px, 2.5vw, 40px);
+}
+
+/* reference (book chapter:verse) sits below the rule in accent gold */
+.verse-reference {
+  font-family: var(--font-sans);
+  font-size: var(--size-ref);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  margin-bottom: clamp(6px, 0.8vw, 12px);
 }
 
 .verse-translation {
   font-family: var(--font-sans);
-  font-size: var(--trans-font-size);
-  color: #555;
-  letter-spacing: 0.12em;
+  font-size: var(--size-trans);
+  font-weight: 400;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
+  color: var(--cb-text-dim);
 }
 
 /* ── sermon title card ────────────────────────────────────────────────────── */
@@ -98,44 +134,48 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: min(1200px, 85vw);
-  gap: clamp(10px, 1.5vw, 20px);
-  padding: clamp(32px, 5vw, 80px);
+  max-width: min(1200px, 84vw);
+  padding: clamp(40px, 6vw, 100px) clamp(32px, 5vw, 80px);
+  gap: clamp(14px, 2vw, 28px);
 }
+
 .title-eyebrow {
   font-family: var(--font-sans);
-  font-size: var(--trans-font-size);
-  color: #555;
-  letter-spacing: 0.2em;
+  font-size: var(--size-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.28em;
   text-transform: uppercase;
+  color: var(--cb-accent);
 }
+
 .title-text {
   font-family: var(--font-sans);
-  font-size: clamp(36px, 6vw, 90px);
+  font-size: var(--size-title);
   font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #fff;
-  line-height: 1.15;
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+  color: var(--cb-text);
+  text-shadow: 0 2px 32px rgba(0, 0, 0, 0.9);
 }
 
 /* ── sub-point card ───────────────────────────────────────────────────────── */
 .subpoint-card {
-  max-width: min(1100px, 85vw);
-  padding: clamp(32px, 5vw, 80px);
-  padding-left: clamp(48px, 7vw, 100px);
-  border-left: 4px solid #333;
-}
-.subpoint-text {
-  font-family: var(--font-sans);
-  font-size: clamp(24px, 4vw, 60px);
-  font-weight: 500;
-  color: #ddd;
-  line-height: 1.45;
-  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.8);
+  max-width: min(1100px, 84vw);
+  padding: clamp(32px, 5vw, 80px) clamp(32px, 5vw, 80px) clamp(32px, 5vw, 80px)
+    clamp(48px, 6.5vw, 96px);
+  border-left: 3px solid var(--cb-accent);
 }
 
-/* ── blank ────────────────────────────────────────────────────────────────── */
+.subpoint-text {
+  font-family: var(--font-sans);
+  font-size: var(--size-subpoint);
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--cb-text);
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
+}
+
+/* ── blank — full blackout matching the body background ──────────────────── */
 .congregation-blank {
-  background: #000;
+  background: var(--cb-bg);
 }
