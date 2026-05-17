@@ -4,15 +4,20 @@
   --cb-bg: #080d1a;
 
   /* text */
-  --cb-text: #f5f0e8; /* warm white — easier on eyes at distance */
-  --cb-text-dim: #8a8fa8; /* muted supporting text */
-  --cb-text-ghost: #2a2f45; /* barely visible (idle mark) */
+  --cb-text: #f5f0e8;
+  --cb-text-dim: #8a8fa8;
+  --cb-text-ghost: #2a2f45;
 
-  /* accent — warm gold used for references and eyebrows */
+  /* accent — warm gold for references, eyebrows, borders */
   --cb-accent: #c9a96e;
 
-  /* fade timing — 300 ms in, 300 ms out */
+  /* fonts — declared in fonts.css, system fallbacks built in */
+  --cb-serif: 'CongregationSerif', Georgia, 'Times New Roman', serif;
+  --cb-sans: 'CongregationSans', system-ui, -apple-system, sans-serif;
+
+  /* animation */
   --cb-fade: 300ms;
+  --cb-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* type scale — clamp keeps everything legible at 10 m */
   --size-verse: clamp(30px, 4.8vw, 76px);
@@ -23,12 +28,28 @@
   --size-subpoint: clamp(24px, 4vw, 62px);
 }
 
+/* ── FOUC guard — background set at html level so no white flash ever shows ─ */
+html {
+  background: var(--cb-bg);
+}
+
 /* ── body / app shell ─────────────────────────────────────────────────────── */
 .congregation-body {
   background: var(--cb-bg);
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+  /* page-level entrance — prevents any raw HTML flash on first paint */
+  animation: page-enter 200ms var(--cb-ease) both;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .congregation-app {
@@ -40,7 +61,17 @@
   justify-content: center;
 }
 
-/* ── state layer — cross-fade between screens ─────────────────────────────── */
+/* ── state layers — every screen sits at absolute inset: 0 ───────────────── */
+/*
+ * All five panels are always in the DOM at display:flex.
+ * Visibility is controlled solely by opacity + pointer-events.
+ * This guarantees:
+ *   • no layout reflow when switching states
+ *   • both the outgoing and incoming panels transition simultaneously
+ *     (true cross-fade, no cut or jump)
+ *   • content is always updated while the panel is invisible (opacity 0)
+ *     before the transition begins, so nothing flashes in half-rendered
+ */
 .congregation-state {
   position: absolute;
   inset: 0;
@@ -48,15 +79,23 @@
   align-items: center;
   justify-content: center;
 
-  /* fade IN */
+  /* visible state */
   opacity: 1;
-  transition: opacity var(--cb-fade) ease;
+  transform: translateY(0px);
+  transition:
+    opacity var(--cb-fade) var(--cb-ease),
+    transform var(--cb-fade) var(--cb-ease);
+
+  /* GPU compositing — keeps transitions on the compositor thread */
+  will-change: opacity, transform;
 }
 
+/* hidden state — override UA display:none so the transition can play */
 .congregation-state[hidden] {
-  /* override UA display:none so the opacity transition can play (fade OUT) */
   display: flex !important;
   opacity: 0;
+  /* 6 px downward offset when hidden; lifts into place on reveal */
+  transform: translateY(6px);
   pointer-events: none;
 }
 
@@ -64,10 +103,10 @@
 .idle-mark {
   font-size: 72px;
   color: var(--cb-text-ghost);
-  animation: idle-pulse 5s ease-in-out infinite;
+  animation: idle-breathe 5s ease-in-out infinite;
 }
 
-@keyframes idle-pulse {
+@keyframes idle-breathe {
   0%,
   100% {
     opacity: 0.2;
@@ -84,33 +123,33 @@
   align-items: center;
   text-align: center;
   max-width: min(1300px, 84vw);
-  gap: 0; /* controlled by margins below */
   padding: clamp(40px, 6vw, 100px) clamp(32px, 5vw, 80px);
 }
 
 .verse-text {
-  font-family: var(--font-serif);
+  font-family: var(--cb-serif);
   font-size: var(--size-verse);
   font-weight: 400;
+  font-style: normal;
   line-height: 1.5;
   color: var(--cb-text);
-  /* lift text above any bleed-through from background */
   text-shadow: 0 2px 32px rgba(0, 0, 0, 0.9);
   margin-bottom: clamp(24px, 3vw, 48px);
 }
 
-/* thin gold rule between verse body and reference */
+/* thin gold rule separating verse body from reference */
 .verse-rule {
   width: clamp(40px, 6vw, 80px);
   height: 1px;
   background: var(--cb-accent);
-  opacity: 0.6;
+  opacity: 0.55;
   margin-bottom: clamp(20px, 2.5vw, 40px);
+  border: none;
 }
 
-/* reference (book chapter:verse) sits below the rule in accent gold */
+/* reference sits below the rule in accent gold */
 .verse-reference {
-  font-family: var(--font-sans);
+  font-family: var(--cb-sans);
   font-size: var(--size-ref);
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -120,7 +159,7 @@
 }
 
 .verse-translation {
-  font-family: var(--font-sans);
+  font-family: var(--cb-sans);
   font-size: var(--size-trans);
   font-weight: 400;
   letter-spacing: 0.18em;
@@ -140,7 +179,7 @@
 }
 
 .title-eyebrow {
-  font-family: var(--font-sans);
+  font-family: var(--cb-sans);
   font-size: var(--size-eyebrow);
   font-weight: 600;
   letter-spacing: 0.28em;
@@ -149,7 +188,7 @@
 }
 
 .title-text {
-  font-family: var(--font-sans);
+  font-family: var(--cb-sans);
   font-size: var(--size-title);
   font-weight: 700;
   letter-spacing: -0.025em;
@@ -167,7 +206,7 @@
 }
 
 .subpoint-text {
-  font-family: var(--font-sans);
+  font-family: var(--cb-sans);
   font-size: var(--size-subpoint);
   font-weight: 500;
   line-height: 1.45;
@@ -175,7 +214,28 @@
   text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
 }
 
-/* ── blank — full blackout matching the body background ──────────────────── */
+/* ── blank — blackout matching body so the transition is invisible ────────── */
 .congregation-blank {
   background: var(--cb-bg);
+}
+
+/* ── reduced-motion — honour system accessibility preference ─────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .congregation-body {
+    animation: none;
+  }
+
+  .congregation-state {
+    transition: opacity var(--cb-fade) step-end;
+    transform: none !important;
+  }
+
+  .congregation-state[hidden] {
+    transform: none !important;
+  }
+
+  .idle-mark {
+    animation: none;
+    opacity: 0.35;
+  }
 }
