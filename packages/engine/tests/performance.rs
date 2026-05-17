@@ -68,7 +68,8 @@ async fn setup_engine() -> (DetectionEngine, TempDir) {
         bible,
         ChurchRepository::new(pool.clone()),
         CalibrationRepository::new(pool.clone()),
-        DetectionEventRepository::new(pool),
+        DetectionEventRepository::new(pool.clone()),
+        VerseRepository::new(pool),
         None,
     )
     .await
@@ -233,7 +234,8 @@ async fn engine_pattern_plus_local_ai_under_400ms() {
         bible,
         ChurchRepository::new(pool.clone()),
         CalibrationRepository::new(pool.clone()),
-        DetectionEventRepository::new(pool),
+        DetectionEventRepository::new(pool.clone()),
+        VerseRepository::new(pool),
         Some(LocalAiHandle::spawn(ai)),
     )
     .await
@@ -309,7 +311,8 @@ async fn engine_all_three_layers_under_800ms() {
         bible,
         ChurchRepository::new(pool.clone()),
         CalibrationRepository::new(pool.clone()),
-        DetectionEventRepository::new(pool),
+        DetectionEventRepository::new(pool.clone()),
+        VerseRepository::new(pool),
         Some(LocalAiHandle::spawn(ai)),
     )
     .await

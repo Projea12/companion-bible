@@ -1097,7 +1097,7 @@ async fn current_version_returns_4_after_all_migrations() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
     let version = migration::current_version(&pool).await.unwrap();
-    assert_eq!(version, 4, "4 migrations should have been applied");
+    assert_eq!(version, 5, "5 migrations should have been applied");
     close(pool).await;
 }
 
@@ -1114,7 +1114,7 @@ async fn list_applied_returns_4_migrations_in_order() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
     let applied = migration::list_applied(&pool).await.unwrap();
-    assert_eq!(applied.len(), 4, "should have 4 applied migrations");
+    assert_eq!(applied.len(), 5, "should have 5 applied migrations");
     for (i, m) in applied.iter().enumerate() {
         assert_eq!(m.version, (i + 1) as i64, "migrations must be sorted by version");
     }
@@ -1130,7 +1130,7 @@ async fn migrations_are_idempotent() {
     migration::run(&pool).await.unwrap();
 
     let applied = migration::list_applied(&pool).await.unwrap();
-    assert_eq!(applied.len(), 4, "second run must not add duplicate entries");
+    assert_eq!(applied.len(), 5, "second run must not add duplicate entries");
     close(pool).await;
 }
 
