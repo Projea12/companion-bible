@@ -37,6 +37,7 @@ pub struct FailingWal {
 }
 
 impl FailingWal {
+    #[allow(dead_code)]
     pub fn new(message: impl Into<String>) -> Self {
         Self { message: message.into() }
     }
