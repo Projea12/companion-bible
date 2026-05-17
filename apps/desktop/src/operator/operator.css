@@ -187,6 +187,186 @@
   font-style: italic;
 }
 
+/* ── verse queue panel ────────────────────────────────────────────────────── */
+
+.op-panel-queue {
+  flex-shrink: 0;
+}
+
+.op-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.op-panel-header .op-panel-heading {
+  margin-bottom: 0;
+}
+
+.queue-count {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(240, 180, 41, 0.15);
+  border: 1px solid rgba(240, 180, 41, 0.3);
+  color: var(--color-warning);
+}
+
+.queue-empty {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.queue-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.queue-item {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.queue-item--high {
+  border-left-color: var(--color-success);
+}
+.queue-item--medium {
+  border-left-color: var(--color-warning);
+}
+.queue-item--low {
+  border-left-color: var(--color-danger);
+}
+
+.queue-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.queue-ref {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+
+.queue-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.queue-level-badge {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+.queue-level-badge--high {
+  background: rgba(62, 207, 114, 0.15);
+  color: var(--color-success);
+}
+.queue-level-badge--medium {
+  background: rgba(240, 180, 41, 0.15);
+  color: var(--color-warning);
+}
+.queue-level-badge--low {
+  background: rgba(245, 101, 101, 0.15);
+  color: var(--color-danger);
+}
+
+.queue-expiry {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  min-width: 28px;
+  text-align: right;
+}
+
+.queue-confidence-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.queue-confidence-track {
+  flex: 1;
+  height: 4px;
+  background: var(--color-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.queue-confidence-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 300ms ease;
+}
+
+.queue-confidence-fill--high {
+  background: var(--color-success);
+}
+.queue-confidence-fill--medium {
+  background: var(--color-warning);
+}
+.queue-confidence-fill--low {
+  background: var(--color-danger);
+}
+
+.queue-confidence-pct {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  min-width: 32px;
+  text-align: right;
+}
+
+.queue-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.queue-btn {
+  flex: 1;
+  justify-content: center;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+/* shrinking time-remaining bar at bottom of card */
+.queue-expiry-track {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+}
+
+.queue-expiry-fill {
+  height: 100%;
+  background: var(--color-text-muted);
+  opacity: 0.3;
+  transition: width 200ms linear;
+}
+
 /* ── detected reference ───────────────────────────────────────────────────── */
 
 .op-panel-detection {

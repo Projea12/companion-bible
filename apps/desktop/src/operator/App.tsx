@@ -3,14 +3,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { AppEvent, AppState } from '@companion-bible/types';
 import { TranscriptPanel } from './TranscriptPanel';
+import { VerseQueuePanel } from './VerseQueuePanel';
 import { useTranscript } from './useTranscript';
+import { useVerseQueue } from './useVerseQueue';
 
 // ── types ─────────────────────────────────────────────────────────────────────
-
-interface PendingDetection {
-  label: string;
-  confidence: number;
-}
 
 interface DisplayedVerse {
   reference: string;
@@ -36,8 +33,8 @@ export function App() {
   // live transcript
   const transcript = useTranscript();
 
-  // detection
-  const [pendingDetection, setPendingDetection] = useState<PendingDetection | null>(null);
+  // verse queue
+  const queue = useVerseQueue();
 
   // display
   const [displayedVerse, setDisplayedVerse] = useState<DisplayedVerse | null>(null);
@@ -105,7 +102,7 @@ export function App() {
           const ref = payload.references[0];
           if (!ref) break;
           const label = formatRef(ref.book, ref.chapter, ref.verse);
-          setPendingDetection({ label, confidence: 85 });
+          queue.enqueue(label, 85);
           transcript.markDetection(payload.source_text, label);
           break;
         }
@@ -120,10 +117,6 @@ export function App() {
             text: payload.text,
             translation: payload.translation,
           });
-          break;
-
-        case 'VERSE_DISPLAYED':
-          setPendingDetection(null);
           break;
 
         case 'DISPLAY_CLEARED':
@@ -154,6 +147,7 @@ export function App() {
         case 'AUDIO_CAPTURE_STOPPED':
           setAudioStatus('idle');
           transcript.clear();
+          queue.clear();
           break;
 
         case 'AI_QUERY_STARTED':
@@ -179,7 +173,7 @@ export function App() {
     return () => {
       void unlistenPromise.then((fn) => fn());
     };
-  }, [transcript]);
+  }, [transcript, queue]);
 
   // ── actions ───────────────────────────────────────────────────────────────
 
@@ -194,27 +188,33 @@ export function App() {
     void invoke('stop_session').then(() => {
       setSessionActive(false);
       setAudioStatus('idle');
-      setPendingDetection(null);
       transcript.clear();
+      queue.clear();
     });
-  }, [transcript]);
+  }, [transcript, queue]);
 
   const handleToggleCongregation = useCallback(() => {
     const cmd = congregationVisible ? 'hide_congregation_window' : 'show_congregation_window';
     void invoke(cmd).then(() => setCongregationVisible((v) => !v));
   }, [congregationVisible]);
 
-  const handleApprove = useCallback(() => {
-    if (!pendingDetection) return;
-    void invoke('show_verse', { reference: pendingDetection.label, text: '' });
-  }, [pendingDetection]);
+  const handleConfirmVerse = useCallback(
+    (id: number, label: string) => {
+      void invoke('show_verse', { reference: label, text: '' }).then(() => {
+        queue.remove(id);
+      });
+    },
+    [queue],
+  );
 
-  const handleReject = useCallback(() => {
-    if (!pendingDetection) return;
-    void invoke('reject_detection', { reference: pendingDetection.label }).then(() => {
-      setPendingDetection(null);
-    });
-  }, [pendingDetection]);
+  const handleRejectVerse = useCallback(
+    (id: number, label: string) => {
+      void invoke('reject_detection', { reference: label }).then(() => {
+        queue.remove(id);
+      });
+    },
+    [queue],
+  );
 
   const handleDiscard = useCallback(() => {
     if (!displayedVerse) return;
@@ -302,42 +302,19 @@ export function App() {
 
       {/* ── Main ── */}
       <main className="op-main">
-        {/* ── Left: transcript + detection ── */}
+        {/* ── Left: transcript + queue ── */}
         <div className="op-col op-col-left">
           <section className="op-panel op-panel-transcript">
             <h2 className="op-panel-heading">Live Transcript</h2>
             <TranscriptPanel lines={transcript.lines} sessionActive={sessionActive} />
           </section>
 
-          <section className="op-panel op-panel-detection">
-            <h2 className="op-panel-heading">Detected Reference</h2>
-            {pendingDetection ? (
-              <div className="detection-card">
-                <div className="detection-ref">{pendingDetection.label}</div>
-                <div className="confidence-row">
-                  <div className="confidence-track">
-                    <div
-                      className="confidence-fill"
-                      style={{ width: `${pendingDetection.confidence}%` }}
-                    />
-                  </div>
-                  <span className="confidence-pct">{pendingDetection.confidence}%</span>
-                </div>
-                <div className="detection-actions">
-                  <button className="btn btn-approve" onClick={handleApprove}>
-                    ✓ Approve &amp; Display
-                  </button>
-                  <button className="btn btn-reject" onClick={handleReject}>
-                    ✗ Reject
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <p className="detection-empty">
-                {sessionActive ? 'Listening for scripture references…' : 'Start a session to begin'}
-              </p>
-            )}
-          </section>
+          <VerseQueuePanel
+            items={queue.items}
+            sessionActive={sessionActive}
+            onConfirm={handleConfirmVerse}
+            onReject={handleRejectVerse}
+          />
         </div>
 
         {/* ── Right: displayed verse + discard + override + undo ── */}
