@@ -67,7 +67,10 @@ export type AppEvent =
 
   // ── Config ─────────────────────────────────────────────────────────────
   | { type: 'CONFIG_LOADED' }
-  | { type: 'CONFIG_UPDATED'; key: string };
+  | { type: 'CONFIG_UPDATED'; key: string }
+
+  // ── Operator ───────────────────────────────────────────────────────────
+  | { type: 'OPERATOR_MANUAL_OVERRIDE'; reference: string };
 
 export type AppEventType = AppEvent['type'];
 

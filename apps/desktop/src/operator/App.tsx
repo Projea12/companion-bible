@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import type { AppEvent, AppState } from '@companion-bible/types';
 import { TranscriptPanel } from './TranscriptPanel';
 import { VerseQueuePanel } from './VerseQueuePanel';
+import { ManualOverride } from './ManualOverride';
 import { StatusBar } from './StatusBar';
 import type { AudioStatus, InternetStatus, AiStatus, StorageStatus } from './StatusBar';
 import { useTranscript } from './useTranscript';
@@ -48,9 +49,6 @@ export function App() {
   const [audio, setAudio] = useState<AudioStatus>('idle');
   const [ai, setAi] = useState<AiStatus>('idle');
   const [storage, setStorage] = useState<StorageStatus>('ample');
-
-  // manual override
-  const [overrideInput, setOverrideInput] = useState('');
 
   // ── startup ────────────────────────────────────────────────────────────────
 
@@ -251,13 +249,9 @@ export function App() {
     });
   }, [undoExpiresAt]);
 
-  const handleManualOverride = useCallback(() => {
-    const ref = overrideInput.trim();
-    if (!ref) return;
-    void invoke('show_verse', { reference: ref, text: '' }).then(() => {
-      setOverrideInput('');
-    });
-  }, [overrideInput]);
+  const handleManualOverride = useCallback((ref: string) => {
+    void invoke('show_verse', { reference: ref, text: '' });
+  }, []);
 
   // ── keyboard shortcuts ────────────────────────────────────────────────────
 
@@ -363,32 +357,7 @@ export function App() {
             <kbd className="key-hint">Space</kbd>
           </button>
 
-          <section className="op-panel op-panel-override">
-            <h2 className="op-panel-heading">Manual Override</h2>
-            <div className="override-row">
-              <input
-                className="override-input"
-                placeholder="e.g. John 3:16"
-                value={overrideInput}
-                onChange={(e) => setOverrideInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleManualOverride();
-                  }
-                }}
-                aria-label="Manual reference override"
-              />
-              <button
-                className="btn btn-primary"
-                disabled={!overrideInput.trim()}
-                onClick={handleManualOverride}
-                title="Keyboard: Enter"
-              >
-                Display
-              </button>
-            </div>
-          </section>
+          <ManualOverride onSubmit={handleManualOverride} />
 
           {showUndo && (
             <button className="btn-undo" onClick={handleUndo} title="Keyboard: Ctrl+Z">

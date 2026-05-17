@@ -553,6 +553,75 @@
   border-color: var(--color-primary);
 }
 
+/* ── manual override combobox ─────────────────────────────────────────────── */
+
+.override-combobox {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.override-combobox .override-input {
+  width: 100%;
+  padding-right: 28px; /* room for validation icon */
+}
+
+.override-validation-icon {
+  position: absolute;
+  right: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  pointer-events: none;
+  line-height: 1;
+}
+
+.override-validation-icon[data-state='valid'] {
+  color: var(--color-success);
+}
+
+.override-validation-icon[data-state='invalid'] {
+  color: var(--color-danger);
+}
+
+/* input border mirrors validation state */
+.override-input[data-validation='valid'] {
+  border-color: var(--color-success);
+}
+
+.override-input[data-validation='invalid'] {
+  border-color: var(--color-danger);
+}
+
+/* autocomplete dropdown */
+.override-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 100;
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.override-suggestion {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.override-suggestion:hover,
+.override-suggestion--active {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
 /* ── undo button (transient, 5-second window) ─────────────────────────────── */
 
 .btn-undo {
