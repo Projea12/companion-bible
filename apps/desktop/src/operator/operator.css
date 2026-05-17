@@ -150,6 +150,37 @@
   color: #fff;
 }
 
+/* Line where a scripture reference was detected */
+.transcript-line--detected {
+  border-left-color: var(--color-warning);
+  background: #1e1a0e;
+}
+
+/* Inline highlight within the line text */
+.transcript-highlight {
+  background: rgba(240, 180, 41, 0.25);
+  color: var(--color-warning);
+  border-radius: 2px;
+  padding: 0 2px;
+  font-weight: 600;
+}
+
+/* Reference label badge appended after the line text */
+.transcript-ref-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(240, 180, 41, 0.15);
+  border: 1px solid rgba(240, 180, 41, 0.35);
+  color: var(--color-warning);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 .transcript-empty {
   font-size: 13px;
   color: var(--color-text-muted);
