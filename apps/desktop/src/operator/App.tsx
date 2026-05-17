@@ -292,6 +292,14 @@ export function App() {
     void invoke('show_verse', { reference: ref, text: '' });
   }, []);
 
+  const handleNextVerse = useCallback(() => {
+    void invoke('next_verse');
+  }, []);
+
+  const handlePrevVerse = useCallback(() => {
+    void invoke('previous_verse');
+  }, []);
+
   const handleStartService = useCallback((setup: SermonSetup) => {
     void invoke('start_sermon', {
       title: setup.title || null,
@@ -342,10 +350,18 @@ export function App() {
         e.preventDefault();
         handleUndo();
       }
+      if (e.code === 'ArrowRight' && !inInput) {
+        e.preventDefault();
+        handleNextVerse();
+      }
+      if (e.code === 'ArrowLeft' && !inInput) {
+        e.preventDefault();
+        handlePrevVerse();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [handleDiscard, handleUndo]);
+  }, [handleDiscard, handleUndo, handleNextVerse, handlePrevVerse]);
 
   // ── render ────────────────────────────────────────────────────────────────
 
@@ -443,6 +459,26 @@ export function App() {
               <p className="verse-display-empty">Nothing on screen</p>
             )}
           </section>
+
+          <div className="verse-nav-row">
+            <button
+              className="btn btn-secondary"
+              disabled={!displayedVerse}
+              onClick={handlePrevVerse}
+              title="Previous verse — Keyboard: ←"
+            >
+              ← Prev
+              <kbd className="key-hint">←</kbd>
+            </button>
+            <button
+              className="btn btn-secondary"
+              disabled={!displayedVerse}
+              onClick={handleNextVerse}
+              title="Next verse — Keyboard: →"
+            >
+              Next →<kbd className="key-hint">→</kbd>
+            </button>
+          </div>
 
           <button
             className="btn-discard"

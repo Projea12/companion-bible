@@ -45,6 +45,7 @@ struct InternalState {
     display_mode: DisplayMode,
     session_active: bool,
     last_verse: Option<(String, String)>,
+    current_displayed_ref: Option<(String, u8, u8)>, // (book, chapter, verse)
     sermon_active: bool,
     sermon_title: Option<String>,
     sub_points: Vec<String>,
@@ -59,6 +60,7 @@ impl Default for InternalState {
             display_mode: DisplayMode::Idle,
             session_active: false,
             last_verse: None,
+            current_displayed_ref: None,
             sermon_active: false,
             sermon_title: None,
             sub_points: Vec::new(),
@@ -289,7 +291,13 @@ fn show_verse(app: AppHandle, state: State<ManagedState>, reference: String, tex
     );
     let mut s = state.inner.lock().unwrap();
     s.display_mode = DisplayMode::Verse;
-    s.last_verse = Some((reference, actual_text));
+    s.last_verse = Some((reference.clone(), actual_text));
+    // Track current position for next/prev verse navigation.
+    if let Some(rv) = ref_json["verse"].as_u64() {
+        let book = ref_json["book"].as_str().unwrap_or_default().to_string();
+        let chapter = ref_json["chapter"].as_u64().unwrap_or(1) as u8;
+        s.current_displayed_ref = Some((book, chapter, rv as u8));
+    }
 }
 
 #[tauri::command]
@@ -754,6 +762,44 @@ fn reject_detection(_app: AppHandle, reference: String) {
     let _ = reference;
 }
 
+// ─── verse navigation commands ────────────────────────────────────────────────
+
+/// Advance to the next verse in the currently displayed chapter.
+#[tauri::command]
+fn next_verse(app: AppHandle, state: State<ManagedState>) {
+    let (book, chapter, verse) = {
+        let s = state.inner.lock().unwrap();
+        match s.current_displayed_ref.clone() {
+            Some(r) => r,
+            None => return,
+        }
+    };
+    let next = {
+        let guard = state.bible.lock().unwrap();
+        let Some(bible) = guard.as_ref() else { return };
+        let Ok(total) = bible.verse_count(&book, chapter) else { return };
+        if verse >= total { return; }
+        verse + 1
+    };
+    let reference = format!("{book} {chapter}:{next}");
+    show_verse(app, state, reference, String::new());
+}
+
+/// Go back to the previous verse in the currently displayed chapter.
+#[tauri::command]
+fn previous_verse(app: AppHandle, state: State<ManagedState>) {
+    let (book, chapter, verse) = {
+        let s = state.inner.lock().unwrap();
+        match s.current_displayed_ref.clone() {
+            Some(r) => r,
+            None => return,
+        }
+    };
+    if verse <= 1 { return; }
+    let reference = format!("{book} {chapter}:{}", verse - 1);
+    show_verse(app, state, reference, String::new());
+}
+
 // ─── audio device commands ────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -1129,6 +1175,8 @@ pub fn run() {
             next_sub_point,
             approve_detection,
             reject_detection,
+            next_verse,
+            previous_verse,
             get_audio_devices,
             select_audio_device,
             get_system_health,

@@ -1,5 +1,6 @@
 mod decision;
 mod engine;
+mod fuzzy;
 mod layers;
 mod worker;
 

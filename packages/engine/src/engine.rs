@@ -234,6 +234,24 @@ impl DetectionEngine {
         // ── 15. Build decision ────────────────────────────────────────────
         let reference = if validation.is_valid() { event_ref } else { None };
 
+        // ── 15a. Fuzzy fallback — if no verse detected but context known ──
+        if reference.is_none() {
+            if let (Some(book), Some(chapter)) = (&active_book, active_chapter) {
+                if let Some((verse, _score)) =
+                    crate::fuzzy::fuzzy_verse_match(&text, &self.bible, book, chapter)
+                {
+                    let fuzzy_ref =
+                        EventBibleReference::new(book.clone(), chapter).with_verse(verse);
+                    if validate_reference(&self.bible, &fuzzy_ref).is_valid() {
+                        self.emit_event(AppEvent::ScriptureReferenceDetected {
+                            references: vec![fuzzy_ref],
+                            source_text: text.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
         DetectionDecision {
             reference,
             confidence: final_decision.confidence,
