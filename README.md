@@ -216,7 +216,7 @@ For best accuracy — especially with Nigerian/African English accents — audio
 
 - **Ideal**: lapel or headset microphone on the preacher, routed through an audio interface into the computer's line-in
 - **Good**: USB microphone positioned close to the pulpit
-- **Fallback**: built-in MacBook microphone (works, but more susceptible to room echo)
+- **Fallback**: built-in device microphone (works, but more susceptible to room echo)
 
 The app captures at 16 kHz mono. If the device's native rate differs (e.g. 48 kHz), it is resampled automatically in the capture pipeline.
 
