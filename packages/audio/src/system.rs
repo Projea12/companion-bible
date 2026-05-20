@@ -56,7 +56,13 @@ impl Default for SystemConfig {
 /// chunks from the ring buffer and feeds them into the pipeline and window.
 pub struct AudioSystem {
     capture: AudioCapture,
+    /// Pipeline-processed window: gate → RNNoise → normalize → 16 kHz.
+    /// Use this for Whisper (local model needs clean, normalised audio).
     window: Arc<Mutex<SlidingWindow>>,
+    /// Raw window: downsample-only → 16 kHz, zero extra processing.
+    /// Use this for cloud APIs (AssemblyAI, Deepgram) which have their own
+    /// internal noise handling and perform better without pre-processing.
+    raw_window: Arc<Mutex<SlidingWindow>>,
     stop_flag: Arc<AtomicBool>,
     processor_handle: Option<JoinHandle<()>>,
 }
@@ -75,11 +81,13 @@ impl AudioSystem {
     ) -> Self {
         let capture = AudioCapture::with_config(input, Arc::clone(&buffer), config.capture);
         let window = Arc::new(Mutex::new(SlidingWindow::new()));
+        let raw_window = Arc::new(Mutex::new(SlidingWindow::new()));
         let stop_flag = Arc::new(AtomicBool::new(true));
 
         Self {
             capture,
             window,
+            raw_window,
             stop_flag,
             processor_handle: None,
         }
@@ -102,9 +110,17 @@ impl AudioSystem {
         self.capture.subscribe()
     }
 
-    /// Shared handle to the sliding window for reads from other threads.
+    /// Pipeline-processed window (gate → RNNoise → normalize → 16 kHz).
+    /// Pass this to Whisper; local models need clean, normalised audio.
     pub fn window(&self) -> Arc<Mutex<SlidingWindow>> {
         Arc::clone(&self.window)
+    }
+
+    /// Raw window (downsample-only → 16 kHz, no other processing).
+    /// Pass this to cloud APIs such as AssemblyAI and Deepgram — they have
+    /// their own internal noise suppression and work best on unmodified audio.
+    pub fn raw_window(&self) -> Arc<Mutex<SlidingWindow>> {
+        Arc::clone(&self.raw_window)
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -134,13 +150,14 @@ impl AudioSystem {
         };
 
         let window = Arc::clone(&self.window);
+        let raw_window = Arc::clone(&self.raw_window);
         let stop_flag = Arc::clone(&self.stop_flag);
 
         self.processor_handle = Some(
             std::thread::Builder::new()
                 .name("audio-processor".into())
                 .spawn(move || {
-                    processor_loop(buffer, window, stop_flag, gate_threshold, target_rms, native_rate);
+                    processor_loop(buffer, window, raw_window, stop_flag, gate_threshold, target_rms, native_rate);
                 })
                 .expect("failed to spawn audio-processor"),
         );
@@ -176,17 +193,13 @@ impl Drop for AudioSystem {
 fn processor_loop(
     buffer: Arc<RingBuffer<f32>>,
     window: Arc<Mutex<SlidingWindow>>,
+    raw_window: Arc<Mutex<SlidingWindow>>,
     stop_flag: Arc<AtomicBool>,
     gate_threshold: f32,
     target_rms: f32,
     native_rate: u32,
 ) {
-    // Process 100 ms of audio per iteration at native rate, then downsample
-    // to TRANSCRIPTION_RATE before pushing to the sliding window.  Running
-    // AudioPipeline (and RNNoise) at the native device rate ensures that
-    // RNNoise operates at the 48 kHz rate it was trained on.
-    let chunk_size = (native_rate / 10) as usize; // 100 ms
-
+    let chunk_size = (native_rate / 10) as usize; // 100 ms at native rate
     let mut pipeline = AudioPipeline::new(gate_threshold, target_rms);
 
     while !stop_flag.load(Ordering::Acquire) {
@@ -196,18 +209,32 @@ fn processor_loop(
             continue;
         }
 
+        // ── Raw window: downsample only, no pipeline processing ───────────────
+        // Cloud APIs (AssemblyAI u3-rt-pro, Deepgram Nova-2) have their own
+        // noise suppression models trained on real-world mic audio.  Sending
+        // them pre-processed audio consistently degrades their accuracy.
+        let raw_16k = if native_rate != TRANSCRIPTION_RATE {
+            downsample(&chunk, native_rate, TRANSCRIPTION_RATE)
+        } else {
+            chunk.clone()
+        };
+        if !raw_16k.is_empty() {
+            if let Ok(mut w) = raw_window.lock() {
+                w.push(&raw_16k);
+            }
+        }
+
+        // ── Processed window: gate → RNNoise → normalize → 16 kHz ────────────
+        // Local Whisper needs clean, normalised audio; the pipeline helps here.
         let clean_native = pipeline.process(&chunk);
         if clean_native.is_empty() {
             continue;
         }
-
-        // Downsample from native rate to 16 kHz for transcription backends.
         let clean = if native_rate != TRANSCRIPTION_RATE {
             downsample(&clean_native, native_rate, TRANSCRIPTION_RATE)
         } else {
             clean_native
         };
-
         if !clean.is_empty() {
             if let Ok(mut w) = window.lock() {
                 w.push(&clean);
@@ -215,7 +242,7 @@ fn processor_loop(
         }
     }
 
-    // Drain any samples buffered in RNNoise's staging buffer.
+    // Drain RNNoise staging buffer into the processed window.
     let tail_native = pipeline.flush();
     if !tail_native.is_empty() {
         let tail = if native_rate != TRANSCRIPTION_RATE {

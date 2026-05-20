@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "tools/aai-test",
     "shared/events",
     "shared/errors",
     "shared/config",

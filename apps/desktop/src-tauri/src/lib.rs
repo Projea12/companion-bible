@@ -388,17 +388,18 @@ fn clear_congregation_display(app: AppHandle, state: State<ManagedState>) {
 
 // ─── Transcription backend helper ────────────────────────────────────────────
 
-/// Try Deepgram; fall back to Whisper if the key is absent or the connection fails.
+/// Try Deepgram (using raw window); fall back to Whisper (processed window).
 async fn try_deepgram_or_whisper(
     deepgram_key: Option<String>,
-    window: Arc<Mutex<companion_audio::SlidingWindow>>,
+    raw_window: Arc<Mutex<companion_audio::SlidingWindow>>,
+    processed_window: Arc<Mutex<companion_audio::SlidingWindow>>,
     app: &AppHandle,
 ) -> (companion_transcription::SegmentReceiver, AnyTranscriber) {
     if let Some(ref key) = deepgram_key {
         match DeepgramTranscriber::try_connect(key).await {
             Ok(_) => {
-                eprintln!("[start_session] step 7a: Deepgram OK — using streaming transcription");
-                let (mut dg, rx) = DeepgramTranscriber::new(key.clone(), window);
+                eprintln!("[start_session] step 7a: Deepgram OK — using raw audio path");
+                let (mut dg, rx) = DeepgramTranscriber::new(key.clone(), raw_window);
                 dg.start();
                 let _ = app.emit("app-event", serde_json::json!({
                     "type": "TRANSCRIPTION_MODE_CHANGED", "mode": "deepgram",
@@ -417,7 +418,8 @@ async fn try_deepgram_or_whisper(
     } else {
         eprintln!("[start_session] step 7a: no Deepgram key — using Whisper");
     }
-    let (t, rx) = WhisperTranscriber::new(window, TranscribeOptions::default());
+    // Whisper gets the pipeline-processed window (needs clean, normalised audio).
+    let (t, rx) = WhisperTranscriber::new(processed_window, TranscribeOptions::default());
     (rx, AnyTranscriber::Whisper(t))
 }
 
@@ -545,7 +547,10 @@ async fn start_session(
     eprintln!("[start_session] step 7: building audio system");
     let buffer = Arc::new(RingBuffer::<f32>::with_default_capacity());
     let audio = AudioSystem::new(Box::new(BuiltinMicInput::new()), Arc::clone(&buffer));
-    let window = audio.window();
+    // raw_window: downsample-only, no noise processing — for cloud APIs.
+    // window: full pipeline (gate → RNNoise → normalize) — for local Whisper.
+    let raw_window = audio.raw_window();
+    let processed_window = audio.window();
     eprintln!("[start_session] step 7 done: audio system built");
 
     // ── 7a. Choose transcription backend: AssemblyAI → Deepgram → Whisper ───
@@ -557,8 +562,9 @@ async fn start_session(
         eprintln!("[start_session] step 7a: testing AssemblyAI connection…");
         match AssemblyAiTranscriber::try_connect(key).await {
             Ok(_) => {
-                eprintln!("[start_session] step 7a: AssemblyAI OK — using streaming transcription");
-                let (mut aai, rx) = AssemblyAiTranscriber::new(key.clone(), window.clone());
+                eprintln!("[start_session] step 7a: AssemblyAI OK — using raw audio path");
+                // Raw window: send unprocessed audio, AssemblyAI handles its own denoising.
+                let (mut aai, rx) = AssemblyAiTranscriber::new(key.clone(), raw_window.clone());
                 aai.start();
                 let _ = app.emit("app-event", serde_json::json!({
                     "type": "TRANSCRIPTION_MODE_CHANGED", "mode": "assemblyai",
@@ -567,12 +573,12 @@ async fn start_session(
             }
             Err(e) => {
                 eprintln!("[start_session] step 7a: AssemblyAI failed ({e}) — trying Deepgram");
-                try_deepgram_or_whisper(deepgram_key, window.clone(), &app).await
+                try_deepgram_or_whisper(deepgram_key, raw_window.clone(), processed_window.clone(), &app).await
             }
         }
     } else {
         eprintln!("[start_session] step 7a: no AssemblyAI key — trying Deepgram");
-        try_deepgram_or_whisper(deepgram_key, window.clone(), &app).await
+        try_deepgram_or_whisper(deepgram_key, raw_window.clone(), processed_window.clone(), &app).await
     };
 
     // ── 8. Bridge blocking SegmentReceiver → tokio channel ───────────────────

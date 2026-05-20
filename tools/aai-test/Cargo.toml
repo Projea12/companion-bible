@@ -1,0 +1,11 @@
+[package]
+name = "aai-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+serde_json = "1"
+cpal = "0.15"
