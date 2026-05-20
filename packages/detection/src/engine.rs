@@ -133,12 +133,14 @@ impl PatternEngine {
         )).expect("colon_re");
 
         // ── Pattern 2: "Book [chapter] N verse N" ────────────────────────────
+        // Allow an optional comma before "verse" — AssemblyAI smart punctuation
+        // emits "John chapter 3, verse 16" (colon form is handled by pattern 1).
         let spoken_re = Regex::new(&(
             "(?i)".to_owned()
                 + PREAMBLE
                 + r"(?P<book>"
                 + &book_alt
-                + r")\s+(?:chapter\s+)?(?P<chapter>[1-9]\d{0,2})\s+verse\s+(?P<verse>[1-9]\d{0,2})\b"
+                + r")\s+(?:chapter\s+)?(?P<chapter>[1-9]\d{0,2})\s*,?\s*verse\s+(?P<verse>[1-9]\d{0,2})\b"
         )).expect("spoken_re");
 
         // ── Pattern 2b: "Book N N" — space-separated chapter + verse ─────────
@@ -166,8 +168,9 @@ impl PatternEngine {
         )).expect("book_chapter_re");
 
         // ── Pattern 4: "chapter N verse N" (no book) ─────────────────────────
+        // Allow optional comma — AssemblyAI emits "chapter 3, verse 16".
         let chapter_verse_re = Regex::new(
-            r"(?i)\bchapter\s+(?P<chapter>[1-9]\d{0,2})\s+verse\s+(?P<verse>[1-9]\d{0,2})\b",
+            r"(?i)\bchapter\s+(?P<chapter>[1-9]\d{0,2})\s*,?\s*verse\s+(?P<verse>[1-9]\d{0,2})\b",
         ).expect("chapter_verse_re");
 
         // ── Pattern 5: "verse N" only ─────────────────────────────────────────
