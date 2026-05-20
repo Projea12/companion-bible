@@ -1,4 +1,5 @@
 mod error;
+pub mod assemblyai;
 pub mod channel;
 pub mod correction;
 pub mod deepgram;
@@ -23,6 +24,7 @@ pub use channel::{
     CHANNEL_CAPACITY,
 };
 pub use correction::{correct_batch, correct_segment, correct_text, CORRECTIONS};
+pub use assemblyai::AssemblyAiTranscriber;
 pub use deepgram::DeepgramTranscriber;
 pub use transcriber::{WhisperTranscriber, NEW_AUDIO_SECS, TRANSCRIBE_WINDOW_SECS};
 

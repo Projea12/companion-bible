@@ -181,6 +181,47 @@ pub const CORRECTIONS: &[(&str, &str)] = &[
     ("hebrew", "Hebrews"),
 ];
 
+// ─── Fuzzy matching ───────────────────────────────────────────────────────────
+
+/// Canonical Bible book names used for fuzzy matching.
+///
+/// Only single-word names with ≥ 5 characters are included.  Short names
+/// (Ruth, Joel, Amos, Jude…) are excluded — their edit-distance neighbourhood
+/// overlaps with common English words, producing too many false positives.
+const CANONICAL_BOOK_NAMES: &[&str] = &[
+    "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy",
+    "Joshua", "Judges", "Esther", "Psalms", "Proverbs",
+    "Ecclesiastes", "Isaiah", "Jeremiah", "Lamentations", "Ezekiel",
+    "Daniel", "Hosea", "Obadiah", "Micah", "Nahum", "Habakkuk",
+    "Zephaniah", "Haggai", "Zechariah", "Malachi",
+    "Matthew", "Romans", "Corinthians", "Galatians", "Ephesians",
+    "Philippians", "Colossians", "Thessalonians", "Timothy", "Titus",
+    "Philemon", "Hebrews", "James", "Peter", "Revelation",
+    "Samuel", "Kings", "Chronicles", "Nehemiah",
+];
+
+/// Classic dynamic-programming Levenshtein edit distance.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let m = a.len();
+    let n = b.len();
+    let mut prev: Vec<usize> = (0..=n).collect();
+    let mut curr = vec![0usize; n + 1];
+    for i in 1..=m {
+        curr[0] = i;
+        for j in 1..=n {
+            curr[j] = if a[i - 1] == b[j - 1] {
+                prev[j - 1]
+            } else {
+                1 + prev[j - 1].min(prev[j]).min(curr[j - 1])
+            };
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[n]
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /// Apply all known Nigerian-English corrections to every segment in `batch`.
@@ -255,6 +296,41 @@ fn correct_token(token: &str) -> String {
             let prefix = &token[..alpha_start];
             let suffix = &token[alpha_end..];
             return format!("{prefix}{right}{suffix}");
+        }
+    }
+
+    // Fuzzy fallback: catch novel transcription errors not yet in CORRECTIONS.
+    // Only fire for tokens of 5+ chars that are NOT already a canonical book name.
+    // Edit distance 1 for 5–7 char words, distance 2 for 8+ char words.
+    if word.len() >= 5 {
+        // Guard: token already matches a canonical name → nothing to correct.
+        let already_canonical = CANONICAL_BOOK_NAMES
+            .iter()
+            .any(|c| c.to_lowercase() == lower);
+        if !already_canonical {
+            let max_dist = if word.len() >= 8 { 2 } else { 1 };
+            let mut best: Option<(&str, usize)> = None;
+            for &canonical in CANONICAL_BOOK_NAMES {
+                let target_lower = canonical.to_lowercase();
+                // Skip targets whose length differs too much — saves compute and
+                // prevents "Genesis" (7) matching "Ezra" (4) at distance 5.
+                if lower.len().abs_diff(target_lower.len()) > max_dist + 1 {
+                    continue;
+                }
+                let d = levenshtein(&lower, &target_lower);
+                if d > 0 && d <= max_dist {
+                    match best {
+                        None => best = Some((canonical, d)),
+                        Some((_, bd)) if d < bd => best = Some((canonical, d)),
+                        _ => {}
+                    }
+                }
+            }
+            if let Some((canonical, _)) = best {
+                let prefix = &token[..alpha_start];
+                let suffix = &token[alpha_end..];
+                return format!("{prefix}{canonical}{suffix}");
+            }
         }
     }
 

@@ -5,7 +5,7 @@ use companion_events::AppEvent;
 use companion_bible::KjvBible;
 use companion_engine::{DetectionEngine, EngineConfig, LocalAiHandle};
 use companion_audio::{AudioSystem, BuiltinMicInput, RingBuffer};
-use companion_transcription::{DeepgramTranscriber, ModelManager, SetupProgress, TranscribeOptions, WhisperTranscriber};
+use companion_transcription::{AssemblyAiTranscriber, DeepgramTranscriber, ModelManager, SetupProgress, TranscribeOptions, WhisperTranscriber};
 use companion_ai::{LocalAI, LocalAIConfig};
 use companion_database::{CalibrationRepository, ChurchRepository, DetectionEventRepository, PoolConfig, VerseRepository};
 use companion_arbitrator::DisplayAction;
@@ -33,6 +33,7 @@ enum DisplayMode {
 enum AnyTranscriber {
     Whisper(WhisperTranscriber),
     Deepgram(DeepgramTranscriber),
+    AssemblyAi(AssemblyAiTranscriber),
 }
 
 impl AnyTranscriber {
@@ -40,6 +41,7 @@ impl AnyTranscriber {
         match self {
             Self::Whisper(t) => t.stop(),
             Self::Deepgram(t) => t.stop(),
+            Self::AssemblyAi(t) => t.stop(),
         }
     }
 
@@ -47,6 +49,7 @@ impl AnyTranscriber {
         match self {
             Self::Whisper(_) => "whisper",
             Self::Deepgram(_) => "deepgram",
+            Self::AssemblyAi(_) => "assemblyai",
         }
     }
 }
@@ -71,6 +74,7 @@ struct InternalState {
     sub_points: Vec<String>,
     current_sub_point_index: i32,
     selected_device_id: Option<String>,
+    assemblyai_api_key: Option<String>,
     deepgram_api_key: Option<String>,
     pipeline: Option<Pipeline>,
 }
@@ -87,6 +91,7 @@ impl Default for InternalState {
             sub_points: Vec::new(),
             current_sub_point_index: -1,
             selected_device_id: None,
+            assemblyai_api_key: None,
             deepgram_api_key: None,
             pipeline: None,
         }
@@ -381,6 +386,41 @@ fn clear_congregation_display(app: AppHandle, state: State<ManagedState>) {
 
 // ─── session commands ─────────────────────────────────────────────────────────
 
+// ─── Transcription backend helper ────────────────────────────────────────────
+
+/// Try Deepgram; fall back to Whisper if the key is absent or the connection fails.
+async fn try_deepgram_or_whisper(
+    deepgram_key: Option<String>,
+    window: Arc<Mutex<companion_audio::SlidingWindow>>,
+    app: &AppHandle,
+) -> (companion_transcription::SegmentReceiver, AnyTranscriber) {
+    if let Some(ref key) = deepgram_key {
+        match DeepgramTranscriber::try_connect(key).await {
+            Ok(_) => {
+                eprintln!("[start_session] step 7a: Deepgram OK — using streaming transcription");
+                let (mut dg, rx) = DeepgramTranscriber::new(key.clone(), window);
+                dg.start();
+                let _ = app.emit("app-event", serde_json::json!({
+                    "type": "TRANSCRIPTION_MODE_CHANGED", "mode": "deepgram",
+                }));
+                return (rx, AnyTranscriber::Deepgram(dg));
+            }
+            Err(e) => {
+                eprintln!("[start_session] step 7a: Deepgram failed ({e}) — falling back to Whisper");
+                let _ = app.emit("app-event", serde_json::json!({
+                    "type": "TRANSCRIPTION_MODE_CHANGED",
+                    "mode": "whisper",
+                    "reason": format!("Deepgram unavailable: {e}"),
+                }));
+            }
+        }
+    } else {
+        eprintln!("[start_session] step 7a: no Deepgram key — using Whisper");
+    }
+    let (t, rx) = WhisperTranscriber::new(window, TranscribeOptions::default());
+    (rx, AnyTranscriber::Whisper(t))
+}
+
 /// Start the full audio → transcription → detection pipeline.
 ///
 /// Loads the KJV Bible, connects to SQLite, creates the DetectionEngine,
@@ -508,42 +548,31 @@ async fn start_session(
     let window = audio.window();
     eprintln!("[start_session] step 7 done: audio system built");
 
-    // ── 7a. Choose transcription backend (Deepgram primary / Whisper fallback)
+    // ── 7a. Choose transcription backend: AssemblyAI → Deepgram → Whisper ───
+    let assemblyai_key = state.inner.lock().unwrap().assemblyai_api_key.clone();
     let deepgram_key = state.inner.lock().unwrap().deepgram_api_key.clone();
-    let use_deepgram = if let Some(ref key) = deepgram_key {
-        eprintln!("[start_session] step 7a: testing Deepgram connection…");
-        match DeepgramTranscriber::try_connect(key).await {
+
+    // ── 7b. Create transcriber and get seg_rx ────────────────────────────────
+    let (seg_rx_raw, transcriber) = if let Some(ref key) = assemblyai_key {
+        eprintln!("[start_session] step 7a: testing AssemblyAI connection…");
+        match AssemblyAiTranscriber::try_connect(key).await {
             Ok(_) => {
-                eprintln!("[start_session] step 7a: Deepgram OK — using streaming transcription");
-                true
+                eprintln!("[start_session] step 7a: AssemblyAI OK — using streaming transcription");
+                let (mut aai, rx) = AssemblyAiTranscriber::new(key.clone(), window.clone());
+                aai.start();
+                let _ = app.emit("app-event", serde_json::json!({
+                    "type": "TRANSCRIPTION_MODE_CHANGED", "mode": "assemblyai",
+                }));
+                (rx, AnyTranscriber::AssemblyAi(aai))
             }
             Err(e) => {
-                eprintln!("[start_session] step 7a: Deepgram failed ({e}) — falling back to Whisper");
-                let _ = app.emit("app-event", serde_json::json!({
-                    "type": "TRANSCRIPTION_MODE_CHANGED",
-                    "mode": "whisper",
-                    "reason": format!("Deepgram unavailable: {e}"),
-                }));
-                false
+                eprintln!("[start_session] step 7a: AssemblyAI failed ({e}) — trying Deepgram");
+                try_deepgram_or_whisper(deepgram_key, window.clone(), &app).await
             }
         }
     } else {
-        eprintln!("[start_session] step 7a: no Deepgram key — using Whisper");
-        false
-    };
-
-    // ── 7b. Create transcriber and get seg_rx ────────────────────────────────
-    let (seg_rx_raw, transcriber) = if use_deepgram {
-        let key = deepgram_key.unwrap();
-        let (mut dg, rx) = DeepgramTranscriber::new(key, window.clone());
-        dg.start();
-        let _ = app.emit("app-event", serde_json::json!({
-            "type": "TRANSCRIPTION_MODE_CHANGED", "mode": "deepgram",
-        }));
-        (rx, AnyTranscriber::Deepgram(dg))
-    } else {
-        let (t, rx) = WhisperTranscriber::new(window.clone(), TranscribeOptions::default());
-        (rx, AnyTranscriber::Whisper(t))
+        eprintln!("[start_session] step 7a: no AssemblyAI key — trying Deepgram");
+        try_deepgram_or_whisper(deepgram_key, window.clone(), &app).await
     };
 
     // ── 8. Bridge blocking SegmentReceiver → tokio channel ───────────────────
@@ -631,9 +660,9 @@ async fn start_session(
         }
     });
 
-    // ── 10. Load Whisper model (only when not using Deepgram) ────────────────
+    // ── 10. Load Whisper model (only when using Whisper backend) ─────────────
     let mut transcriber = transcriber;
-    if !use_deepgram {
+    if matches!(transcriber, AnyTranscriber::Whisper(_)) {
         eprintln!("[start_session] step 10: loading Whisper model (may take a while)");
         let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
         eprintln!("[start_session] app_data_dir: {}", app_data_dir.display());
@@ -834,6 +863,15 @@ fn reject_detection(_app: AppHandle, reference: String) {
 // ─── transcription config commands ───────────────────────────────────────────
 
 #[tauri::command]
+fn set_assemblyai_key(state: State<ManagedState>, key: String) {
+    state.inner.lock().unwrap().assemblyai_api_key = if key.trim().is_empty() {
+        None
+    } else {
+        Some(key.trim().to_string())
+    };
+}
+
+#[tauri::command]
 fn set_deepgram_key(state: State<ManagedState>, key: String) {
     state.inner.lock().unwrap().deepgram_api_key = if key.trim().is_empty() {
         None
@@ -847,7 +885,15 @@ fn get_transcription_mode(state: State<ManagedState>) -> String {
     let s = state.inner.lock().unwrap();
     match &s.pipeline {
         Some(p) => p.transcriber.mode_label().to_string(),
-        None => if s.deepgram_api_key.is_some() { "deepgram".into() } else { "whisper".into() },
+        None => {
+            if s.assemblyai_api_key.is_some() {
+                "assemblyai".into()
+            } else if s.deepgram_api_key.is_some() {
+                "deepgram".into()
+            } else {
+                "whisper".into()
+            }
+        }
     }
 }
 
@@ -1266,6 +1312,7 @@ pub fn run() {
             reject_detection,
             next_verse,
             previous_verse,
+            set_assemblyai_key,
             set_deepgram_key,
             get_transcription_mode,
             get_audio_devices,
