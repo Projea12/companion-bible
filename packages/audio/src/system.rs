@@ -4,10 +4,13 @@ use std::thread::JoinHandle;
 
 use crate::capture::{AudioCapture, CaptureConfig, CaptureEvent};
 use crate::error::AudioError;
-use crate::input::AudioInput;
-use crate::preprocess::{AudioPipeline, CHUNK_100MS};
+use crate::input::{AudioInput, downsample};
+use crate::preprocess::AudioPipeline;
 use crate::ring_buffer::RingBuffer;
 use crate::sliding_window::SlidingWindow;
+
+/// Output sample rate for the sliding window and transcription backends.
+const TRANSCRIPTION_RATE: u32 = 16_000;
 
 // ─── SystemConfig ─────────────────────────────────────────────────────────────
 
@@ -123,6 +126,13 @@ impl AudioSystem {
         self.stop_flag.store(false, Ordering::Release);
         self.capture.start()?;
 
+        // Read the native device rate now that the stream is open.
+        // Fall back to TRANSCRIPTION_RATE if somehow unavailable.
+        let native_rate = {
+            let r = self.capture.native_rate();
+            if r == 0 { TRANSCRIPTION_RATE } else { r }
+        };
+
         let window = Arc::clone(&self.window);
         let stop_flag = Arc::clone(&self.stop_flag);
 
@@ -130,7 +140,7 @@ impl AudioSystem {
             std::thread::Builder::new()
                 .name("audio-processor".into())
                 .spawn(move || {
-                    processor_loop(buffer, window, stop_flag, gate_threshold, target_rms);
+                    processor_loop(buffer, window, stop_flag, gate_threshold, target_rms, native_rate);
                 })
                 .expect("failed to spawn audio-processor"),
         );
@@ -169,17 +179,34 @@ fn processor_loop(
     stop_flag: Arc<AtomicBool>,
     gate_threshold: f32,
     target_rms: f32,
+    native_rate: u32,
 ) {
+    // Process 100 ms of audio per iteration at native rate, then downsample
+    // to TRANSCRIPTION_RATE before pushing to the sliding window.  Running
+    // AudioPipeline (and RNNoise) at the native device rate ensures that
+    // RNNoise operates at the 48 kHz rate it was trained on.
+    let chunk_size = (native_rate / 10) as usize; // 100 ms
+
     let mut pipeline = AudioPipeline::new(gate_threshold, target_rms);
 
     while !stop_flag.load(Ordering::Acquire) {
-        let chunk = buffer.read(CHUNK_100MS);
+        let chunk = buffer.read(chunk_size);
         if chunk.is_empty() {
             std::thread::sleep(std::time::Duration::from_millis(5));
             continue;
         }
 
-        let clean = pipeline.process(&chunk);
+        let clean_native = pipeline.process(&chunk);
+        if clean_native.is_empty() {
+            continue;
+        }
+
+        // Downsample from native rate to 16 kHz for transcription backends.
+        let clean = if native_rate != TRANSCRIPTION_RATE {
+            downsample(&clean_native, native_rate, TRANSCRIPTION_RATE)
+        } else {
+            clean_native
+        };
 
         if !clean.is_empty() {
             if let Ok(mut w) = window.lock() {
@@ -189,10 +216,17 @@ fn processor_loop(
     }
 
     // Drain any samples buffered in RNNoise's staging buffer.
-    let tail = pipeline.flush();
-    if !tail.is_empty() {
-        if let Ok(mut w) = window.lock() {
-            w.push(&tail);
+    let tail_native = pipeline.flush();
+    if !tail_native.is_empty() {
+        let tail = if native_rate != TRANSCRIPTION_RATE {
+            downsample(&tail_native, native_rate, TRANSCRIPTION_RATE)
+        } else {
+            tail_native
+        };
+        if !tail.is_empty() {
+            if let Ok(mut w) = window.lock() {
+                w.push(&tail);
+            }
         }
     }
 }

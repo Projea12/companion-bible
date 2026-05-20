@@ -136,6 +136,11 @@ impl AudioCapture {
         self.connected.load(Ordering::Acquire)
     }
 
+    /// Native sample rate of the underlying device, or 0 if not yet started.
+    pub fn native_rate(&self) -> u32 {
+        self.input.lock().unwrap().native_rate()
+    }
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     /// Open the device and start capturing.

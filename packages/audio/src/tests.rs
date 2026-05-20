@@ -216,6 +216,10 @@ impl AudioInput for MockInput {
     fn current_level(&self) -> f32 {
         self.level
     }
+
+    fn native_rate(&self) -> u32 {
+        16_000
+    }
 }
 
 #[test]
@@ -1955,6 +1959,10 @@ impl AudioInput for MockAudioInput {
 
     fn current_level(&self) -> f32 {
         0.0
+    }
+
+    fn native_rate(&self) -> u32 {
+        16_000
     }
 }
 

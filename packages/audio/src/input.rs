@@ -16,6 +16,8 @@ pub trait AudioInput: Send + Sync {
     fn stop(&mut self);
     /// Peak level in [0.0, 1.0] from the most recent buffer.
     fn current_level(&self) -> f32;
+    /// Native sample rate of the device, or 0 if not yet started.
+    fn native_rate(&self) -> u32;
 }
 
 // ─── Shared stream handle ─────────────────────────────────────────────────────
@@ -39,6 +41,8 @@ pub(crate) struct CpalInput {
     handle: Option<StreamHandle>,
     level: Arc<AtomicU32>,
     filter: Option<DeviceType>,
+    /// Native sample rate reported by the device after start().
+    native_rate: Arc<AtomicU32>,
 }
 
 impl CpalInput {
@@ -48,6 +52,7 @@ impl CpalInput {
             handle: None,
             level: Arc::new(AtomicU32::new(0)),
             filter,
+            native_rate: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -134,21 +139,23 @@ impl AudioInput for CpalInput {
             native_rate, native_channels, config.sample_format()
         );
 
+        // Store native rate so callers can read it after start().
+        self.native_rate.store(native_rate, Ordering::Release);
+
         let level = Arc::clone(&self.level);
         let err_fn = |e: cpal::StreamError| eprintln!("audio stream error: {e}");
 
-        // Build the stream at the device's native rate, then downsample to
-        // 16 kHz in the callback so the SlidingWindow and Deepgram always
-        // receive 16 kHz mono audio regardless of the device's native rate.
+        // Deliver native-rate mono audio to the ring buffer.  Downsampling to
+        // 16 kHz and RNNoise denoising are performed together in the processor
+        // thread so that RNNoise operates at the correct native sample rate.
         let stream = match config.sample_format() {
             SampleFormat::F32 => device.build_input_stream(
                 &config.into(),
                 move |data: &[f32], _| {
                     let mono = to_mono_f32(data, native_channels);
-                    let resampled = downsample(&mono, native_rate, 16_000);
-                    let peak = resampled.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+                    let peak = mono.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
                     level.store(peak.to_bits(), Ordering::Relaxed);
-                    callback(resampled);
+                    callback(mono);
                 },
                 err_fn,
                 None,
@@ -158,10 +165,9 @@ impl AudioInput for CpalInput {
                 move |data: &[i16], _| {
                     let f32s: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                     let mono = to_mono_f32(&f32s, native_channels);
-                    let resampled = downsample(&mono, native_rate, 16_000);
-                    let peak = resampled.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+                    let peak = mono.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
                     level.store(peak.to_bits(), Ordering::Relaxed);
-                    callback(resampled);
+                    callback(mono);
                 },
                 err_fn,
                 None,
@@ -171,10 +177,9 @@ impl AudioInput for CpalInput {
                 move |data: &[u16], _| {
                     let f32s: Vec<f32> = data.iter().map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0).collect();
                     let mono = to_mono_f32(&f32s, native_channels);
-                    let resampled = downsample(&mono, native_rate, 16_000);
-                    let peak = resampled.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+                    let peak = mono.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
                     level.store(peak.to_bits(), Ordering::Relaxed);
-                    callback(resampled);
+                    callback(mono);
                 },
                 err_fn,
                 None,
@@ -197,6 +202,10 @@ impl AudioInput for CpalInput {
 
     fn current_level(&self) -> f32 {
         f32::from_bits(self.level.load(Ordering::Relaxed))
+    }
+
+    fn native_rate(&self) -> u32 {
+        self.native_rate.load(Ordering::Acquire)
     }
 }
 
@@ -233,6 +242,9 @@ impl AudioInput for MixerInput {
     fn current_level(&self) -> f32 {
         self.0.current_level()
     }
+    fn native_rate(&self) -> u32 {
+        self.0.native_rate()
+    }
 }
 
 /// Captures audio from a USB microphone.
@@ -265,6 +277,9 @@ impl AudioInput for UsbMicInput {
     }
     fn current_level(&self) -> f32 {
         self.0.current_level()
+    }
+    fn native_rate(&self) -> u32 {
+        self.0.native_rate()
     }
 }
 
@@ -299,6 +314,9 @@ impl AudioInput for BuiltinMicInput {
     fn current_level(&self) -> f32 {
         self.0.current_level()
     }
+    fn native_rate(&self) -> u32 {
+        self.0.native_rate()
+    }
 }
 
 // ─── Audio helpers ────────────────────────────────────────────────────────────
@@ -314,11 +332,27 @@ fn to_mono_f32(samples: &[f32], channels: usize) -> Vec<f32> {
         .collect()
 }
 
-/// Linear-interpolation downsample from `from_hz` to `to_hz`.
-fn downsample(samples: &[f32], from_hz: u32, to_hz: u32) -> Vec<f32> {
+/// Downsample from `from_hz` to `to_hz`.
+///
+/// For integer ratios (e.g. 48 kHz → 16 kHz, ratio = 3) each output sample is
+/// the average of `ratio` consecutive input samples (box filter).  This acts as
+/// a simple low-pass filter and prevents aliasing artefacts that occur when
+/// you naively pick every N-th sample.
+///
+/// For non-integer ratios a linear-interpolation fallback is used.
+pub(crate) fn downsample(samples: &[f32], from_hz: u32, to_hz: u32) -> Vec<f32> {
     if from_hz == to_hz || samples.is_empty() {
         return samples.to_vec();
     }
+    if from_hz % to_hz == 0 {
+        let ratio = (from_hz / to_hz) as usize;
+        return samples
+            .chunks(ratio)
+            .filter(|c| c.len() == ratio)
+            .map(|c| c.iter().sum::<f32>() / ratio as f32)
+            .collect();
+    }
+    // Non-integer ratio: linear interpolation fallback.
     let ratio = from_hz as f64 / to_hz as f64;
     let out_len = ((samples.len() as f64) / ratio).ceil() as usize;
     let mut out = Vec::with_capacity(out_len);
