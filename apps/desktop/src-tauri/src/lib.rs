@@ -763,8 +763,7 @@ async fn stop_session(
 
     // Clear engine; the event-relay thread exits when the engine's sender drops.
     *state.engine.lock().await = None;
-    // Clear bible
-    *state.bible.lock().unwrap() = None;
+    // Bible stays loaded — it's static data and show_verse must work after stop.
 
     let _ = app.emit("app-event", &AppEvent::AudioCaptureStopped);
     Ok(())
@@ -1283,7 +1282,20 @@ pub fn run() {
             None,
         ))
         .setup(|app| {
-            app.manage(ManagedState::new());
+            let managed = ManagedState::new();
+            // Load the KJV Bible immediately so show_verse works even before
+            // a session is started (e.g. manual override at app launch).
+            let bible_path = resolve_bible_path(app.handle());
+            match KjvBible::load(&bible_path) {
+                Ok(bible) => {
+                    *managed.bible.lock().unwrap() = Some(bible);
+                    eprintln!("[setup] KJV Bible loaded from {}", bible_path.display());
+                }
+                Err(e) => {
+                    eprintln!("[setup] WARNING: failed to load KJV Bible: {e}");
+                }
+            }
+            app.manage(managed);
             let handle = app.handle().clone();
             assign_congregation_to_secondary(&handle);
             watch_screens(handle);

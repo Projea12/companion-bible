@@ -49,8 +49,14 @@ export function App() {
   const [displayedVerse, setDisplayedVerse] = useState<DisplayedVerse | null>(null);
 
   // transcription
+  const [assemblyaiKey, setAssemblyaiKey] = useState('');
   const [deepgramKey, setDeepgramKey] = useState('');
-  const [transcriptionMode, setTranscriptionMode] = useState<'deepgram' | 'whisper'>('whisper');
+  const [transcriptionMode, setTranscriptionMode] = useState<'assemblyai' | 'deepgram' | 'whisper'>(
+    'whisper',
+  );
+
+  // settings panel
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // undo (5-second window enforced on the frontend)
   const [undoExpiresAt, setUndoExpiresAt] = useState<number | null>(null);
@@ -174,7 +180,9 @@ export function App() {
 
         case 'TRANSCRIPTION_MODE_CHANGED': {
           const mode = (payload as unknown as { mode: string }).mode;
-          setTranscriptionMode(mode === 'deepgram' ? 'deepgram' : 'whisper');
+          setTranscriptionMode(
+            mode === 'assemblyai' ? 'assemblyai' : mode === 'deepgram' ? 'deepgram' : 'whisper',
+          );
           break;
         }
 
@@ -302,6 +310,10 @@ export function App() {
     void invoke('show_verse', { reference: ref, text: '' });
   }, []);
 
+  const handleSaveAssemblyAiKey = useCallback(() => {
+    void invoke('set_assemblyai_key', { key: assemblyaiKey });
+  }, [assemblyaiKey]);
+
   const handleSaveDeepgramKey = useCallback(() => {
     void invoke('set_deepgram_key', { key: deepgramKey });
   }, [deepgramKey]);
@@ -385,8 +397,20 @@ export function App() {
     <div className="op-layout">
       {/* ── Header ── */}
       <header className="op-header">
-        <span className="op-brand">Companion Bible</span>
+        <div className="op-header-left">
+          <span className="op-brand">Companion Bible</span>
+          {sessionActive && (
+            <span className={`mode-pill mode-pill--${transcriptionMode}`}>
+              {transcriptionMode === 'assemblyai'
+                ? 'AssemblyAI'
+                : transcriptionMode === 'deepgram'
+                  ? 'Deepgram'
+                  : 'Whisper'}
+            </span>
+          )}
+        </div>
         <div className="op-header-controls">
+          {sessionError && <span className="session-error">{sessionError}</span>}
           {sessionActive ? (
             <button className="btn btn-danger" onClick={handleStopSession}>
               Stop Session
@@ -399,49 +423,87 @@ export function App() {
             >
               {sessionStarting
                 ? modelDownloadPercent !== null
-                  ? `Downloading model… ${modelDownloadPercent}%`
+                  ? `Downloading… ${modelDownloadPercent}%`
                   : 'Starting…'
                 : 'Start Session'}
             </button>
-          )}
-          {sessionError && (
-            <span style={{ color: 'red', fontSize: '0.75rem', maxWidth: 300 }}>{sessionError}</span>
           )}
           <button
             className="btn btn-secondary"
             disabled={!hasSecondary}
             onClick={handleToggleCongregation}
+            title={hasSecondary ? undefined : 'No secondary screen detected'}
           >
-            {congregationVisible ? 'Hide Congregation' : 'Show Congregation'}
+            {congregationVisible ? 'Hide Screen' : 'Show Screen'}
           </button>
+          {!sessionActive && (
+            <button
+              className={`btn btn-secondary btn-icon${settingsOpen ? ' btn-icon--active' : ''}`}
+              onClick={() => setSettingsOpen((o) => !o)}
+              title="API key settings"
+              aria-expanded={settingsOpen}
+            >
+              ⚙
+            </button>
+          )}
         </div>
       </header>
 
-      {/* ── Deepgram API key (shown only when session is not active) ── */}
-      {!sessionActive && (
-        <div className="op-deepgram-bar">
-          <span className="deepgram-label">Deepgram API Key</span>
-          <input
-            className="deepgram-input"
-            type="password"
-            placeholder="Paste your Deepgram key for Nigerian accent support…"
-            value={deepgramKey}
-            onChange={(e) => setDeepgramKey(e.target.value)}
-            onBlur={handleSaveDeepgramKey}
-          />
-          <button className="btn btn-secondary" onClick={handleSaveDeepgramKey}>
-            Save
-          </button>
-          <span className="deepgram-hint">
-            {deepgramKey ? '✓ Deepgram enabled' : 'Leave blank to use Whisper (offline)'}
-          </span>
-        </div>
-      )}
-      {sessionActive && (
-        <div className="op-deepgram-bar">
-          <span className={`transcription-mode-badge transcription-mode-${transcriptionMode}`}>
-            {transcriptionMode === 'deepgram' ? '🎙 Deepgram' : '🤫 Whisper (offline)'}
-          </span>
+      {/* ── Settings panel (API keys) ── */}
+      {settingsOpen && !sessionActive && (
+        <div className="op-settings-panel">
+          <div className="settings-panel-inner">
+            <p className="settings-hint">
+              Keys are saved locally. Priority: AssemblyAI → Deepgram → Whisper (offline).
+            </p>
+            <div className="settings-key-grid">
+              <div className="settings-key-row">
+                <div className="settings-key-meta">
+                  <span className="settings-key-label">AssemblyAI</span>
+                  <span className="settings-key-tag settings-key-tag--primary">Recommended</span>
+                </div>
+                <div className="settings-key-input-row">
+                  <input
+                    className="settings-input"
+                    type="password"
+                    placeholder="aai-…"
+                    value={assemblyaiKey}
+                    onChange={(e) => setAssemblyaiKey(e.target.value)}
+                    onBlur={handleSaveAssemblyAiKey}
+                    autoComplete="off"
+                  />
+                  <button className="btn btn-secondary btn-sm" onClick={handleSaveAssemblyAiKey}>
+                    Save
+                  </button>
+                </div>
+                {assemblyaiKey && <span className="settings-key-saved">✓ Saved</span>}
+              </div>
+
+              <div className="settings-key-divider" />
+
+              <div className="settings-key-row">
+                <div className="settings-key-meta">
+                  <span className="settings-key-label">Deepgram</span>
+                  <span className="settings-key-tag">Fallback</span>
+                </div>
+                <div className="settings-key-input-row">
+                  <input
+                    className="settings-input"
+                    type="password"
+                    placeholder="Paste Deepgram key…"
+                    value={deepgramKey}
+                    onChange={(e) => setDeepgramKey(e.target.value)}
+                    onBlur={handleSaveDeepgramKey}
+                    autoComplete="off"
+                  />
+                  <button className="btn btn-secondary btn-sm" onClick={handleSaveDeepgramKey}>
+                    Save
+                  </button>
+                </div>
+                {deepgramKey && <span className="settings-key-saved">✓ Saved</span>}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

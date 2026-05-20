@@ -18,6 +18,14 @@
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
   min-height: 52px;
+  gap: 12px;
+}
+
+.op-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .op-brand {
@@ -25,11 +33,183 @@
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--color-text);
+  white-space: nowrap;
+}
+
+/* transcription mode pill shown in header during a session */
+.mode-pill {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.mode-pill--assemblyai {
+  background: rgba(62, 207, 114, 0.15);
+  color: var(--color-success);
+  border: 1px solid rgba(62, 207, 114, 0.3);
+}
+
+.mode-pill--deepgram {
+  background: rgba(74, 158, 255, 0.15);
+  color: var(--color-primary);
+  border: 1px solid rgba(74, 158, 255, 0.3);
+}
+
+.mode-pill--whisper {
+  background: rgba(136, 136, 136, 0.12);
+  color: var(--color-text-muted);
+  border: 1px solid rgba(136, 136, 136, 0.2);
 }
 
 .op-header-controls {
   display: flex;
+  align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+}
+
+.session-error {
+  font-size: 12px;
+  color: var(--color-danger);
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* icon-only button variant */
+.btn-icon {
+  padding: 6px 10px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.btn-icon--active {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* ── settings panel ───────────────────────────────────────────────────────── */
+
+.op-settings-panel {
+  background: #141414;
+  border-bottom: 1px solid var(--color-border);
+  animation: settings-appear 120ms ease both;
+}
+
+@keyframes settings-appear {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.settings-panel-inner {
+  padding: 14px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-hint {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin: 0;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.settings-key-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.settings-key-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.settings-key-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 0;
+}
+
+.settings-key-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-key-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.settings-key-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(136, 136, 136, 0.12);
+  color: var(--color-text-muted);
+  border: 1px solid rgba(136, 136, 136, 0.2);
+}
+
+.settings-key-tag--primary {
+  background: rgba(62, 207, 114, 0.12);
+  color: var(--color-success);
+  border-color: rgba(62, 207, 114, 0.25);
+}
+
+.settings-key-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.settings-input::placeholder {
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+}
+
+.settings-input:focus {
+  border-color: var(--color-primary);
+}
+
+.settings-key-saved {
+  font-size: 11px;
+  color: var(--color-success);
+  font-weight: 600;
 }
 
 /* ── sermon bar ───────────────────────────────────────────────────────────── */
@@ -480,6 +660,23 @@
   font-size: 13px;
   color: var(--color-text-muted);
   font-style: italic;
+}
+
+/* ── verse navigation row ─────────────────────────────────────────────────── */
+
+.verse-nav-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px 20px;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.verse-nav-row .btn {
+  flex: 1;
+  justify-content: center;
+  font-size: 13px;
 }
 
 /* ── discard button (large, always visible) ───────────────────────────────── */
