@@ -115,7 +115,7 @@ export function App() {
     const unlistenPromise = listen<AppEvent>('app-event', ({ payload }) => {
       switch (payload.type) {
         case 'MODEL_DOWNLOAD_PROGRESS':
-          setModelDownloadPercent((payload as unknown as { percent: number }).percent);
+          setModelDownloadPercent(payload.percent);
           break;
 
         case 'SECONDARY_SCREEN_CONNECTED':
@@ -190,7 +190,7 @@ export function App() {
           break;
 
         case 'TRANSCRIPTION_MODE_CHANGED': {
-          const mode = (payload as unknown as { mode: string }).mode;
+          const mode = payload.mode;
           setTranscriptionMode(
             mode === 'assemblyai' ? 'assemblyai' : mode === 'deepgram' ? 'deepgram' : 'whisper',
           );

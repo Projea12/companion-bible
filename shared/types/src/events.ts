@@ -13,6 +13,7 @@ export type AppEvent =
   | { type: 'TRANSCRIPTION_STARTED'; chunk_id: number }
   | { type: 'TRANSCRIPTION_COMPLETED'; chunk_id: number; text: string; duration_ms: number }
   | { type: 'TRANSCRIPTION_FAILED'; chunk_id: number; reason: string }
+  | { type: 'TRANSCRIPTION_MODE_CHANGED'; mode: string }
 
   // ── Detection ──────────────────────────────────────────────────────────
   | { type: 'SCRIPTURE_REFERENCE_DETECTED'; references: BibleReference[]; source_text: string }
@@ -27,6 +28,7 @@ export type AppEvent =
   | { type: 'AI_RESPONSE_RECEIVED'; query_id: number; response: string }
   | { type: 'AI_QUERY_FAILED'; query_id: number; reason: string }
   | { type: 'AI_LAYERS_CHANGED'; layers: 'all' | 'local-only' | 'pattern-only' }
+  | { type: 'MODEL_DOWNLOAD_PROGRESS'; percent: number }
 
   // ── Display ────────────────────────────────────────────────────────────
   | { type: 'VERSE_DISPLAYED'; reference: BibleReference }
