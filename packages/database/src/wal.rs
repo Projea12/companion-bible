@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -32,7 +32,7 @@ pub struct AppState {
     /// Detection events from the current sermon not yet committed to SQLite.
     pub pending_detections: Vec<DetectionEvent>,
     /// Church settings cache (key → JSON value string).
-    pub settings: HashMap<String, String>,
+    pub settings: BTreeMap<String, String>,
     /// Calibration thresholds for all pipeline stages.
     pub calibration: Vec<CalibrationThresholds>,
 }

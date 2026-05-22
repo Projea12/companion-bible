@@ -77,6 +77,7 @@ impl WhisperModel {
         let before_mb = rss_mb();
         let t0 = Instant::now();
 
+        #[allow(unused_mut)]
         let mut ctx_params = WhisperContextParameters::default();
         #[cfg(target_os = "macos")]
         {

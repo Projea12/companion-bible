@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use tempfile::tempdir;
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use crate::{
     close, connect, migration, AppState, AppStateSerializer, CalibrationRepository,
@@ -1181,7 +1181,7 @@ async fn current_version_returns_4_after_all_migrations() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
     let version = migration::current_version(&pool).await.unwrap();
-    assert_eq!(version, 5, "5 migrations should have been applied");
+    assert_eq!(version, 6, "6 migrations should have been applied");
     close(pool).await;
 }
 
@@ -1198,7 +1198,7 @@ async fn list_applied_returns_4_migrations_in_order() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
     let applied = migration::list_applied(&pool).await.unwrap();
-    assert_eq!(applied.len(), 5, "should have 5 applied migrations");
+    assert_eq!(applied.len(), 6, "should have 6 applied migrations");
     for (i, m) in applied.iter().enumerate() {
         assert_eq!(
             m.version,
@@ -1220,7 +1220,7 @@ async fn migrations_are_idempotent() {
     let applied = migration::list_applied(&pool).await.unwrap();
     assert_eq!(
         applied.len(),
-        5,
+        6,
         "second run must not add duplicate entries"
     );
     close(pool).await;
@@ -1234,8 +1234,8 @@ async fn migration_versions_are_sequential() {
     let versions: Vec<i64> = applied.iter().map(|m| m.version).collect();
     assert_eq!(
         versions,
-        vec![1, 2, 3, 4, 5],
-        "versions must be 1..5 in order"
+        vec![1, 2, 3, 4, 5, 6],
+        "versions must be 1..6 in order"
     );
     close(pool).await;
 }
@@ -2737,7 +2737,7 @@ fn make_app_state() -> AppState {
             ended_at: None,
         }),
         pending_detections: vec![],
-        settings: HashMap::from([("theme".into(), "dark".into())]),
+        settings: BTreeMap::from([("theme".into(), "dark".into())]),
         calibration: vec![],
     }
 }
@@ -3548,7 +3548,7 @@ fn wal_crash_simulation_1000_entries_state_is_consistent() {
                 ended_at: None,
             }),
             pending_detections: vec![],
-            settings: HashMap::new(),
+            settings: BTreeMap::new(),
             calibration: vec![],
         };
 
@@ -3680,7 +3680,7 @@ fn make_full_app_state() -> AppState {
             processing_time_ms: 38,
             timestamp: "2026-05-15T09:05:00Z".into(),
         }],
-        settings: HashMap::from([
+        settings: BTreeMap::from([
             ("theme".into(), "dark".into()),
             ("font_size".into(), "18".into()),
         ]),
