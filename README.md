@@ -17,6 +17,113 @@ No operator action required for detection. A human operator stays in the loop to
 
 ---
 
+## Prerequisites
+
+- macOS 12+ (primary platform; Linux/Windows untested)
+- Rust 1.75+ via [rustup](https://rustup.rs)
+- Node.js 20+ and npm 10+
+- Xcode Command Line Tools (`xcode-select --install`)
+
+---
+
+## Setup
+
+### 1. Install system dependencies
+
+**macOS**
+
+```bash
+# Install Xcode Command Line Tools (compiler, linker, Metal SDK)
+xcode-select --install
+
+# Install Rust via rustup
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+
+# Install Node.js 20+ (via nvm or direct download from nodejs.org)
+# https://github.com/nvm-sh/nvm
+nvm install 20 && nvm use 20
+```
+
+> **Linux / Windows** — untested. Tauri's [prerequisites guide](https://tauri.app/start/prerequisites/) lists the packages needed for each platform.
+
+### 2. Clone the repository
+
+```bash
+git clone https://github.com/your-org/companion-bible.git
+cd companion-bible
+```
+
+### 3. Install JavaScript dependencies
+
+```bash
+npm install
+```
+
+This installs all frontend packages (React, Vite, TypeScript) and the Tauri CLI for the workspace.
+
+### 4. Build all Rust packages
+
+```bash
+cargo build --workspace
+```
+
+This compiles every crate in the monorepo — `audio`, `transcription`, `detection`, `engine`, `bible`, `hymns`, and the Tauri backend. First build takes several minutes; subsequent builds are incremental.
+
+### 5. (Optional) Download the Phi-3 Mini model
+
+The local AI layer is optional — the system degrades gracefully without it. If you want on-device AI verse detection:
+
+```bash
+mkdir -p models/phi3
+# Download Phi-3-mini-4k-instruct-q4.gguf (~2.3 GB) from HuggingFace and place it at:
+# models/phi3/Phi-3-mini-4k-instruct-q4.gguf
+```
+
+### Model Files
+
+| Model            | Size    | Required?                 | Location                                     |
+| ---------------- | ------- | ------------------------- | -------------------------------------------- |
+| Whisper Medium   | ~1.5 GB | Yes (if no cloud STT key) | Downloaded on first run                      |
+| Phi-3 Mini 4-bit | ~2.3 GB | No (degrades gracefully)  | `models/phi3/Phi-3-mini-4k-instruct-q4.gguf` |
+| KJV Bible        | ~20 MB  | Yes                       | Bundled — `packages/bible/src/data/kjv.json` |
+| GHS Hymns        | <1 MB   | Yes                       | Bundled — `data/Hymns/` (260 .txt files)     |
+
+---
+
+## Running
+
+```bash
+cd apps/desktop
+npm run tauri dev
+```
+
+This starts the Vite dev server and the Tauri app together. The operator window opens immediately; the congregation window is hidden until a session starts.
+
+### First-Run Checklist
+
+1. **Grant microphone permission** — macOS will prompt on first audio capture
+2. **Enter API keys** in the operator settings panel (AssemblyAI recommended for best accuracy)
+3. **Connect a second monitor** for the congregation display
+4. Click **Start Session** to begin
+
+---
+
+## Configuration
+
+All keys are entered through the operator UI and stored locally. No `.env` file needed.
+
+| Setting        | Purpose                       | Required?   |
+| -------------- | ----------------------------- | ----------- |
+| AssemblyAI key | Cloud streaming transcription | Recommended |
+| Deepgram key   | Fallback cloud transcription  | Optional    |
+| OpenAI key     | Primary cloud verse detection | Recommended |
+| Anthropic key  | Fallback cloud AI (Claude)    | Optional    |
+
+Without any API keys the system runs fully offline: Whisper for transcription, pattern engine + Phi-3 Mini for detection.
+
+---
+
 ## Architecture Overview
 
 ```
@@ -187,73 +294,6 @@ The operator can switch between **Bible Mode** and **GHS Mode** at any time. Spe
 | Pattern matching  | regex crate                                    |
 | Bible data        | KJV JSON (bundled, ~66 books)                  |
 | Hymn data         | 260 GHS hymns (compile-time embedded)          |
-
----
-
-## Prerequisites
-
-- macOS 12+ (primary platform; Linux/Windows untested)
-- Rust 1.75+ via [rustup](https://rustup.rs)
-- Node.js 20+ and npm 10+
-- Xcode Command Line Tools (`xcode-select --install`)
-
----
-
-## Setup
-
-```bash
-# 1. Clone
-git clone https://github.com/your-org/companion-bible.git
-cd companion-bible
-
-# 2. Install JS dependencies
-npm install
-
-# 3. Build all Rust packages
-cargo build --workspace
-```
-
-### Model Files
-
-| Model            | Size    | Required?                 | Location                                     |
-| ---------------- | ------- | ------------------------- | -------------------------------------------- |
-| Whisper Medium   | ~1.5 GB | Yes (if no cloud STT key) | Downloaded on first run                      |
-| Phi-3 Mini 4-bit | ~2.3 GB | No (degrades gracefully)  | `models/phi3/Phi-3-mini-4k-instruct-q4.gguf` |
-| KJV Bible        | ~20 MB  | Yes                       | Bundled — `packages/bible/src/data/kjv.json` |
-| GHS Hymns        | <1 MB   | Yes                       | Bundled — `data/Hymns/` (260 .txt files)     |
-
----
-
-## Running
-
-```bash
-cd apps/desktop
-npm run tauri dev
-```
-
-This starts the Vite dev server and the Tauri app together. The operator window opens immediately; the congregation window is hidden until a session starts.
-
-### First-Run Checklist
-
-1. **Grant microphone permission** — macOS will prompt on first audio capture
-2. **Enter API keys** in the operator settings panel (AssemblyAI recommended for best accuracy)
-3. **Connect a second monitor** for the congregation display
-4. Click **Start Session** to begin
-
----
-
-## Configuration
-
-All keys are entered through the operator UI and stored locally. No `.env` file needed.
-
-| Setting        | Purpose                       | Required?   |
-| -------------- | ----------------------------- | ----------- |
-| AssemblyAI key | Cloud streaming transcription | Recommended |
-| Deepgram key   | Fallback cloud transcription  | Optional    |
-| OpenAI key     | Primary cloud verse detection | Recommended |
-| Anthropic key  | Fallback cloud AI (Claude)    | Optional    |
-
-Without any API keys the system runs fully offline: Whisper for transcription, pattern engine + Phi-3 Mini for detection.
 
 ---
 
