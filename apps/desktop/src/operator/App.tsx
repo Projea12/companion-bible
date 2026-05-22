@@ -5,6 +5,7 @@ import type { AppEvent, AppState } from '@companion-bible/types';
 import { TranscriptPanel } from './TranscriptPanel';
 import { VerseQueuePanel } from './VerseQueuePanel';
 import { ManualOverride } from './ManualOverride';
+import { ManualHymnOverride } from './ManualHymnOverride';
 import { SermonControls } from './SermonControls';
 import type { SermonSetup } from './SermonControls';
 import { StatusBar } from './StatusBar';
@@ -335,6 +336,10 @@ export function App() {
 
   const handleManualOverride = useCallback((ref: string) => {
     void invoke('show_verse', { reference: ref, text: '' });
+  }, []);
+
+  const handleLoadHymn = useCallback((number: number) => {
+    void invoke('load_hymn', { number }).then(() => setDisplayMode('hymn'));
   }, []);
 
   const handleSaveAssemblyAiKey = useCallback(() => {
@@ -698,6 +703,7 @@ export function App() {
           )}
 
           <ManualOverride onSubmit={handleManualOverride} />
+          <ManualHymnOverride onSubmit={handleLoadHymn} />
 
           {showUndo && (
             <button className="btn-undo" onClick={handleUndo} title="Keyboard: Ctrl+Z">

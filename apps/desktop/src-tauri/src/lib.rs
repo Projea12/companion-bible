@@ -10,6 +10,7 @@ use companion_engine::{
     DetectionEngine, DisplayMode as EngineDisplayMode, EngineConfig, LocalAiHandle,
 };
 use companion_events::AppEvent;
+use companion_hymns::HymnBook;
 use companion_transcription::{
     AssemblyAiTranscriber, DeepgramTranscriber, ModelManager, SetupProgress, TranscribeOptions,
     WhisperTranscriber,
@@ -971,6 +972,56 @@ async fn set_display_mode(state: State<'_, ManagedState>, mode: String) -> Resul
     Ok(())
 }
 
+/// Manually load a hymn by number (operator input).
+#[tauri::command]
+async fn load_hymn(
+    app: AppHandle,
+    state: State<'_, ManagedState>,
+    number: u16,
+) -> Result<bool, String> {
+    let loaded = match state.engine.lock().await.as_mut() {
+        Some(eng) => eng.load_hymn(number),
+        None => {
+            // No active session — emit events directly so the UI still reacts.
+            let book = HymnBook::global();
+            if let Some(hymn) = book.get(number) {
+                let seq: Vec<_> = hymn
+                    .playback_sequence()
+                    .into_iter()
+                    .map(|s| (s.is_chorus(), s.lines().to_vec()))
+                    .collect();
+                if let Some((is_chorus, lines)) = seq.first() {
+                    let _ = app.emit(
+                        "app-event",
+                        &AppEvent::HymnDetected {
+                            number,
+                            title: hymn.title.clone(),
+                        },
+                    );
+                    let _ = app.emit(
+                        "app-event",
+                        &AppEvent::HymnSectionAdvanced {
+                            number,
+                            section_index: 0,
+                            is_chorus: *is_chorus,
+                            lines: lines.clone(),
+                        },
+                    );
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }
+    };
+    if loaded {
+        state.inner.lock().unwrap().display_mode = DisplayMode::Hymn;
+    }
+    Ok(loaded)
+}
+
 /// Manually advance the active hymn to the next section (operator button).
 #[tauri::command]
 async fn next_hymn_stanza(state: State<'_, ManagedState>) -> Result<bool, String> {
@@ -1188,6 +1239,7 @@ pub fn run() {
             approve_detection,
             reject_detection,
             set_display_mode,
+            load_hymn,
             next_hymn_stanza,
             next_verse,
             previous_verse,

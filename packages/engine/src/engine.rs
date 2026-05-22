@@ -151,6 +151,38 @@ impl DetectionEngine {
         self.display_mode = mode;
     }
 
+    /// Manually load a hymn by number — same as auto-detection but triggered
+    /// by the operator typing a number.  Returns `false` if the number is not
+    /// in the book (1–260).
+    pub fn load_hymn(&mut self, number: u16) -> bool {
+        if let Some(session) = HymnSession::load(number) {
+            if let Some(HymnSessionEvent::Loaded {
+                number: n,
+                ref title,
+                section_index,
+                is_chorus,
+                ref lines,
+            }) = session.start_event()
+            {
+                self.emit_event(AppEvent::HymnDetected {
+                    number: n,
+                    title: title.clone(),
+                });
+                self.emit_event(AppEvent::HymnSectionAdvanced {
+                    number: n,
+                    section_index,
+                    is_chorus,
+                    lines: lines.clone(),
+                });
+            }
+            self.hymn_session = Some(session);
+            self.display_mode = DisplayMode::Hymn;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Manually advance the active hymn to the next section (operator button).
     /// Returns `false` if no hymn session is active or it is already completed.
     pub fn advance_hymn(&mut self) -> bool {

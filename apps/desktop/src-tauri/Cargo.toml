@@ -28,4 +28,5 @@ companion-audio        = { workspace = true }
 companion-transcription = { workspace = true }
 companion-ai           = { workspace = true }
 companion-engine       = { workspace = true }
+companion-hymns        = { workspace = true }
 companion-arbitrator   = { workspace = true }
