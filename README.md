@@ -382,6 +382,12 @@ If you are unsure whether an idea fits the project, open an issue first to discu
 
 ---
 
+## Acknowledgements
+
+The GHS hymn text data used in this project is sourced from [gospel-hymns](https://github.com/marvinjude/gospel-hymns) by [@marvinjude](https://github.com/marvinjude). Many thanks for making the Gospel Hymns and Songs text freely available.
+
+---
+
 ## Project Status
 
 Active development. Core detection pipeline, audio capture, transcription, dual-window UI, KJV validation, semantic quotation matching (FTS5), and GHS hymn display are complete. Calibration and operator feedback loop are functional.
