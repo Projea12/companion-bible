@@ -137,6 +137,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build shared packages
+        run: npm run build -w shared/types
+
       - name: Build
         run: npm run build --if-present
 
