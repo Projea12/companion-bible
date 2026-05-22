@@ -7,7 +7,7 @@ use companion_database::{
 };
 use companion_display::{DisplayMonitor, MonitorLayout};
 use companion_engine::{
-    DetectionEngine, DisplayMode as EngineDisplayMode, EngineConfig, LocalAiHandle,
+    DetectionEngine, DisplayMode as EngineDisplayMode, EngineConfig, HymnSession, LocalAiHandle,
 };
 use companion_events::AppEvent;
 use companion_hymns::HymnBook;
@@ -87,6 +87,8 @@ struct InternalState {
     deepgram_api_key: Option<String>,
     openai_api_key: Option<String>,
     pipeline: Option<Pipeline>,
+    /// Hymn session used when no audio session is active (manual load).
+    hymn_session: Option<HymnSession>,
 }
 
 impl Default for InternalState {
@@ -105,6 +107,7 @@ impl Default for InternalState {
             deepgram_api_key: None,
             openai_api_key: None,
             pipeline: None,
+            hymn_session: None,
         }
     }
 }
@@ -979,57 +982,85 @@ async fn load_hymn(
     state: State<'_, ManagedState>,
     number: u16,
 ) -> Result<bool, String> {
-    let loaded = match state.engine.lock().await.as_mut() {
-        Some(eng) => eng.load_hymn(number),
-        None => {
-            // No active session — emit events directly so the UI still reacts.
-            let book = HymnBook::global();
-            if let Some(hymn) = book.get(number) {
-                let seq: Vec<_> = hymn
-                    .playback_sequence()
-                    .into_iter()
-                    .map(|s| (s.is_chorus(), s.lines().to_vec()))
-                    .collect();
-                if let Some((is_chorus, lines)) = seq.first() {
-                    let _ = app.emit(
-                        "app-event",
-                        &AppEvent::HymnDetected {
-                            number,
-                            title: hymn.title.clone(),
-                        },
-                    );
-                    let _ = app.emit(
-                        "app-event",
-                        &AppEvent::HymnSectionAdvanced {
-                            number,
-                            section_index: 0,
-                            is_chorus: *is_chorus,
-                            lines: lines.clone(),
-                        },
-                    );
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
+    let mut engine_guard = state.engine.lock().await;
+    if let Some(eng) = engine_guard.as_mut() {
+        // Active session — let the engine own the session and emit via its channel.
+        let loaded = eng.load_hymn(number);
+        if loaded {
+            state.inner.lock().unwrap().display_mode = DisplayMode::Hymn;
         }
-    };
-    if loaded {
-        state.inner.lock().unwrap().display_mode = DisplayMode::Hymn;
+        return Ok(loaded);
     }
-    Ok(loaded)
+    drop(engine_guard);
+
+    // No active session — load manually, store session, emit events directly.
+    let Some(session) = HymnSession::load(number) else {
+        return Ok(false);
+    };
+    let book = HymnBook::global();
+    let title = book
+        .get(number)
+        .map(|h| h.title.clone())
+        .unwrap_or_default();
+
+    if let Some((is_chorus, lines)) = session.current().cloned() {
+        let _ = app.emit("app-event", &AppEvent::HymnDetected { number, title });
+        let _ = app.emit(
+            "app-event",
+            &AppEvent::HymnSectionAdvanced {
+                number,
+                section_index: 0,
+                is_chorus,
+                lines,
+            },
+        );
+    }
+    let mut s = state.inner.lock().unwrap();
+    s.hymn_session = Some(session);
+    s.display_mode = DisplayMode::Hymn;
+    Ok(true)
 }
 
 /// Manually advance the active hymn to the next section (operator button).
 #[tauri::command]
-async fn next_hymn_stanza(state: State<'_, ManagedState>) -> Result<bool, String> {
-    let advanced = match state.engine.lock().await.as_mut() {
-        Some(eng) => eng.advance_hymn(),
-        None => false,
+async fn next_hymn_stanza(app: AppHandle, state: State<'_, ManagedState>) -> Result<bool, String> {
+    // Prefer the engine's session (active audio session).
+    if let Some(eng) = state.engine.lock().await.as_mut() {
+        return Ok(eng.advance_hymn());
+    }
+
+    // Sessionless path — advance the stored HymnSession and emit directly.
+    let event = {
+        let mut s = state.inner.lock().unwrap();
+        s.hymn_session.as_mut().and_then(|sess| sess.advance())
     };
-    Ok(advanced)
+    let Some(event) = event else {
+        return Ok(false);
+    };
+    match event {
+        companion_engine::HymnSessionEvent::Advanced {
+            number,
+            section_index,
+            is_chorus,
+            lines,
+        } => {
+            let _ = app.emit(
+                "app-event",
+                &AppEvent::HymnSectionAdvanced {
+                    number,
+                    section_index,
+                    is_chorus,
+                    lines,
+                },
+            );
+        }
+        companion_engine::HymnSessionEvent::Completed { number } => {
+            let _ = app.emit("app-event", &AppEvent::HymnCompleted { number });
+            state.inner.lock().unwrap().hymn_session = None;
+        }
+        _ => {}
+    }
+    Ok(true)
 }
 
 // ─── operator action commands ─────────────────────────────────────────────────
