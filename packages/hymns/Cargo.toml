@@ -1,0 +1,10 @@
+[package]
+name = "companion-hymns"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+build = "build.rs"
+
+[dependencies]
+serde = { workspace = true }
