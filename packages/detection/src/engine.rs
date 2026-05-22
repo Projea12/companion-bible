@@ -933,6 +933,7 @@ mod tests {
     // ── Performance ───────────────────────────────────────────────────────────
 
     #[test]
+    #[ignore = "performance test — run locally with --ignored, flaky on shared CI runners"]
     fn all_patterns_under_5ms() {
         let engine = engine(); // compile once (not counted in budget)
         let text = "Good morning. Turn to the book of John chapter 3 verse 16. \
@@ -956,13 +957,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "performance test — run locally with --ignored, flaky on shared CI runners"]
     fn single_call_under_10ms() {
         let engine = engine();
         let text = "Turn to John chapter 3 verse 16. Romans 8:1. Psalms 23:1.";
         let t0 = Instant::now();
         let _ = engine.find_all(text);
         let elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
-        // 10 ms budget covers debug-mode first-call overhead across all 6 regex passes.
         assert!(elapsed_ms < 10.0, "single find_all took {elapsed_ms:.3} ms");
     }
 }
