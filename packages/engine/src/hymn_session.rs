@@ -16,6 +16,8 @@ pub enum HymnSessionEvent {
         number: u16,
         title: String,
         section_index: usize,
+        /// 1-based stanza number (None for chorus).
+        stanza_number: Option<u16>,
         is_chorus: bool,
         lines: Vec<String>,
     },
@@ -23,6 +25,8 @@ pub enum HymnSessionEvent {
     Advanced {
         number: u16,
         section_index: usize,
+        /// 1-based stanza number (None for chorus).
+        stanza_number: Option<u16>,
         is_chorus: bool,
         lines: Vec<String>,
     },
@@ -72,6 +76,20 @@ impl HymnSession {
         self.sequence.get(self.position)
     }
 
+    /// Count of non-chorus sections up to and including `pos` (1-based stanza number).
+    /// Returns `None` if the section at `pos` is a chorus.
+    fn stanza_number_at(&self, pos: usize) -> Option<u16> {
+        let (is_chorus, _) = self.sequence.get(pos)?;
+        if *is_chorus {
+            return None;
+        }
+        let count = self.sequence[..=pos]
+            .iter()
+            .filter(|(chorus, _)| !chorus)
+            .count() as u16;
+        Some(count)
+    }
+
     /// Emit the initial `Loaded` event for the first section.
     pub fn start_event(&self) -> Option<HymnSessionEvent> {
         let (is_chorus, lines) = self.current()?;
@@ -79,6 +97,7 @@ impl HymnSession {
             number: self.number,
             title: self.title.clone(),
             section_index: self.position,
+            stanza_number: self.stanza_number_at(self.position),
             is_chorus: *is_chorus,
             lines: lines.clone(),
         })
@@ -119,6 +138,7 @@ impl HymnSession {
         Some(HymnSessionEvent::Advanced {
             number: self.number,
             section_index: self.position,
+            stanza_number: self.stanza_number_at(self.position),
             is_chorus: *is_chorus,
             lines: lines.clone(),
         })

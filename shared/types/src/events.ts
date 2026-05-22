@@ -83,6 +83,7 @@ export type AppEvent =
       type: 'HYMN_SECTION_ADVANCED';
       number: number;
       section_index: number;
+      stanza_number: number | null;
       is_chorus: boolean;
       lines: string[];
     }

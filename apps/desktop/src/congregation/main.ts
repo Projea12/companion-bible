@@ -58,13 +58,13 @@ let activeHymnTitle = '';
 
 function showHymnSection(
   number: number,
-  sectionIndex: number,
+  stanzaNumber: number | null,
   isChorus: boolean,
   lines: string[],
 ): void {
   showState('hymn', () => {
     hymnNumberLabel.textContent = `GHS ${String(number)}`;
-    hymnSectionLabel.textContent = isChorus ? 'Chorus' : `Stanza ${String(sectionIndex + 1)}`;
+    hymnSectionLabel.textContent = isChorus ? 'Chorus' : `Stanza ${String(stanzaNumber ?? '')}`;
     hymnTitle.textContent = activeHymnTitle;
     hymnLines.innerHTML = '';
     for (const line of lines) {
@@ -108,7 +108,7 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       break;
 
     case 'HYMN_SECTION_ADVANCED':
-      showHymnSection(payload.number, payload.section_index, payload.is_chorus, payload.lines);
+      showHymnSection(payload.number, payload.stanza_number, payload.is_chorus, payload.lines);
       break;
 
     case 'HYMN_COMPLETED':

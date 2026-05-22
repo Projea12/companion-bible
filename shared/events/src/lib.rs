@@ -213,6 +213,8 @@ pub enum AppEvent {
         number: u16,
         /// 0-based index into the playback sequence.
         section_index: usize,
+        /// 1-based stanza number; `None` when this section is a chorus.
+        stanza_number: Option<u16>,
         is_chorus: bool,
         lines: Vec<String>,
     },

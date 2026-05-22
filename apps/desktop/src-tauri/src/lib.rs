@@ -1003,15 +1003,24 @@ async fn load_hymn(
         .map(|h| h.title.clone())
         .unwrap_or_default();
 
-    if let Some((is_chorus, lines)) = session.current().cloned() {
-        let _ = app.emit("app-event", &AppEvent::HymnDetected { number, title });
+    if let Some(companion_engine::HymnSessionEvent::Loaded {
+        number: n,
+        section_index,
+        stanza_number,
+        is_chorus,
+        ref lines,
+        ..
+    }) = session.start_event()
+    {
+        let _ = app.emit("app-event", &AppEvent::HymnDetected { number: n, title });
         let _ = app.emit(
             "app-event",
             &AppEvent::HymnSectionAdvanced {
-                number,
-                section_index: 0,
+                number: n,
+                section_index,
+                stanza_number,
                 is_chorus,
-                lines,
+                lines: lines.clone(),
             },
         );
     }
@@ -1041,6 +1050,7 @@ async fn next_hymn_stanza(app: AppHandle, state: State<'_, ManagedState>) -> Res
         companion_engine::HymnSessionEvent::Advanced {
             number,
             section_index,
+            stanza_number,
             is_chorus,
             lines,
         } => {
@@ -1049,6 +1059,7 @@ async fn next_hymn_stanza(app: AppHandle, state: State<'_, ManagedState>) -> Res
                 &AppEvent::HymnSectionAdvanced {
                     number,
                     section_index,
+                    stanza_number,
                     is_chorus,
                     lines,
                 },

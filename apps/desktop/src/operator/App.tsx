@@ -53,7 +53,7 @@ export function App() {
   const [displayMode, setDisplayMode] = useState<'bible' | 'hymn'>('bible');
   const [activeHymn, setActiveHymn] = useState<{ number: number; title: string } | null>(null);
   const [hymnSection, setHymnSection] = useState<{
-    sectionIndex: number;
+    stanzaNumber: number | null;
     isChorus: boolean;
     lines: string[];
   } | null>(null);
@@ -250,7 +250,7 @@ export function App() {
 
         case 'HYMN_SECTION_ADVANCED':
           setHymnSection({
-            sectionIndex: payload.section_index,
+            stanzaNumber: payload.stanza_number,
             isChorus: payload.is_chorus,
             lines: payload.lines,
           });
@@ -685,7 +685,7 @@ export function App() {
               {hymnSection && (
                 <>
                   <p className="hymn-section-label">
-                    {hymnSection.isChorus ? 'Chorus' : `Stanza ${hymnSection.sectionIndex + 1}`}
+                    {hymnSection.isChorus ? 'Chorus' : `Stanza ${hymnSection.stanzaNumber ?? ''}`}
                   </p>
                   <div className="hymn-section-lines">
                     {hymnSection.lines.map((line, i) => (

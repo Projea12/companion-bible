@@ -160,6 +160,7 @@ impl DetectionEngine {
                 number: n,
                 ref title,
                 section_index,
+                stanza_number,
                 is_chorus,
                 ref lines,
             }) = session.start_event()
@@ -171,6 +172,7 @@ impl DetectionEngine {
                 self.emit_event(AppEvent::HymnSectionAdvanced {
                     number: n,
                     section_index,
+                    stanza_number,
                     is_chorus,
                     lines: lines.clone(),
                 });
@@ -469,6 +471,7 @@ impl DetectionEngine {
                         number: n,
                         ref title,
                         section_index,
+                        stanza_number,
                         is_chorus,
                         ref lines,
                     }) = session.start_event()
@@ -480,6 +483,7 @@ impl DetectionEngine {
                         self.emit_event(AppEvent::HymnSectionAdvanced {
                             number: n,
                             section_index,
+                            stanza_number,
                             is_chorus,
                             lines: lines.clone(),
                         });
@@ -644,22 +648,26 @@ fn hymn_session_to_app_event(ev: HymnSessionEvent) -> AppEvent {
             number,
             title: _,
             section_index,
+            stanza_number,
             is_chorus,
             lines,
         } => AppEvent::HymnSectionAdvanced {
             number,
             section_index,
+            stanza_number,
             is_chorus,
             lines,
         },
         HymnSessionEvent::Advanced {
             number,
             section_index,
+            stanza_number,
             is_chorus,
             lines,
         } => AppEvent::HymnSectionAdvanced {
             number,
             section_index,
+            stanza_number,
             is_chorus,
             lines,
         },
