@@ -17,9 +17,17 @@ pub struct MemoryWal {
     pub entries: Vec<WalEntry>,
 }
 
+impl Default for MemoryWal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MemoryWal {
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 }
 
@@ -39,7 +47,9 @@ pub struct FailingWal {
 impl FailingWal {
     #[allow(dead_code)]
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into() }
+        Self {
+            message: message.into(),
+        }
     }
 }
 
@@ -60,7 +70,12 @@ impl SharedWal {
     /// `shared_handle` in the test to read entries at any point.
     pub fn new() -> (Self, Arc<Mutex<Vec<WalEntry>>>) {
         let entries = Arc::new(Mutex::new(Vec::new()));
-        (Self { entries: entries.clone() }, entries)
+        (
+            Self {
+                entries: entries.clone(),
+            },
+            entries,
+        )
     }
 }
 

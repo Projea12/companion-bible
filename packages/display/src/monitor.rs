@@ -11,7 +11,10 @@ pub struct MonitorLayout {
 
 impl MonitorLayout {
     pub fn new(total: usize, congregation_on_secondary: bool) -> Self {
-        Self { total, congregation_on_secondary }
+        Self {
+            total,
+            congregation_on_secondary,
+        }
     }
 }
 
@@ -30,9 +33,9 @@ pub enum ScreenStatus {
 impl std::fmt::Display for ScreenStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Connected    => write!(f, "connected"),
+            Self::Connected => write!(f, "connected"),
             Self::Disconnected => write!(f, "disconnected"),
-            Self::Swapped      => write!(f, "swapped"),
+            Self::Swapped => write!(f, "swapped"),
         }
     }
 }
@@ -51,7 +54,9 @@ impl DisplayMonitor {
     /// Create with a known initial layout (avoids a spurious event on the
     /// first poll cycle).
     pub fn new(initial: MonitorLayout) -> Self {
-        Self { status: Self::resolve(&initial) }
+        Self {
+            status: Self::resolve(&initial),
+        }
     }
 
     /// The most recently resolved status.

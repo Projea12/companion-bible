@@ -7,7 +7,7 @@ use std::time::Instant;
 use companion_arbitrator::{ArbitrationDecision, ConfidenceArbitrator, PartialResults};
 use companion_bible::{BibleValidator, KjvBible, ValidationResult};
 use companion_calibration::{CalibrationError, ChurchCalibrator};
-use companion_cloud_ai::CloudAI;
+use companion_cloud_ai::{CloudAI, OpenAICloudAI};
 use companion_context::SermonContext;
 use companion_database::{
     CalibrationRepository, ChurchRepository, DetectionEvent, DetectionEventRepository,
@@ -37,7 +37,10 @@ pub struct EngineConfig {
     /// Identifies the current sermon session in the database.
     pub sermon_id: String,
 
-    /// Anthropic API key.  `None` disables the cloud layer.
+    /// OpenAI API key — primary cloud detection layer.  `None` disables OpenAI.
+    pub openai_api_key: Option<String>,
+
+    /// Anthropic API key — fallback cloud layer.  `None` disables Anthropic.
     pub api_key: Option<String>,
 }
 
@@ -48,6 +51,9 @@ pub struct EngineConfig {
 pub struct DetectionEngine {
     // ── detection layers ──────────────────────────────────────────────────────
     local_ai: Option<Arc<LocalAiHandle>>,
+    /// OpenAI — primary cloud layer (fires first, 2 s budget).
+    openai_cloud_ai: Option<Arc<OpenAICloudAI>>,
+    /// Anthropic — fallback cloud layer.
     cloud_ai: Option<Arc<CloudAI>>,
 
     // ── pipeline components ───────────────────────────────────────────────────
@@ -80,15 +86,21 @@ impl DetectionEngine {
     ) -> Result<Self, CalibrationError> {
         let calibrator = ChurchCalibrator::load(church_repo, calibration_repo).await?;
 
-        let mut arbitrator = ConfidenceArbitrator::default();
-        arbitrator.auto_display_threshold = calibrator.thresholds().auto_display;
-        arbitrator.amber_threshold = calibrator.thresholds().show_with_warning;
+        let arbitrator = ConfidenceArbitrator {
+            auto_display_threshold: calibrator.thresholds().auto_display,
+            amber_threshold: calibrator.thresholds().show_with_warning,
+            ..Default::default()
+        };
 
-        let local_ai = local_ai_handle.map(|h| Arc::new(h));
+        let local_ai = local_ai_handle.map(Arc::new);
+        let openai_cloud_ai = config
+            .openai_api_key
+            .map(|k| Arc::new(OpenAICloudAI::new(k)));
         let cloud_ai = config.api_key.map(|k| Arc::new(CloudAI::new(k)));
 
         Ok(Self {
             local_ai,
+            openai_cloud_ai,
             cloud_ai,
             context: SermonContext::new(),
             arbitrator,
@@ -140,38 +152,69 @@ impl DetectionEngine {
             .map(|r| r.to_string());
 
         // ── 2. Pattern layer (sync, embedded in enrichment) ───────────────
-        // First try the current utterance alone.  If it doesn't yield a full
-        // reference (book + chapter + verse), re-run the pattern engine over
-        // the rolling transcript buffer — this re-assembles references that
-        // Deepgram fragmented across several short utterances (e.g. "John." /
-        // "chapter 3." / "verse 16" each arriving as separate events).
         let segment_pattern = layers::pattern_layer(&enriched);
-        let has_full_ref = segment_pattern.as_ref()
+        let has_full_ref = segment_pattern
+            .as_ref()
             .map(|r| r.book.is_some() && r.chapter.is_some() && r.verse.is_some())
             .unwrap_or(false);
+
+        // Only scan the rolling transcript when the current segment contains an
+        // explicit scripture-intent signal.  Without this gate, every segment
+        // re-detects old references still present in the 60-second window,
+        // causing the same verse to be displayed repeatedly.
+        let has_intent = has_scripture_intent(&text);
         let pattern_result = if has_full_ref {
             segment_pattern
-        } else {
-            let rolling = layers::pattern_layer_from_results(
-                &self.context.find_in_rolling_transcript(),
-            );
+        } else if has_intent {
+            let rolling =
+                layers::pattern_layer_from_results(&self.context.find_in_rolling_transcript());
             rolling.or(segment_pattern)
+        } else {
+            segment_pattern
         };
 
-        // ── 2c. Quotation layer — FTS5 match when pattern layers found nothing ──
-        // Runs only when pattern + rolling gave no verse, to avoid latency on
-        // the fast path. Uses the rolling transcript so partial utterances
-        // accumulate enough text before a match fires.
-        let pattern_result = if pattern_result.as_ref().map(|r| r.verse.is_some()).unwrap_or(false) {
+        // ── 2c. Quotation layer — only when intent signal present ────────
+        let pattern_result = if pattern_result
+            .as_ref()
+            .map(|r| r.verse.is_some())
+            .unwrap_or(false)
+        {
             pattern_result
-        } else {
+        } else if has_intent {
             let quotation_result = self
                 .quotation_layer(&transcript, active_book.as_deref(), active_chapter)
                 .await;
             quotation_result.or(pattern_result)
+        } else {
+            pattern_result
         };
 
-        // ── 3. Submit to local AI worker (non-blocking) ───────────────────
+        // ── 3. Fire OpenAI immediately (primary layer, non-blocking) ─────
+        // Only fire when there is a scripture-intent signal in the current
+        // segment — prevents OpenAI from inferring references from context
+        // alone on every unrelated utterance.
+        let openai_handle = if has_intent {
+            self.openai_cloud_ai.as_ref().map(|ai| {
+                let ai = ai.clone();
+                let text_c = text.clone();
+                let transcript_c = transcript.clone();
+                let book_c = active_book.clone();
+                let anchor_c = anchor.clone();
+                tokio::task::spawn_blocking(move || {
+                    ai.detect(
+                        &text_c,
+                        book_c.as_deref(),
+                        active_chapter,
+                        &transcript_c,
+                        anchor_c.as_deref(),
+                    )
+                })
+            })
+        } else {
+            None
+        };
+
+        // ── 4. Submit to local AI worker (non-blocking) ───────────────────
         let local_rx = self.local_ai.as_ref().and_then(|h| {
             h.try_submit(
                 text.clone(),
@@ -181,34 +224,39 @@ impl DetectionEngine {
             )
         });
 
-        // ── 4. Spawn cloud AI task ─────────────────────────────────────────
-        let cloud_handle = self.cloud_ai.as_ref().map(|cloud| {
-            let cloud = cloud.clone();
-            let text_c = text.clone();
-            let transcript_c = transcript.clone();
-            let book_c = active_book.clone();
-            let anchor_c = anchor.clone();
-            tokio::task::spawn_blocking(move || {
-                cloud.detect(
-                    &text_c,
-                    book_c.as_deref(),
-                    active_chapter,
-                    &transcript_c,
-                    anchor_c.as_deref(),
-                )
+        // ── 5. Spawn Anthropic fallback cloud task ────────────────────────
+        // Only used when OpenAI is not configured.
+        let cloud_handle = if openai_handle.is_none() {
+            self.cloud_ai.as_ref().map(|cloud| {
+                let cloud = cloud.clone();
+                let text_c = text.clone();
+                let transcript_c = transcript.clone();
+                let book_c = active_book.clone();
+                let anchor_c = anchor.clone();
+                tokio::task::spawn_blocking(move || {
+                    cloud.detect(
+                        &text_c,
+                        book_c.as_deref(),
+                        active_chapter,
+                        &transcript_c,
+                        anchor_c.as_deref(),
+                    )
+                })
             })
-        });
+        } else {
+            None
+        };
 
-        // ── 5. Build partial results with pattern only ─────────────────────
+        // ── 6. Build partial results with pattern as fallback ─────────────
         let mut partial = PartialResults {
             pattern: pattern_result,
             local_ai_pending: local_rx.is_some(),
-            cloud_pending: cloud_handle.is_some(),
+            cloud_pending: openai_handle.is_some() || cloud_handle.is_some(),
             elapsed_ms: t0.elapsed().as_millis() as u64,
             ..Default::default()
         };
 
-        // ── 6. Collect local AI result ─────────────────────────────────────
+        // ── 7. Collect local AI result ─────────────────────────────────────
         if let Some(rx) = local_rx {
             let elapsed = t0.elapsed().as_millis() as u64;
             let budget = LOCAL_AI_WAIT_MS.saturating_sub(elapsed).max(10);
@@ -219,18 +267,28 @@ impl DetectionEngine {
             partial.elapsed_ms = t0.elapsed().as_millis() as u64;
         }
 
-        // ── 7. Mid-point arbitration (pattern + local AI) ─────────────────
+        // ── 8. Collect OpenAI result (primary — always wait within budget) ─
+        if let Some(handle) = openai_handle {
+            let elapsed = t0.elapsed().as_millis() as u64;
+            let budget = CLOUD_WAIT_BUDGET_MS.saturating_sub(elapsed).max(10);
+            let timeout = tokio::time::Duration::from_millis(budget);
+            if let Ok(Ok(result)) = tokio::time::timeout(timeout, handle).await {
+                partial.cloud = layers::cloud_ai_layer(result);
+            }
+            partial.cloud_pending = false;
+        }
+
+        // ── 9. Mid-point arbitration ──────────────────────────────────────
         let mid = self.arbitrator.arbitrate(&partial);
 
-        // ── 8. Conditionally wait for cloud ───────────────────────────────
+        // ── 10. Conditionally wait for Anthropic fallback ─────────────────
         if let Some(handle) = cloud_handle {
             if mid.should_wait_for_cloud {
                 let elapsed = t0.elapsed().as_millis() as u64;
                 let budget = CLOUD_WAIT_BUDGET_MS.saturating_sub(elapsed).max(10);
                 let timeout = tokio::time::Duration::from_millis(budget);
-                match tokio::time::timeout(timeout, handle).await {
-                    Ok(Ok(result)) => partial.cloud = layers::cloud_ai_layer(result),
-                    _ => {}
+                if let Ok(Ok(result)) = tokio::time::timeout(timeout, handle).await {
+                    partial.cloud = layers::cloud_ai_layer(result);
                 }
             } else {
                 handle.abort();
@@ -239,14 +297,14 @@ impl DetectionEngine {
         }
         partial.elapsed_ms = t0.elapsed().as_millis() as u64;
 
-        // ── 9. Final arbitration ───────────────────────────────────────────
+        // ── 11. Final arbitration ─────────────────────────────────────────
         let final_decision = self.arbitrator.arbitrate(&partial);
         let processing_ms = t0.elapsed().as_millis() as u64;
 
-        // ── 10. Resolve winning reference ─────────────────────────────────
+        // ── 12. Resolve winning reference ─────────────────────────────────
         let event_ref = layer_result_to_event_ref(&final_decision);
 
-        // ── 11. Validate ──────────────────────────────────────────────────
+        // ── 13. Validate ──────────────────────────────────────────────────
         let validation = match &event_ref {
             Some(r) => validate_reference(&self.bible, r),
             None => ValidationOutcome::NoReference,
@@ -262,11 +320,22 @@ impl DetectionEngine {
         }
 
         // ── 14. Log to database ───────────────────────────────────────────
-        self.log_event(&partial, &final_decision, &event_ref, &validation, &text, processing_ms)
-            .await;
+        self.log_event(
+            &partial,
+            &final_decision,
+            &event_ref,
+            &validation,
+            &text,
+            processing_ms,
+        )
+        .await;
 
         // ── 15. Build decision ────────────────────────────────────────────
-        let reference = if validation.is_valid() { event_ref } else { None };
+        let reference = if validation.is_valid() {
+            event_ref
+        } else {
+            None
+        };
 
         // ── 15a. Fuzzy fallback — if no verse detected but context known ──
         if reference.is_none() {
@@ -373,9 +442,7 @@ impl DetectionEngine {
 
 // ─── free helpers ─────────────────────────────────────────────────────────────
 
-fn layer_result_to_event_ref(
-    decision: &ArbitrationDecision,
-) -> Option<EventBibleReference> {
+fn layer_result_to_event_ref(decision: &ArbitrationDecision) -> Option<EventBibleReference> {
     let layer = decision.reference.as_ref()?;
     let book = layer.book.as_ref()?.clone();
     let chapter = layer.chapter?;
@@ -396,7 +463,9 @@ fn validate_reference(bible: &KjvBible, r: &EventBibleReference) -> ValidationOu
     let validator = BibleValidator::new(bible);
     match validator.validate(&bible_ref) {
         ValidationResult::Valid(_) => ValidationOutcome::Valid,
-        other => ValidationOutcome::Invalid { reason: other.to_string() },
+        other => ValidationOutcome::Invalid {
+            reason: other.to_string(),
+        },
     }
 }
 
@@ -410,8 +479,45 @@ fn build_event(
             references: vec![r.clone()],
             source_text: source_text.to_string(),
         },
-        _ => AppEvent::NoReferenceFound { source_text: source_text.to_string() },
+        _ => AppEvent::NoReferenceFound {
+            source_text: source_text.to_string(),
+        },
     }
+}
+
+/// Returns `true` when the segment text contains an explicit scripture-intent
+/// signal — a Bible book name, or the words "verse", "chapter", "scripture",
+/// "passage", or a standalone number that could be a chapter/verse reference.
+///
+/// Used to gate the rolling-transcript scan and cloud AI calls so that
+/// ordinary speech never re-detects stale references from history.
+fn has_scripture_intent(text: &str) -> bool {
+    use companion_detection::build_book_alternation;
+    // Fast keyword check first — avoids regex if obvious signals are absent.
+    let lower = text.to_lowercase();
+    if [
+        "verse",
+        "chapter",
+        "scripture",
+        "passage",
+        "psalm",
+        "proverb",
+    ]
+    .iter()
+    .any(|kw| lower.contains(kw))
+    {
+        return true;
+    }
+    // Check for any digit in text — "3:16", "chapter 3", "verse 16" etc.
+    if text.chars().any(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    // Check for a Bible book name.
+    static BOOK_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = BOOK_RE.get_or_init(|| {
+        regex::Regex::new(&format!("(?i)\\b(?:{})\\b", build_book_alternation())).expect("book_re")
+    });
+    re.is_match(text)
 }
 
 fn chrono_now() -> String {

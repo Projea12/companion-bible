@@ -26,25 +26,93 @@ const MIN_VERSE_WORDS: usize = 6;
 
 /// KJV stop words excluded from overlap scoring.
 const STOP_WORDS: &[&str] = &[
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "is", "was", "are", "were", "be", "been",
-    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
-    "should", "may", "might", "must", "can", "could", "not", "no",
-    "it", "its", "he", "she", "they", "we", "you", "i", "me", "him", "her",
-    "them", "us", "his", "her", "their", "our", "your", "my", "who", "which",
-    "that", "this", "these", "those", "there", "so",
-    "thy", "thee", "thou", "thine", "ye", "hath", "hast", "doth", "shalt",
-    "unto", "upon", "thereof", "wherein", "therefore", "wherefore",
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "but",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "with",
+    "by",
+    "from",
+    "is",
+    "was",
+    "are",
+    "were",
+    "be",
+    "been",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "shall",
+    "should",
+    "may",
+    "might",
+    "must",
+    "can",
+    "could",
+    "not",
+    "no",
+    "it",
+    "its",
+    "he",
+    "she",
+    "they",
+    "we",
+    "you",
+    "i",
+    "me",
+    "him",
+    "her",
+    "them",
+    "us",
+    "his",
+    "her",
+    "their",
+    "our",
+    "your",
+    "my",
+    "who",
+    "which",
+    "that",
+    "this",
+    "these",
+    "those",
+    "there",
+    "so",
+    "thy",
+    "thee",
+    "thou",
+    "thine",
+    "ye",
+    "hath",
+    "hast",
+    "doth",
+    "shalt",
+    "unto",
+    "upon",
+    "thereof",
+    "wherein",
+    "therefore",
+    "wherefore",
 ];
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /// Given FTS5 candidates and the rolling transcript, return the best-matching
 /// verse as a `LayerResult`, or `None` if no candidate meets the threshold.
-pub fn best_quotation_match(
-    candidates: &[FtsResult],
-    transcript: &str,
-) -> Option<LayerResult> {
+pub fn best_quotation_match(candidates: &[FtsResult], transcript: &str) -> Option<LayerResult> {
     let transcript_words = content_word_set(transcript);
     if transcript_words.is_empty() {
         return None;
@@ -90,9 +158,13 @@ pub fn best_quotation_match(
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 fn overlap_to_confidence(overlap: f32) -> f32 {
-    if overlap >= 0.80 { 0.93 }
-    else if overlap >= 0.65 { 0.85 }
-    else { 0.72 }
+    if overlap >= 0.80 {
+        0.93
+    } else if overlap >= 0.65 {
+        0.85
+    } else {
+        0.72
+    }
 }
 
 /// Return content words from `text` as a lowercase Vec (with duplicates).
@@ -132,12 +204,13 @@ mod tests {
     #[test]
     fn detects_john_3_16_by_text() {
         let candidates = vec![make_candidate(
-            "John", 3, 16,
+            "John",
+            3,
+            16,
             "For God so loved the world that he gave his only begotten Son \
              that whosoever believeth in him should not perish but have everlasting life",
         )];
-        let transcript =
-            "for god so loved the world that he gave his only begotten son \
+        let transcript = "for god so loved the world that he gave his only begotten son \
              that whosoever believeth in him should not perish";
         let result = best_quotation_match(&candidates, transcript).unwrap();
         assert_eq!(result.book.as_deref(), Some("John"));
@@ -149,7 +222,9 @@ mod tests {
     #[test]
     fn rejects_low_overlap() {
         let candidates = vec![make_candidate(
-            "Romans", 8, 28,
+            "Romans",
+            8,
+            28,
             "And we know that all things work together for good to them that love God \
              to them who are the called according to his purpose",
         )];
@@ -169,12 +244,11 @@ mod tests {
     #[test]
     fn picks_best_when_multiple_candidates() {
         let candidates = vec![
+            make_candidate("Psalms", 23, 1, "The LORD is my shepherd I shall not want"),
             make_candidate(
-                "Psalms", 23, 1,
-                "The LORD is my shepherd I shall not want",
-            ),
-            make_candidate(
-                "John", 3, 16,
+                "John",
+                3,
+                16,
                 "For God so loved the world that he gave his only begotten Son \
                  that whosoever believeth in him should not perish but have everlasting life",
             ),

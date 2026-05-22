@@ -28,8 +28,10 @@ use crate::prompt::SermonPromptBuilder;
 #[cfg(feature = "local-llm")]
 const CTX_SIZE: u32 = 4_096;
 #[cfg(feature = "local-llm")]
+#[allow(dead_code)]
 const MAX_NEW_TOKENS: usize = 128;
 #[cfg(feature = "local-llm")]
+#[allow(dead_code)]
 const TIMEOUT_MS: u64 = 400;
 #[cfg(feature = "local-llm")]
 const RUNTIME_OVERHEAD_MB: u64 = 512;
@@ -49,7 +51,10 @@ pub fn check_memory(model_path: &Path) -> Result<(), LocalAIError> {
         sys.refresh_memory();
         let available_mb = sys.available_memory() / 1_048_576;
         if available_mb < required_mb {
-            return Err(LocalAIError::InsufficientMemory { required_mb, available_mb });
+            return Err(LocalAIError::InsufficientMemory {
+                required_mb,
+                available_mb,
+            });
         }
     }
     #[cfg(not(feature = "local-llm"))]
@@ -98,15 +103,27 @@ pub struct LocalAIResult {
 
 impl LocalAIResult {
     pub(crate) fn ok(reference: LocalAIResponse, inference_ms: u64) -> Self {
-        Self { reference: Some(reference), timed_out: false, inference_ms }
+        Self {
+            reference: Some(reference),
+            timed_out: false,
+            inference_ms,
+        }
     }
 
     pub(crate) fn timeout(inference_ms: u64) -> Self {
-        Self { reference: None, timed_out: true, inference_ms }
+        Self {
+            reference: None,
+            timed_out: true,
+            inference_ms,
+        }
     }
 
     pub(crate) fn failed(inference_ms: u64) -> Self {
-        Self { reference: None, timed_out: false, inference_ms }
+        Self {
+            reference: None,
+            timed_out: false,
+            inference_ms,
+        }
     }
 }
 
@@ -154,15 +171,15 @@ impl LocalAI {
         if !config.skip_memory_check {
             check_memory(&config.model_path)?;
         }
-        let backend = LlamaBackend::init()
-            .map_err(|e| LocalAIError::LoadFailed(e.to_string()))?;
-        let model = LlamaModel::load_from_file(
-            &backend,
-            &config.model_path,
-            &LlamaModelParams::default(),
-        )
-        .map_err(|e| LocalAIError::LoadFailed(e.to_string()))?;
-        Ok(Self { backend, model, config })
+        let backend = LlamaBackend::init().map_err(|e| LocalAIError::LoadFailed(e.to_string()))?;
+        let model =
+            LlamaModel::load_from_file(&backend, &config.model_path, &LlamaModelParams::default())
+                .map_err(|e| LocalAIError::LoadFailed(e.to_string()))?;
+        Ok(Self {
+            backend,
+            model,
+            config,
+        })
     }
 
     pub fn inference(
@@ -219,8 +236,7 @@ impl LocalAI {
         let mut sampler = LlamaSampler::greedy();
         let mut decoder = encoding_rs::UTF_8.new_decoder();
         let mut output = String::new();
-        let mut n_cur = n_prompt as i32;
-        for _ in 0..self.config.max_new_tokens {
+        for (n_cur, _) in (n_prompt as i32..).zip(0..self.config.max_new_tokens) {
             if Instant::now() >= deadline {
                 let elapsed = deadline.elapsed().as_millis() as u64 + self.config.timeout_ms;
                 return Err(LocalAIError::Timeout(elapsed));
@@ -240,7 +256,6 @@ impl LocalAI {
                 .map_err(|e| LocalAIError::InferenceFailed(e.to_string()))?;
             ctx.decode(&mut batch)
                 .map_err(|e| LocalAIError::InferenceFailed(e.to_string()))?;
-            n_cur += 1;
             if output.trim_end().ends_with('}') {
                 break;
             }
@@ -329,7 +344,10 @@ impl LocalAI {
             return LocalAIResult::failed(t0.elapsed().as_millis() as u64);
         }
 
-        match self.rx.recv_timeout(std::time::Duration::from_millis(self.config.timeout_ms)) {
+        match self
+            .rx
+            .recv_timeout(std::time::Duration::from_millis(self.config.timeout_ms))
+        {
             Ok(line) => match parse_json_response(&line) {
                 Ok(resp) => LocalAIResult::ok(resp, t0.elapsed().as_millis() as u64),
                 Err(_) => LocalAIResult::failed(t0.elapsed().as_millis() as u64),
@@ -349,10 +367,7 @@ impl LocalAI {
 #[cfg(not(feature = "local-llm"))]
 fn find_worker_binary() -> Result<PathBuf, LocalAIError> {
     if let Ok(exe) = std::env::current_exe() {
-        let candidate = exe
-            .parent()
-            .unwrap_or(Path::new("."))
-            .join("phi3-worker");
+        let candidate = exe.parent().unwrap_or(Path::new(".")).join("phi3-worker");
         if candidate.exists() {
             return Ok(candidate);
         }
@@ -365,12 +380,17 @@ fn find_worker_binary() -> Result<PathBuf, LocalAIError> {
 pub(crate) fn parse_json_response(raw: &str) -> Result<LocalAIResponse, LocalAIError> {
     let start = raw
         .find('{')
-        .ok_or_else(|| LocalAIError::MalformedResponse { raw: raw.to_owned() })?;
+        .ok_or_else(|| LocalAIError::MalformedResponse {
+            raw: raw.to_owned(),
+        })?;
     let end = raw
         .rfind('}')
-        .ok_or_else(|| LocalAIError::MalformedResponse { raw: raw.to_owned() })?;
-    serde_json::from_str(&raw[start..=end])
-        .map_err(|_| LocalAIError::MalformedResponse { raw: raw.to_owned() })
+        .ok_or_else(|| LocalAIError::MalformedResponse {
+            raw: raw.to_owned(),
+        })?;
+    serde_json::from_str(&raw[start..=end]).map_err(|_| LocalAIError::MalformedResponse {
+        raw: raw.to_owned(),
+    })
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -439,7 +459,10 @@ mod tests {
         };
         let result = LocalAIResult::ok(response, 120);
         assert!(!result.timed_out);
-        assert_eq!(result.reference.as_ref().unwrap().book.as_deref(), Some("John"));
+        assert_eq!(
+            result.reference.as_ref().unwrap().book.as_deref(),
+            Some("John")
+        );
         assert_eq!(result.inference_ms, 120);
     }
 

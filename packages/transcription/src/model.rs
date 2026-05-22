@@ -90,13 +90,20 @@ impl WhisperModel {
 
         on_progress(1.0);
 
-        Ok(Self { ctx, model_path: path, load_time_ms, memory_delta_mb })
+        Ok(Self {
+            ctx,
+            model_path: path,
+            load_time_ms,
+            memory_delta_mb,
+        })
     }
 
     /// Run a 0.1 s silence through the model to verify it is fully functional.
     pub fn health_check(&self) -> Result<HealthReport, TranscriptionError> {
-        let mut state =
-            self.ctx.create_state().map_err(TranscriptionError::Whisper)?;
+        let mut state = self
+            .ctx
+            .create_state()
+            .map_err(TranscriptionError::Whisper)?;
 
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_n_threads(1);
@@ -114,10 +121,15 @@ impl WhisperModel {
             .map_err(|e| TranscriptionError::HealthCheck(e.to_string()))?;
         let inference_ms = t0.elapsed().as_millis() as u64;
 
-        let n_segments =
-            state.full_n_segments().map_err(TranscriptionError::Whisper)?;
+        let n_segments = state
+            .full_n_segments()
+            .map_err(TranscriptionError::Whisper)?;
 
-        Ok(HealthReport { ok: true, inference_ms, n_segments })
+        Ok(HealthReport {
+            ok: true,
+            inference_ms,
+            n_segments,
+        })
     }
 
     /// Transcribe `audio` (mono f32, 16 kHz, [-1, 1]) and return time-stamped
@@ -135,8 +147,10 @@ impl WhisperModel {
         audio: &[f32],
         options: &TranscribeOptions,
     ) -> Result<Vec<TranscriptionSegment>, TranscriptionError> {
-        let mut state =
-            self.ctx.create_state().map_err(TranscriptionError::Whisper)?;
+        let mut state = self
+            .ctx
+            .create_state()
+            .map_err(TranscriptionError::Whisper)?;
 
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_n_threads(options.n_threads);
@@ -161,7 +175,9 @@ impl WhisperModel {
             .full(params, audio)
             .map_err(|e| TranscriptionError::Transcribe(e.to_string()))?;
 
-        let n = state.full_n_segments().map_err(TranscriptionError::Whisper)?;
+        let n = state
+            .full_n_segments()
+            .map_err(TranscriptionError::Whisper)?;
 
         // ── First pass: collect text, timestamps, confidence ──────────────────
         struct RawSegment {
@@ -207,7 +223,11 @@ impl WhisperModel {
             .enumerate()
             .map(|(i, s)| {
                 let prev = if i > 0 { texts[i - 1].as_str() } else { "" };
-                let next = if i + 1 < texts.len() { texts[i + 1].as_str() } else { "" };
+                let next = if i + 1 < texts.len() {
+                    texts[i + 1].as_str()
+                } else {
+                    ""
+                };
                 let context_window = [prev, next]
                     .iter()
                     .filter(|t| !t.is_empty())

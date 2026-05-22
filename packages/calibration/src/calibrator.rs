@@ -37,10 +37,12 @@ impl ChurchCalibrator {
         church_repo: ChurchRepository,
         calibration_repo: CalibrationRepository,
     ) -> Result<Self, CalibrationError> {
-        let auto_display = load_f32(&church_repo, KEY_AUTO_DISPLAY).await?
+        let auto_display = load_f32(&church_repo, KEY_AUTO_DISPLAY)
+            .await?
             .unwrap_or(CalibrationThresholds::default().auto_display);
 
-        let show_with_warning = load_f32(&church_repo, KEY_SHOW_WITH_WARNING).await?
+        let show_with_warning = load_f32(&church_repo, KEY_SHOW_WITH_WARNING)
+            .await?
             .unwrap_or(CalibrationThresholds::default().show_with_warning);
 
         let thresholds = CalibrationThresholds::new(auto_display, show_with_warning);
@@ -119,10 +121,7 @@ impl ChurchCalibrator {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-async fn load_f32(
-    repo: &ChurchRepository,
-    key: &str,
-) -> Result<Option<f32>, CalibrationError> {
+async fn load_f32(repo: &ChurchRepository, key: &str) -> Result<Option<f32>, CalibrationError> {
     match repo.get_setting(key).await? {
         None => Ok(None),
         Some(s) => s
@@ -137,7 +136,9 @@ async fn load_f32(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use companion_database::{connect, CalibrationRepository, ChurchRepository, DbPool, PoolConfig};
+    use companion_database::{
+        connect, CalibrationRepository, ChurchRepository, DbPool, PoolConfig,
+    };
     use std::path::Path;
     use tempfile::TempDir;
 
@@ -150,12 +151,10 @@ mod tests {
             .unwrap();
 
         // seed church + sermon so FK constraints are satisfied
-        sqlx::query(
-            "INSERT INTO churches (id, name, region) VALUES ('c1', 'Test Church', 'uk')",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Test Church', 'uk')")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         sqlx::query(
             "INSERT INTO sermons (id, church_id, date, started_at)
@@ -181,7 +180,12 @@ mod tests {
             rejected,
             avg_confidence: None,
             avg_processing_time_ms: None,
-            created_at: format!("2026-01-01T{:02}:{:02}:{:02}Z", n / 3600, (n / 60) % 60, n % 60),
+            created_at: format!(
+                "2026-01-01T{:02}:{:02}:{:02}Z",
+                n / 3600,
+                (n / 60) % 60,
+                n % 60
+            ),
         }
     }
 
@@ -197,7 +201,10 @@ mod tests {
 
         let defaults = CalibrationThresholds::default();
         assert_eq!(calibrator.thresholds().auto_display, defaults.auto_display);
-        assert_eq!(calibrator.thresholds().show_with_warning, defaults.show_with_warning);
+        assert_eq!(
+            calibrator.thresholds().show_with_warning,
+            defaults.show_with_warning
+        );
     }
 
     #[tokio::test]

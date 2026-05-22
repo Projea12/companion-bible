@@ -147,12 +147,14 @@ impl SlidingWindow {
     /// returned.  The result is always a contiguous `Vec<f32>` — callers may
     /// pass it directly to Whisper without further copying.
     pub fn last(&self, duration: Duration) -> AudioWindow {
-        let n_requested =
-            (duration.as_secs_f64() * self.sample_rate as f64).round() as usize;
+        let n_requested = (duration.as_secs_f64() * self.sample_rate as f64).round() as usize;
         let n = n_requested.min(self.buf.len());
         let start = self.buf.len() - n;
         let samples: Vec<f32> = self.buf.range(start..).copied().collect();
-        AudioWindow { samples, sample_rate: self.sample_rate }
+        AudioWindow {
+            samples,
+            sample_rate: self.sample_rate,
+        }
     }
 
     /// Return `true` if audio has been pushed **after** `timestamp`.

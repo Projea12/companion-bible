@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn char_count_tracks_retained_content() {
         let mut rt = RollingTranscript::new();
-        rt.push("hello", 0);    // 5 chars
+        rt.push("hello", 0); // 5 chars
         assert_eq!(rt.char_count(), 5);
         rt.push("world", 1_000); // 5 chars
         assert_eq!(rt.char_count(), 10);
@@ -180,9 +180,9 @@ mod tests {
     #[test]
     fn retains_all_segments_within_60_second_window() {
         let mut rt = RollingTranscript::new();
-        rt.push("first",  0);
+        rt.push("first", 0);
         rt.push("second", 30_000); // 30 s
-        rt.push("third",  59_000); // 59 s — all within 60 s of each other
+        rt.push("third", 59_000); // 59 s — all within 60 s of each other
         assert!(rt.text().contains("first"));
         assert!(rt.text().contains("second"));
         assert!(rt.text().contains("third"));
@@ -207,9 +207,12 @@ mod tests {
     fn evicts_segment_strictly_outside_window() {
         // cutoff = 60_001 - 60_000 = 1; segment at t=0 → 0 < 1 → evicted
         let mut rt = RollingTranscript::with_window(60_000);
-        rt.push("old",    0);
+        rt.push("old", 0);
         rt.push("recent", 60_001);
-        assert!(!rt.text().contains("old"), "segment just outside window should be evicted");
+        assert!(
+            !rt.text().contains("old"),
+            "segment just outside window should be evicted"
+        );
         assert!(rt.text().contains("recent"));
     }
 
@@ -218,8 +221,11 @@ mod tests {
         // cutoff = 60_000 - 60_000 = 0; segment at t=0 → 0 < 0 is false → kept
         let mut rt = RollingTranscript::with_window(60_000);
         rt.push("boundary", 0);
-        rt.push("current",  60_000);
-        assert!(rt.text().contains("boundary"), "segment at exact boundary should be retained");
+        rt.push("current", 60_000);
+        assert!(
+            rt.text().contains("boundary"),
+            "segment at exact boundary should be retained"
+        );
         assert!(rt.text().contains("current"));
     }
 
@@ -227,13 +233,16 @@ mod tests {
     fn evicts_multiple_expired_segments_in_one_push() {
         // window = 10 s; push four segments, then jump to t=15 s
         let mut rt = RollingTranscript::with_window(10_000);
-        rt.push("t0",  0);      // cutoff at t=15 s: 15000-10000=5000; 0 < 5000 → evict
-        rt.push("t4",  4_000);  // 4000 < 5000 → evict
-        rt.push("t5",  5_000);  // 5000 < 5000 is false → keep
+        rt.push("t0", 0); // cutoff at t=15 s: 15000-10000=5000; 0 < 5000 → evict
+        rt.push("t4", 4_000); // 4000 < 5000 → evict
+        rt.push("t5", 5_000); // 5000 < 5000 is false → keep
         rt.push("t15", 15_000);
-        assert!(!rt.text().contains("t0"),  "t0 should be evicted");
-        assert!(!rt.text().contains("t4"),  "t4 should be evicted");
-        assert!(rt.text().contains("t5"),  "t5 is at the cutoff boundary, should be kept");
+        assert!(!rt.text().contains("t0"), "t0 should be evicted");
+        assert!(!rt.text().contains("t4"), "t4 should be evicted");
+        assert!(
+            rt.text().contains("t5"),
+            "t5 is at the cutoff boundary, should be kept"
+        );
         assert!(rt.text().contains("t15"), "t15 should be kept");
     }
 
@@ -249,7 +258,7 @@ mod tests {
     #[test]
     fn custom_5_second_window() {
         let mut rt = RollingTranscript::with_window(5_000);
-        rt.push("early",   0);
+        rt.push("early", 0);
         rt.push("current", 6_000); // cutoff = 1000; early(t=0) < 1000 → evict
         assert!(!rt.text().contains("early"));
         assert!(rt.text().contains("current"));
@@ -258,7 +267,7 @@ mod tests {
     #[test]
     fn char_count_decremented_after_eviction() {
         let mut rt = RollingTranscript::with_window(5_000);
-        rt.push("hello", 0);   // 5 chars
+        rt.push("hello", 0); // 5 chars
         assert_eq!(rt.char_count(), 5);
         rt.push("world", 6_000); // evicts "hello"; 5 chars remain
         assert_eq!(rt.char_count(), 5);

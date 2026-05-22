@@ -29,18 +29,65 @@ use crate::transcript::TranscriptionSegment;
 // spoken with a Nigerian accent (different vowel stress, elided syllables).
 // Boost level 2 is enough to tip ambiguous phonemes without over-fitting.
 const BIBLE_KEYWORDS: &[&str] = &[
-    "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy",
-    "Joshua", "Judges", "Ruth", "Samuel", "Kings", "Chronicles",
-    "Ezra", "Nehemiah", "Esther", "Job", "Psalms", "Proverbs",
-    "Ecclesiastes", "Isaiah", "Jeremiah", "Lamentations", "Ezekiel",
-    "Daniel", "Hosea", "Joel", "Amos", "Obadiah", "Jonah", "Micah",
-    "Nahum", "Habakkuk", "Zephaniah", "Haggai", "Zechariah", "Malachi",
-    "Matthew", "Mark", "Luke", "John", "Acts", "Romans",
-    "Corinthians", "Galatians", "Ephesians", "Philippians", "Colossians",
-    "Thessalonians", "Timothy", "Titus", "Philemon", "Hebrews", "James",
-    "Peter", "Jude", "Revelation",
+    "Genesis",
+    "Exodus",
+    "Leviticus",
+    "Numbers",
+    "Deuteronomy",
+    "Joshua",
+    "Judges",
+    "Ruth",
+    "Samuel",
+    "Kings",
+    "Chronicles",
+    "Ezra",
+    "Nehemiah",
+    "Esther",
+    "Job",
+    "Psalms",
+    "Proverbs",
+    "Ecclesiastes",
+    "Isaiah",
+    "Jeremiah",
+    "Lamentations",
+    "Ezekiel",
+    "Daniel",
+    "Hosea",
+    "Joel",
+    "Amos",
+    "Obadiah",
+    "Jonah",
+    "Micah",
+    "Nahum",
+    "Habakkuk",
+    "Zephaniah",
+    "Haggai",
+    "Zechariah",
+    "Malachi",
+    "Matthew",
+    "Mark",
+    "Luke",
+    "John",
+    "Acts",
+    "Romans",
+    "Corinthians",
+    "Galatians",
+    "Ephesians",
+    "Philippians",
+    "Colossians",
+    "Thessalonians",
+    "Timothy",
+    "Titus",
+    "Philemon",
+    "Hebrews",
+    "James",
+    "Peter",
+    "Jude",
+    "Revelation",
     // Common spoken forms
-    "verse", "chapter", "scripture",
+    "verse",
+    "chapter",
+    "scripture",
 ];
 
 fn deepgram_url() -> String {
@@ -104,22 +151,30 @@ impl DeepgramTranscriber {
     pub fn new(api_key: String, window: Arc<Mutex<SlidingWindow>>) -> (Self, SegmentReceiver) {
         let (sender, receiver) = segment_channel();
         let stop_flag = Arc::new(AtomicBool::new(true));
-        (Self { api_key, window, stop_flag, handle: None, sender }, receiver)
+        (
+            Self {
+                api_key,
+                window,
+                stop_flag,
+                handle: None,
+                sender,
+            },
+            receiver,
+        )
     }
 
     /// Attempt a WebSocket handshake to verify the API key and connectivity.
     /// Returns `Ok(())` on success, `Err(reason)` otherwise.
     pub async fn try_connect(api_key: &str) -> Result<(), String> {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-        let mut req =
-            deepgram_url().into_client_request().map_err(|e| e.to_string())?;
+        let mut req = deepgram_url()
+            .into_client_request()
+            .map_err(|e| e.to_string())?;
         req.headers_mut().insert(
             "Authorization",
-            format!("Token {api_key}")
-                .parse()
-                .map_err(|e: tokio_tungstenite::tungstenite::http::header::InvalidHeaderValue| {
-                    e.to_string()
-                })?,
+            format!("Token {api_key}").parse().map_err(
+                |e: tokio_tungstenite::tungstenite::http::header::InvalidHeaderValue| e.to_string(),
+            )?,
         );
         tokio_tungstenite::connect_async(req)
             .await

@@ -10,6 +10,7 @@ tokio       = { workspace = true }
 serde_json  = { workspace = true }
 
 companion-detection    = { workspace = true }
+regex                  = "1"
 companion-ai           = { workspace = true }
 companion-cloud-ai     = { workspace = true }
 companion-context      = { workspace = true }

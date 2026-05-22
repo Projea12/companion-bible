@@ -53,11 +53,20 @@ impl std::fmt::Display for ValidationResult {
             Self::InvalidBook { book } => {
                 write!(f, "Unknown book: \"{book}\"")
             }
-            Self::InvalidChapter { book, chapter, total_chapters } => write!(
+            Self::InvalidChapter {
+                book,
+                chapter,
+                total_chapters,
+            } => write!(
                 f,
                 "{book} has only {total_chapters} chapter(s) (requested {chapter})"
             ),
-            Self::InvalidVerse { book, chapter, verse, total_verses } => write!(
+            Self::InvalidVerse {
+                book,
+                chapter,
+                verse,
+                total_verses,
+            } => write!(
                 f,
                 "{book} {chapter} has only {total_verses} verse(s) (requested {verse})"
             ),
@@ -106,8 +115,10 @@ impl<'a> BibleValidator<'a> {
 
         // ── 3. Verse ─────────────────────────────────────────────────────────
         // verse_count is safe to unwrap: book + chapter are confirmed valid.
-        let total_verses =
-            self.bible.verse_count(&reference.book, reference.chapter).unwrap();
+        let total_verses = self
+            .bible
+            .verse_count(&reference.book, reference.chapter)
+            .unwrap();
 
         let verse = match reference.verse {
             Some(v) => v,
@@ -132,7 +143,10 @@ impl<'a> BibleValidator<'a> {
         }
 
         // ── 4. All valid ──────────────────────────────────────────────────────
-        match self.bible.get_verse(&reference.book, reference.chapter, verse) {
+        match self
+            .bible
+            .get_verse(&reference.book, reference.chapter, verse)
+        {
             Ok(v) => ValidationResult::Valid(v),
             Err(_) => ValidationResult::InvalidVerse {
                 book: reference.book.clone(),

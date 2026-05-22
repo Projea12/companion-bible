@@ -32,17 +32,15 @@ impl VerseRepository {
         chapter: i64,
         verse: i64,
     ) -> Result<Option<Verse>, DatabaseError> {
-        sqlx::query_as(
-            "SELECT * FROM verses WHERE book = ? AND chapter = ? AND verse_number = ?",
-        )
-        .bind(book)
-        .bind(chapter)
-        .bind(verse)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| DatabaseError::QueryFailed {
-            reason: e.to_string(),
-        })
+        sqlx::query_as("SELECT * FROM verses WHERE book = ? AND chapter = ? AND verse_number = ?")
+            .bind(book)
+            .bind(chapter)
+            .bind(verse)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed {
+                reason: e.to_string(),
+            })
     }
 
     pub async fn search_full_text(&self, query: &str) -> Result<Vec<Verse>, DatabaseError> {
@@ -60,15 +58,13 @@ impl VerseRepository {
     }
 
     pub async fn get_all_for_book(&self, book: &str) -> Result<Vec<Verse>, DatabaseError> {
-        sqlx::query_as(
-            "SELECT * FROM verses WHERE book = ? ORDER BY chapter, verse_number",
-        )
-        .bind(book)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| DatabaseError::QueryFailed {
-            reason: e.to_string(),
-        })
+        sqlx::query_as("SELECT * FROM verses WHERE book = ? ORDER BY chapter, verse_number")
+            .bind(book)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed {
+                reason: e.to_string(),
+            })
     }
 
     /// Search the FTS5 index for verses whose text best matches `transcript`.
@@ -150,17 +146,95 @@ impl VerseRepository {
 
 /// Common English stop words (plus KJV-specific function words).
 const STOP_WORDS: &[&str] = &[
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "is", "was", "are", "were", "be", "been",
-    "being", "have", "has", "had", "do", "does", "did", "will", "would",
-    "shall", "should", "may", "might", "must", "can", "could", "not", "no",
-    "it", "its", "he", "she", "they", "we", "you", "i", "me", "him", "her",
-    "them", "us", "his", "their", "our", "your", "my", "who", "which",
-    "what", "that", "this", "these", "those", "there", "here", "so", "yet",
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "but",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "with",
+    "by",
+    "from",
+    "is",
+    "was",
+    "are",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "shall",
+    "should",
+    "may",
+    "might",
+    "must",
+    "can",
+    "could",
+    "not",
+    "no",
+    "it",
+    "its",
+    "he",
+    "she",
+    "they",
+    "we",
+    "you",
+    "i",
+    "me",
+    "him",
+    "her",
+    "them",
+    "us",
+    "his",
+    "their",
+    "our",
+    "your",
+    "my",
+    "who",
+    "which",
+    "what",
+    "that",
+    "this",
+    "these",
+    "those",
+    "there",
+    "here",
+    "so",
+    "yet",
     // KJV-specific
-    "thy", "thee", "thou", "thine", "ye", "hath", "hast", "doth", "shalt",
-    "wilt", "wouldest", "saith", "unto", "upon", "therein", "thereof",
-    "wherein", "whereby", "therefore", "wherefore",
+    "thy",
+    "thee",
+    "thou",
+    "thine",
+    "ye",
+    "hath",
+    "hast",
+    "doth",
+    "shalt",
+    "wilt",
+    "wouldest",
+    "saith",
+    "unto",
+    "upon",
+    "therein",
+    "thereof",
+    "wherein",
+    "whereby",
+    "therefore",
+    "wherefore",
 ];
 
 /// Extract the most significant words from `text` and format them as an
@@ -182,7 +256,7 @@ fn build_fts_query(text: &str) -> String {
 
     // Take the 10 longest words — longer words are more distinctive.
     let mut sorted = words;
-    sorted.sort_by(|a, b| b.len().cmp(&a.len()));
+    sorted.sort_by_key(|b| std::cmp::Reverse(b.len()));
     sorted.truncate(10);
     sorted.join(" OR ")
 }

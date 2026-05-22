@@ -8,14 +8,14 @@ pub mod wal;
 pub use connection::{close, connect, DbPool, PoolConfig};
 pub use migration::AppliedMigration;
 pub use models::{
-    CalibrationThresholds, Church, ChurchSettings, DetectionEvent, Sermon, ServiceRecord,
-    SubPoint, Verse,
-};
-pub use repositories::{
-    CalibrationRepository, ChurchRepository, DetectionEventRepository, FtsResult,
-    SermonRepository, VerseRepository,
+    CalibrationThresholds, Church, ChurchSettings, DetectionEvent, Sermon, ServiceRecord, SubPoint,
+    Verse,
 };
 pub use persist::{AppStateSerializer, PersistError};
+pub use repositories::{
+    CalibrationRepository, ChurchRepository, DetectionEventRepository, FtsResult, SermonRepository,
+    VerseRepository,
+};
 pub use wal::{AppState, WalEntry, WalError, WriteAheadLog};
 
 #[cfg(test)]

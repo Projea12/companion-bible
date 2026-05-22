@@ -1,10 +1,10 @@
-use std::sync::{mpsc, Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 
 use crate::capture::{AudioCapture, CaptureConfig, CaptureEvent};
 use crate::error::AudioError;
-use crate::input::{AudioInput, downsample};
+use crate::input::{downsample, AudioInput};
 use crate::preprocess::AudioPipeline;
 use crate::ring_buffer::RingBuffer;
 use crate::sliding_window::SlidingWindow;
@@ -146,7 +146,11 @@ impl AudioSystem {
         // Fall back to TRANSCRIPTION_RATE if somehow unavailable.
         let native_rate = {
             let r = self.capture.native_rate();
-            if r == 0 { TRANSCRIPTION_RATE } else { r }
+            if r == 0 {
+                TRANSCRIPTION_RATE
+            } else {
+                r
+            }
         };
 
         let window = Arc::clone(&self.window);
@@ -157,7 +161,15 @@ impl AudioSystem {
             std::thread::Builder::new()
                 .name("audio-processor".into())
                 .spawn(move || {
-                    processor_loop(buffer, window, raw_window, stop_flag, gate_threshold, target_rms, native_rate);
+                    processor_loop(
+                        buffer,
+                        window,
+                        raw_window,
+                        stop_flag,
+                        gate_threshold,
+                        target_rms,
+                        native_rate,
+                    );
                 })
                 .expect("failed to spawn audio-processor"),
         );

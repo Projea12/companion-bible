@@ -99,7 +99,7 @@ fn map_sqlx_error(e: sqlx::Error, db_path: &Path) -> DatabaseError {
         }
         sqlx::Error::Database(db_err) => {
             // SQLite error code 5 = SQLITE_BUSY, 6 = SQLITE_LOCKED
-            if db_err.code().map_or(false, |c| c == "5" || c == "6") {
+            if db_err.code().is_some_and(|c| c == "5" || c == "6") {
                 DatabaseError::Locked
             } else {
                 DatabaseError::QueryFailed {

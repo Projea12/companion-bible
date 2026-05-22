@@ -29,17 +29,15 @@ impl ChurchRepository {
             return Ok(church);
         }
 
-        sqlx::query(
-            "INSERT INTO churches (id, name, region) VALUES (?, ?, ?)",
-        )
-        .bind(id)
-        .bind(name)
-        .bind(region)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| DatabaseError::QueryFailed {
-            reason: e.to_string(),
-        })?;
+        sqlx::query("INSERT INTO churches (id, name, region) VALUES (?, ?, ?)")
+            .bind(id)
+            .bind(name)
+            .bind(region)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed {
+                reason: e.to_string(),
+            })?;
 
         sqlx::query_as("SELECT * FROM churches WHERE id = ?")
             .bind(id)
@@ -72,16 +70,15 @@ impl ChurchRepository {
     /// Return the stored value for `key`, or `None` if the setting does not exist.
     pub async fn get_setting(&self, key: &str) -> Result<Option<String>, DatabaseError> {
         let church_id = self.church_id().await?;
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT value FROM church_settings WHERE church_id = ? AND key = ?",
-        )
-        .bind(&church_id)
-        .bind(key)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| DatabaseError::QueryFailed {
-            reason: e.to_string(),
-        })?;
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT value FROM church_settings WHERE church_id = ? AND key = ?")
+                .bind(&church_id)
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| DatabaseError::QueryFailed {
+                    reason: e.to_string(),
+                })?;
 
         Ok(row.map(|(v,)| v))
     }
@@ -96,8 +93,9 @@ impl ChurchRepository {
                 reason: e.to_string(),
             })?;
 
-        row.map(|(id,)| id).ok_or_else(|| DatabaseError::QueryFailed {
-            reason: "no church record found — call get_or_create first".into(),
-        })
+        row.map(|(id,)| id)
+            .ok_or_else(|| DatabaseError::QueryFailed {
+                reason: "no church record found — call get_or_create first".into(),
+            })
     }
 }

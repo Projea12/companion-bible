@@ -1,14 +1,19 @@
+use companion_ai::{LocalAI, LocalAIConfig};
+use companion_arbitrator::DisplayAction;
+use companion_audio::{AudioSystem, BuiltinMicInput, RingBuffer};
+use companion_bible::KjvBible;
+use companion_database::{
+    CalibrationRepository, ChurchRepository, DetectionEventRepository, PoolConfig, VerseRepository,
+};
+use companion_display::{DisplayMonitor, MonitorLayout};
+use companion_engine::{DetectionEngine, EngineConfig, LocalAiHandle};
+use companion_events::AppEvent;
+use companion_transcription::{
+    AssemblyAiTranscriber, DeepgramTranscriber, ModelManager, SetupProgress, TranscribeOptions,
+    WhisperTranscriber,
+};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow};
-use companion_display::{DisplayMonitor, MonitorLayout};
-use companion_events::AppEvent;
-use companion_bible::KjvBible;
-use companion_engine::{DetectionEngine, EngineConfig, LocalAiHandle};
-use companion_audio::{AudioSystem, BuiltinMicInput, RingBuffer};
-use companion_transcription::{AssemblyAiTranscriber, DeepgramTranscriber, ModelManager, SetupProgress, TranscribeOptions, WhisperTranscriber};
-use companion_ai::{LocalAI, LocalAIConfig};
-use companion_database::{CalibrationRepository, ChurchRepository, DetectionEventRepository, PoolConfig, VerseRepository};
-use companion_arbitrator::DisplayAction;
 
 // ─── window labels ────────────────────────────────────────────────────────────
 
@@ -76,6 +81,7 @@ struct InternalState {
     selected_device_id: Option<String>,
     assemblyai_api_key: Option<String>,
     deepgram_api_key: Option<String>,
+    openai_api_key: Option<String>,
     pipeline: Option<Pipeline>,
 }
 
@@ -93,6 +99,7 @@ impl Default for InternalState {
             selected_device_id: None,
             assemblyai_api_key: None,
             deepgram_api_key: None,
+            openai_api_key: None,
             pipeline: None,
         }
     }
@@ -143,13 +150,21 @@ fn monitor_count(app: &AppHandle) -> usize {
 fn secondary_monitor(op_win: &WebviewWindow) -> Option<tauri::Monitor> {
     let primary = op_win.primary_monitor().ok().flatten()?;
     let monitors = op_win.available_monitors().ok()?;
-    monitors.into_iter().find(|m| m.position() != primary.position())
+    monitors
+        .into_iter()
+        .find(|m| m.position() != primary.position())
 }
 
 fn assign_congregation_to_secondary(app: &AppHandle) -> bool {
-    let Some(cong_win) = congregation_window(app) else { return false };
-    let Some(op_win) = app.get_webview_window(OPERATOR_LABEL) else { return false };
-    let Some(screen) = secondary_monitor(&op_win) else { return false };
+    let Some(cong_win) = congregation_window(app) else {
+        return false;
+    };
+    let Some(op_win) = app.get_webview_window(OPERATOR_LABEL) else {
+        return false;
+    };
+    let Some(screen) = secondary_monitor(&op_win) else {
+        return false;
+    };
     let pos = screen.position();
     let size = screen.size();
     let _ = cong_win.set_position(PhysicalPosition::new(pos.x, pos.y));
@@ -158,10 +173,18 @@ fn assign_congregation_to_secondary(app: &AppHandle) -> bool {
 }
 
 fn congregation_on_secondary(app: &AppHandle) -> bool {
-    let Some(op_win) = app.get_webview_window(OPERATOR_LABEL) else { return false };
-    let Some(primary) = op_win.primary_monitor().ok().flatten() else { return false };
-    let Some(cong_win) = congregation_window(app) else { return false };
-    let Ok(cong_pos) = cong_win.outer_position() else { return false };
+    let Some(op_win) = app.get_webview_window(OPERATOR_LABEL) else {
+        return false;
+    };
+    let Some(primary) = op_win.primary_monitor().ok().flatten() else {
+        return false;
+    };
+    let Some(cong_win) = congregation_window(app) else {
+        return false;
+    };
+    let Ok(cong_pos) = cong_win.outer_position() else {
+        return false;
+    };
     let p_pos = primary.position();
     let p_size = primary.size();
     let on_primary = cong_pos.x >= p_pos.x
@@ -242,7 +265,10 @@ fn fix_screen_swap(app: AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
-    let _ = app.emit("app-event", serde_json::json!({ "type": "SCREEN_RESTORED" }));
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({ "type": "SCREEN_RESTORED" }),
+    );
 }
 
 #[tauri::command]
@@ -264,40 +290,54 @@ fn hide_congregation_window(app: AppHandle) {
 // ─── display commands ─────────────────────────────────────────────────────────
 
 fn parse_reference(s: &str) -> Option<serde_json::Value> {
-    let mut parts = s.rsplitn(2, ' ');
-    let chapter_verse = parts.next()?;
-    let book = parts.next()?;
+    let (book, chapter_verse) = s.rsplit_once(' ')?;
     if let Some((ch_str, verse_str)) = chapter_verse.split_once(':') {
         let chapter: u8 = ch_str.parse().ok()?;
         if let Some((from_str, to_str)) = verse_str.split_once('-') {
             let from: u8 = from_str.parse().ok()?;
             let to: u8 = to_str.parse().ok()?;
-            Some(serde_json::json!({ "book": book, "chapter": chapter, "verse": from, "verse_end": to }))
+            Some(
+                serde_json::json!({ "book": book, "chapter": chapter, "verse": from, "verse_end": to }),
+            )
         } else {
             let verse: u8 = verse_str.parse().ok()?;
-            Some(serde_json::json!({ "book": book, "chapter": chapter, "verse": verse, "verse_end": null }))
+            Some(
+                serde_json::json!({ "book": book, "chapter": chapter, "verse": verse, "verse_end": null }),
+            )
         }
     } else {
         let chapter: u8 = chapter_verse.parse().ok()?;
-        Some(serde_json::json!({ "book": book, "chapter": chapter, "verse": null, "verse_end": null }))
+        Some(
+            serde_json::json!({ "book": book, "chapter": chapter, "verse": null, "verse_end": null }),
+        )
     }
 }
 
 /// Look up verse text from the in-memory KjvBible given a parsed reference JSON.
-fn lookup_verse_text(bible_arc: &Arc<Mutex<Option<KjvBible>>>, ref_json: &serde_json::Value) -> String {
+fn lookup_verse_text(
+    bible_arc: &Arc<Mutex<Option<KjvBible>>>,
+    ref_json: &serde_json::Value,
+) -> String {
     let guard = bible_arc.lock().unwrap();
-    let Some(bible) = guard.as_ref() else { return String::new() };
+    let Some(bible) = guard.as_ref() else {
+        return String::new();
+    };
     let book = ref_json["book"].as_str().unwrap_or_default();
     let chapter = ref_json["chapter"].as_u64().unwrap_or(1) as u8;
-    let Some(verse_u64) = ref_json["verse"].as_u64() else { return String::new() };
-    bible.get_verse(book, chapter, verse_u64 as u8)
+    let Some(verse_u64) = ref_json["verse"].as_u64() else {
+        return String::new();
+    };
+    bible
+        .get_verse(book, chapter, verse_u64 as u8)
         .map(|v| v.text.clone())
         .unwrap_or_default()
 }
 
 #[tauri::command]
 fn show_verse(app: AppHandle, state: State<ManagedState>, reference: String, text: String) {
-    let Some(ref_json) = parse_reference(&reference) else { return };
+    let Some(ref_json) = parse_reference(&reference) else {
+        return;
+    };
     let actual_text = if text.is_empty() {
         lookup_verse_text(&state.bible, &ref_json)
     } else {
@@ -329,15 +369,22 @@ fn show_verse(app: AppHandle, state: State<ManagedState>, reference: String, tex
 
 #[tauri::command]
 fn discard_verse(app: AppHandle, state: State<ManagedState>) {
-    let _ = app.emit("app-event", serde_json::json!({ "type": "DISPLAY_CLEARED" }));
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({ "type": "DISPLAY_CLEARED" }),
+    );
     state.inner.lock().unwrap().display_mode = DisplayMode::Idle;
 }
 
 #[tauri::command]
 fn undo_discard(app: AppHandle, state: State<ManagedState>) {
     let last = state.inner.lock().unwrap().last_verse.clone();
-    let Some((reference, text)) = last else { return };
-    let Some(ref_json) = parse_reference(&reference) else { return };
+    let Some((reference, text)) = last else {
+        return;
+    };
+    let Some(ref_json) = parse_reference(&reference) else {
+        return;
+    };
     let _ = app.emit(
         "app-event",
         serde_json::json!({
@@ -374,13 +421,19 @@ fn show_sub_point(app: AppHandle, state: State<ManagedState>, sub_point: String)
 
 #[tauri::command]
 fn show_blank(app: AppHandle, state: State<ManagedState>) {
-    let _ = app.emit("app-event", serde_json::json!({ "type": "DISPLAY_BLANKED" }));
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({ "type": "DISPLAY_BLANKED" }),
+    );
     state.inner.lock().unwrap().display_mode = DisplayMode::Blank;
 }
 
 #[tauri::command]
 fn clear_congregation_display(app: AppHandle, state: State<ManagedState>) {
-    let _ = app.emit("app-event", serde_json::json!({ "type": "DISPLAY_CLEARED" }));
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({ "type": "DISPLAY_CLEARED" }),
+    );
     state.inner.lock().unwrap().display_mode = DisplayMode::Idle;
 }
 
@@ -401,18 +454,26 @@ async fn try_deepgram_or_whisper(
                 eprintln!("[start_session] step 7a: Deepgram OK — using raw audio path");
                 let (mut dg, rx) = DeepgramTranscriber::new(key.clone(), raw_window);
                 dg.start();
-                let _ = app.emit("app-event", serde_json::json!({
-                    "type": "TRANSCRIPTION_MODE_CHANGED", "mode": "deepgram",
-                }));
+                let _ = app.emit(
+                    "app-event",
+                    serde_json::json!({
+                        "type": "TRANSCRIPTION_MODE_CHANGED", "mode": "deepgram",
+                    }),
+                );
                 return (rx, AnyTranscriber::Deepgram(dg));
             }
             Err(e) => {
-                eprintln!("[start_session] step 7a: Deepgram failed ({e}) — falling back to Whisper");
-                let _ = app.emit("app-event", serde_json::json!({
-                    "type": "TRANSCRIPTION_MODE_CHANGED",
-                    "mode": "whisper",
-                    "reason": format!("Deepgram unavailable: {e}"),
-                }));
+                eprintln!(
+                    "[start_session] step 7a: Deepgram failed ({e}) — falling back to Whisper"
+                );
+                let _ = app.emit(
+                    "app-event",
+                    serde_json::json!({
+                        "type": "TRANSCRIPTION_MODE_CHANGED",
+                        "mode": "whisper",
+                        "reason": format!("Deepgram unavailable: {e}"),
+                    }),
+                );
             }
         }
     } else {
@@ -429,10 +490,7 @@ async fn try_deepgram_or_whisper(
 /// then starts the audio capture + Whisper transcription loop.  A background
 /// task forwards DetectionDecisions to the display layer.
 #[tauri::command]
-async fn start_session(
-    app: AppHandle,
-    state: State<'_, ManagedState>,
-) -> Result<(), String> {
+async fn start_session(app: AppHandle, state: State<'_, ManagedState>) -> Result<(), String> {
     {
         if state.inner.lock().unwrap().session_active {
             return Ok(());
@@ -493,7 +551,7 @@ async fn start_session(
 
     // ── 5a. Load Phi-3 local AI (optional — degrades gracefully if missing) ────
     let phi3_path = std::path::PathBuf::from(
-        "/Users/johnolugbemi/Documents/companion-bible/models/phi3/Phi-3-mini-4k-instruct-q4.gguf"
+        "/Users/johnolugbemi/Documents/companion-bible/models/phi3/Phi-3-mini-4k-instruct-q4.gguf",
     );
     let local_ai_handle = if phi3_path.exists() {
         eprintln!("[start_session] step 5a: loading Phi-3 via phi3-worker subprocess");
@@ -514,8 +572,13 @@ async fn start_session(
 
     // ── 5. Create DetectionEngine ─────────────────────────────────────────────
     eprintln!("[start_session] step 5: creating detection engine");
+    let openai_api_key = state.inner.lock().unwrap().openai_api_key.clone();
     let mut engine = DetectionEngine::new(
-        EngineConfig { sermon_id, api_key: None },
+        EngineConfig {
+            sermon_id,
+            openai_api_key,
+            api_key: None,
+        },
         bible_engine,
         church_repo,
         calibration_repo,
@@ -566,19 +629,34 @@ async fn start_session(
                 // Raw window: send unprocessed audio, AssemblyAI handles its own denoising.
                 let (mut aai, rx) = AssemblyAiTranscriber::new(key.clone(), raw_window.clone());
                 aai.start();
-                let _ = app.emit("app-event", serde_json::json!({
-                    "type": "TRANSCRIPTION_MODE_CHANGED", "mode": "assemblyai",
-                }));
+                let _ = app.emit(
+                    "app-event",
+                    serde_json::json!({
+                        "type": "TRANSCRIPTION_MODE_CHANGED", "mode": "assemblyai",
+                    }),
+                );
                 (rx, AnyTranscriber::AssemblyAi(aai))
             }
             Err(e) => {
                 eprintln!("[start_session] step 7a: AssemblyAI failed ({e}) — trying Deepgram");
-                try_deepgram_or_whisper(deepgram_key, raw_window.clone(), processed_window.clone(), &app).await
+                try_deepgram_or_whisper(
+                    deepgram_key,
+                    raw_window.clone(),
+                    processed_window.clone(),
+                    &app,
+                )
+                .await
             }
         }
     } else {
         eprintln!("[start_session] step 7a: no AssemblyAI key — trying Deepgram");
-        try_deepgram_or_whisper(deepgram_key, raw_window.clone(), processed_window.clone(), &app).await
+        try_deepgram_or_whisper(
+            deepgram_key,
+            raw_window.clone(),
+            processed_window.clone(),
+            &app,
+        )
+        .await
     };
 
     // ── 8. Bridge blocking SegmentReceiver → tokio channel ───────────────────
@@ -605,12 +683,15 @@ async fn start_session(
     let engine_arc = Arc::clone(&state.engine);
     let bible_arc = Arc::clone(&state.bible);
     let app_display = app.clone();
-    let inner_arc = Arc::new(Mutex::new(()));  // used only for display-mode updates below
+    let inner_arc = Arc::new(Mutex::new(())); // used only for display-mode updates below
 
     eprintln!("[start_session] step 9 done: processing task spawned");
 
     tauri::async_runtime::spawn(async move {
         let _ = inner_arc; // keep alive
+                           // Track last displayed reference to suppress duplicate emissions.
+        let mut last_displayed: Option<(String, u8, Option<u8>)> = None;
+
         while let Some(segment) = tokio_rx.recv().await {
             // Emit TRANSCRIPTION_COMPLETED so the operator transcript panel shows text.
             let _ = app_display.emit(
@@ -630,13 +711,20 @@ async fn start_session(
                 }
             };
 
-            if let (DisplayAction::AutoDisplay, Some(ref_)) =
-                (decision.action, decision.reference)
+            if let (DisplayAction::AutoDisplay, Some(ref_)) = (decision.action, decision.reference)
             {
+                // Suppress if this is the same reference already on screen.
+                let key = (ref_.book.clone(), ref_.chapter, ref_.verse);
+                if last_displayed.as_ref() == Some(&key) {
+                    continue;
+                }
+                last_displayed = Some(key);
+
                 let verse_text = {
                     let guard = bible_arc.lock().unwrap();
                     if let (Some(bible), Some(verse_num)) = (guard.as_ref(), ref_.verse) {
-                        bible.get_verse(&ref_.book, ref_.chapter, verse_num)
+                        bible
+                            .get_verse(&ref_.book, ref_.chapter, verse_num)
                             .map(|v| v.text.clone())
                             .unwrap_or_default()
                     } else {
@@ -658,10 +746,8 @@ async fn start_session(
                         translation: "KJV".into(),
                     },
                 );
-                let _ = app_display.emit(
-                    "app-event",
-                    &AppEvent::VerseDisplayed { reference: ev_ref },
-                );
+                let _ =
+                    app_display.emit("app-event", &AppEvent::VerseDisplayed { reference: ev_ref });
             }
         }
     });
@@ -676,33 +762,48 @@ async fn start_session(
         let model = tokio::task::spawn_blocking(move || {
             eprintln!("[start_session] step 10: ModelManager::setup starting");
             let result = ModelManager::new(&app_data_dir).setup(|progress| {
-                eprintln!("[start_session] step 10: model download progress {:?}", progress);
+                eprintln!(
+                    "[start_session] step 10: model download progress {:?}",
+                    progress
+                );
                 match &progress {
-                    SetupProgress::Downloading { bytes_done, bytes_total } => {
+                    SetupProgress::Downloading {
+                        bytes_done,
+                        bytes_total,
+                    } => {
                         let pct = bytes_total
                             .filter(|&t| t > 0)
                             .map(|t| ((*bytes_done as f64 / t as f64) * 100.0) as u8)
                             .unwrap_or(0);
-                        let _ = app_progress.emit("app-event", serde_json::json!({
-                            "type": "MODEL_DOWNLOAD_PROGRESS",
-                            "bytesDone": bytes_done,
-                            "bytesTotal": bytes_total,
-                            "percent": pct,
-                        }));
+                        let _ = app_progress.emit(
+                            "app-event",
+                            serde_json::json!({
+                                "type": "MODEL_DOWNLOAD_PROGRESS",
+                                "bytesDone": bytes_done,
+                                "bytesTotal": bytes_total,
+                                "percent": pct,
+                            }),
+                        );
                     }
                     SetupProgress::Loading => {
-                        let _ = app_progress.emit("app-event", serde_json::json!({
-                            "type": "MODEL_DOWNLOAD_PROGRESS",
-                            "bytesDone": 0u64,
-                            "bytesTotal": Option::<u64>::None,
-                            "percent": 100u8,
-                            "label": "Loading model…",
-                        }));
+                        let _ = app_progress.emit(
+                            "app-event",
+                            serde_json::json!({
+                                "type": "MODEL_DOWNLOAD_PROGRESS",
+                                "bytesDone": 0u64,
+                                "bytesTotal": Option::<u64>::None,
+                                "percent": 100u8,
+                                "label": "Loading model…",
+                            }),
+                        );
                     }
                     _ => {}
                 }
             });
-            eprintln!("[start_session] step 10: ModelManager::setup finished: {}", result.is_ok());
+            eprintln!(
+                "[start_session] step 10: ModelManager::setup finished: {}",
+                result.is_ok()
+            );
             result
         })
         .await
@@ -726,13 +827,16 @@ async fn start_session(
 
     // ── 11b. Audio level diagnostic (before audio is moved into pipeline) ───────
     // If reading stays 0.000, macOS microphone permission is likely denied.
-    eprintln!("[audio-check] immediate level: {:.4}", audio.current_level());
+    eprintln!(
+        "[audio-check] immediate level: {:.4}",
+        audio.current_level()
+    );
 
     // ── 12. Store pipeline + mark session active ──────────────────────────────
     eprintln!("[start_session] step 12: storing pipeline");
     {
         let mut s = state.inner.lock().unwrap();
-        s.pipeline = Some(Pipeline { audio, transcriber: transcriber });
+        s.pipeline = Some(Pipeline { audio, transcriber });
         s.session_active = true;
     }
     eprintln!("[start_session] step 12 done: session active!");
@@ -751,10 +855,7 @@ async fn start_session(
 
 /// Stop the audio pipeline and clear all session state.
 #[tauri::command]
-async fn stop_session(
-    app: AppHandle,
-    state: State<'_, ManagedState>,
-) -> Result<(), String> {
+async fn stop_session(app: AppHandle, state: State<'_, ManagedState>) -> Result<(), String> {
     // Extract pipeline before any awaits (never hold std::Mutex across .await)
     let pipeline_opt = {
         let mut s = state.inner.lock().unwrap();
@@ -763,7 +864,7 @@ async fn stop_session(
     };
 
     if let Some(mut p) = pipeline_opt {
-        p.transcriber.stop();  // works for both Whisper and Deepgram
+        p.transcriber.stop(); // works for both Whisper and Deepgram
         p.audio.stop();
     }
 
@@ -823,10 +924,7 @@ fn add_sub_point(app: AppHandle, state: State<ManagedState>, text: String) {
         }
         (s.sub_points.len() - 1) as u32
     };
-    let _ = app.emit(
-        "app-event",
-        &AppEvent::SubPointAdded { text, index },
-    );
+    let _ = app.emit("app-event", &AppEvent::SubPointAdded { text, index });
 }
 
 #[tauri::command]
@@ -886,6 +984,15 @@ fn set_deepgram_key(state: State<ManagedState>, key: String) {
 }
 
 #[tauri::command]
+fn set_openai_key(state: State<ManagedState>, key: String) {
+    state.inner.lock().unwrap().openai_api_key = if key.trim().is_empty() {
+        None
+    } else {
+        Some(key.trim().to_string())
+    };
+}
+
+#[tauri::command]
 fn get_transcription_mode(state: State<ManagedState>) -> String {
     let s = state.inner.lock().unwrap();
     match &s.pipeline {
@@ -917,8 +1024,12 @@ fn next_verse(app: AppHandle, state: State<ManagedState>) {
     let next = {
         let guard = state.bible.lock().unwrap();
         let Some(bible) = guard.as_ref() else { return };
-        let Ok(total) = bible.verse_count(&book, chapter) else { return };
-        if verse >= total { return; }
+        let Ok(total) = bible.verse_count(&book, chapter) else {
+            return;
+        };
+        if verse >= total {
+            return;
+        }
         verse + 1
     };
     let reference = format!("{book} {chapter}:{next}");
@@ -935,7 +1046,9 @@ fn previous_verse(app: AppHandle, state: State<ManagedState>) {
             None => return,
         }
     };
-    if verse <= 1 { return; }
+    if verse <= 1 {
+        return;
+    }
     let reference = format!("{book} {chapter}:{}", verse - 1);
     show_verse(app, state, reference, String::new());
 }
@@ -989,6 +1102,70 @@ fn resolve_bible_path(app: &AppHandle) -> std::path::PathBuf {
             .unwrap_or_default()
             .join("kjv.json")
     }
+}
+
+// ─── entry point ──────────────────────────────────────────────────────────────
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .setup(|app| {
+            let managed = ManagedState::new();
+            // Load the KJV Bible immediately so show_verse works even before
+            // a session is started (e.g. manual override at app launch).
+            let bible_path = resolve_bible_path(app.handle());
+            match KjvBible::load(&bible_path) {
+                Ok(bible) => {
+                    *managed.bible.lock().unwrap() = Some(bible);
+                    eprintln!("[setup] KJV Bible loaded from {}", bible_path.display());
+                }
+                Err(e) => {
+                    eprintln!("[setup] WARNING: failed to load KJV Bible: {e}");
+                }
+            }
+            app.manage(managed);
+            let handle = app.handle().clone();
+            assign_congregation_to_secondary(&handle);
+            watch_screens(handle);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_app_state,
+            get_screen_info,
+            show_congregation_window,
+            hide_congregation_window,
+            fix_screen_swap,
+            show_verse,
+            discard_verse,
+            undo_discard,
+            show_sermon_title,
+            show_sub_point,
+            show_blank,
+            clear_congregation_display,
+            start_session,
+            stop_session,
+            start_sermon,
+            end_sermon,
+            add_sub_point,
+            next_sub_point,
+            approve_detection,
+            reject_detection,
+            next_verse,
+            previous_verse,
+            set_assemblyai_key,
+            set_deepgram_key,
+            set_openai_key,
+            get_transcription_mode,
+            get_audio_devices,
+            select_audio_device,
+            get_system_health,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running companion bible");
 }
 
 // ─── tests ────────────────────────────────────────────────────────────────────
@@ -1258,7 +1435,8 @@ mod tests {
     #[test]
     fn last_verse_stored_and_retrieved() {
         let ms = make_state();
-        ms.inner.lock().unwrap().last_verse = Some(("John 3:16".into(), "For God so loved…".into()));
+        ms.inner.lock().unwrap().last_verse =
+            Some(("John 3:16".into(), "For God so loved…".into()));
         let got = ms.inner.lock().unwrap().last_verse.clone();
         assert_eq!(got.as_ref().map(|(r, _)| r.as_str()), Some("John 3:16"));
     }
@@ -1276,67 +1454,4 @@ mod tests {
             path.display()
         );
     }
-}
-
-// ─── entry point ──────────────────────────────────────────────────────────────
-
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
-        .setup(|app| {
-            let managed = ManagedState::new();
-            // Load the KJV Bible immediately so show_verse works even before
-            // a session is started (e.g. manual override at app launch).
-            let bible_path = resolve_bible_path(app.handle());
-            match KjvBible::load(&bible_path) {
-                Ok(bible) => {
-                    *managed.bible.lock().unwrap() = Some(bible);
-                    eprintln!("[setup] KJV Bible loaded from {}", bible_path.display());
-                }
-                Err(e) => {
-                    eprintln!("[setup] WARNING: failed to load KJV Bible: {e}");
-                }
-            }
-            app.manage(managed);
-            let handle = app.handle().clone();
-            assign_congregation_to_secondary(&handle);
-            watch_screens(handle);
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            get_app_state,
-            get_screen_info,
-            show_congregation_window,
-            hide_congregation_window,
-            fix_screen_swap,
-            show_verse,
-            discard_verse,
-            undo_discard,
-            show_sermon_title,
-            show_sub_point,
-            show_blank,
-            clear_congregation_display,
-            start_session,
-            stop_session,
-            start_sermon,
-            end_sermon,
-            add_sub_point,
-            next_sub_point,
-            approve_detection,
-            reject_detection,
-            next_verse,
-            previous_verse,
-            set_assemblyai_key,
-            set_deepgram_key,
-            get_transcription_mode,
-            get_audio_devices,
-            select_audio_device,
-            get_system_health,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running companion bible");
 }

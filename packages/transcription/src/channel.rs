@@ -44,7 +44,9 @@ pub struct SegmentSender {
 impl Clone for SegmentSender {
     fn clone(&self) -> Self {
         self.inner.sender_count.fetch_add(1, Ordering::AcqRel);
-        Self { inner: Arc::clone(&self.inner) }
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
     }
 }
 
@@ -185,7 +187,9 @@ pub fn segment_channel_with_capacity(capacity: usize) -> (SegmentSender, Segment
         capacity,
         sender_count: AtomicUsize::new(1),
     });
-    let rx = SegmentReceiver { inner: Arc::clone(&inner) };
+    let rx = SegmentReceiver {
+        inner: Arc::clone(&inner),
+    };
     let tx = SegmentSender { inner };
     (tx, rx)
 }
@@ -271,7 +275,11 @@ mod tests {
         for i in 1..=10u64 {
             tx.send(make_batch(i));
         }
-        assert_eq!(rx.dropped_count(), 7, "7 oldest batches must have been dropped");
+        assert_eq!(
+            rx.dropped_count(),
+            7,
+            "7 oldest batches must have been dropped"
+        );
         assert_eq!(rx.len(), 3);
 
         // The 3 remaining must be the newest: 8, 9, 10.
@@ -303,7 +311,10 @@ mod tests {
     fn recv_returns_none_when_sender_dropped_and_empty() {
         let (tx, rx) = segment_channel();
         drop(tx);
-        assert!(rx.recv().is_none(), "recv must return None after sender drop");
+        assert!(
+            rx.recv().is_none(),
+            "recv must return None after sender drop"
+        );
     }
 
     #[test]
@@ -324,7 +335,10 @@ mod tests {
     fn recv_timeout_returns_none_when_channel_empty() {
         let (_tx, rx) = segment_channel();
         let result = rx.recv_timeout(Duration::from_millis(30));
-        assert!(result.is_none(), "recv_timeout must return None on empty channel");
+        assert!(
+            result.is_none(),
+            "recv_timeout must return None on empty channel"
+        );
     }
 
     #[test]
@@ -360,7 +374,10 @@ mod tests {
         let (tx, rx) = segment_channel();
         tx.send(make_batch(5));
         assert_eq!(rx.try_recv().unwrap()[0].text, "segment 5");
-        assert!(rx.try_recv().is_none(), "channel must be empty after single recv");
+        assert!(
+            rx.try_recv().is_none(),
+            "channel must be empty after single recv"
+        );
     }
 
     // ── Clone sender ──────────────────────────────────────────────────────────
@@ -416,7 +433,10 @@ mod tests {
                 "remaining batch must be newest"
             );
         }
-        assert!(rx.try_recv().is_none(), "channel must be empty after draining");
+        assert!(
+            rx.try_recv().is_none(),
+            "channel must be empty after draining"
+        );
     }
 
     #[test]
@@ -436,7 +456,7 @@ mod tests {
 
         // Slow receiver — 10 ms between reads.
         let receiver_handle = std::thread::spawn(move || {
-            while let Some(_) = rx.recv_timeout(Duration::from_millis(200)) {
+            while rx.recv_timeout(Duration::from_millis(200)).is_some() {
                 received_clone.fetch_add(1, Ordering::Relaxed);
                 std::thread::sleep(Duration::from_millis(10));
             }
@@ -450,6 +470,9 @@ mod tests {
         // must have been received.
         assert!(got <= 100, "received more batches than sent: {got}");
         assert!(got > 0, "receiver got nothing");
-        println!("load_concurrent: received {got}/100 batches ({} dropped)", 100 - got);
+        println!(
+            "load_concurrent: received {got}/100 batches ({} dropped)",
+            100 - got
+        );
     }
 }

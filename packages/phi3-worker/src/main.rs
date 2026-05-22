@@ -37,7 +37,12 @@ struct Response {
 
 impl Response {
     fn empty() -> Self {
-        Self { book: None, chapter: None, verse: None, confidence: 0.0 }
+        Self {
+            book: None,
+            chapter: None,
+            verse: None,
+            confidence: 0.0,
+        }
     }
 }
 
@@ -72,9 +77,7 @@ fn build_prompt(req: &Request) -> String {
     user.push_str("Segment: ");
     user.push_str(&req.text);
 
-    format!(
-        "<|system|>\n{SYSTEM_PROMPT}\n<|end|>\n<|user|>\n{user}\n<|end|>\n<|assistant|>\n"
-    )
+    format!("<|system|>\n{SYSTEM_PROMPT}\n<|end|>\n<|user|>\n{user}\n<|end|>\n<|assistant|>\n")
 }
 
 // ─── Inference ────────────────────────────────────────────────────────────────
@@ -83,8 +86,7 @@ const CTX_SIZE: u32 = 4_096;
 const MAX_NEW_TOKENS: usize = 128;
 
 fn infer(backend: &LlamaBackend, model: &LlamaModel, prompt: &str) -> Response {
-    let ctx_params = LlamaContextParams::default()
-        .with_n_ctx(std::num::NonZeroU32::new(CTX_SIZE));
+    let ctx_params = LlamaContextParams::default().with_n_ctx(std::num::NonZeroU32::new(CTX_SIZE));
 
     let mut ctx = match model.new_context(backend, ctx_params) {
         Ok(c) => c,
@@ -110,9 +112,7 @@ fn infer(backend: &LlamaBackend, model: &LlamaModel, prompt: &str) -> Response {
     let mut sampler = LlamaSampler::greedy();
     let mut decoder = encoding_rs::UTF_8.new_decoder();
     let mut output = String::new();
-    let mut n_cur = n_prompt as i32;
-
-    for _ in 0..MAX_NEW_TOKENS {
+    for (n_cur, _) in (n_prompt as i32..).zip(0..MAX_NEW_TOKENS) {
         let token = sampler.sample(&ctx, batch.n_tokens() - 1);
         if token == model.token_eos() {
             break;
@@ -127,7 +127,6 @@ fn infer(backend: &LlamaBackend, model: &LlamaModel, prompt: &str) -> Response {
         if ctx.decode(&mut batch).is_err() {
             break;
         }
-        n_cur += 1;
         if output.trim_end().ends_with('}') {
             break;
         }
@@ -167,13 +166,14 @@ fn main() {
         }
     };
 
-    let model = match LlamaModel::load_from_file(&backend, &model_path, &LlamaModelParams::default()) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("phi3-worker: failed to load model from {model_path}: {e}");
-            std::process::exit(1);
-        }
-    };
+    let model =
+        match LlamaModel::load_from_file(&backend, &model_path, &LlamaModelParams::default()) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("phi3-worker: failed to load model from {model_path}: {e}");
+                std::process::exit(1);
+            }
+        };
 
     eprintln!("phi3-worker: model loaded, ready");
 
@@ -194,7 +194,11 @@ fn main() {
         let req: Request = match serde_json::from_str(&line) {
             Ok(r) => r,
             Err(_) => {
-                let _ = writeln!(out, "{}", serde_json::to_string(&Response::empty()).unwrap());
+                let _ = writeln!(
+                    out,
+                    "{}",
+                    serde_json::to_string(&Response::empty()).unwrap()
+                );
                 let _ = out.flush();
                 continue;
             }

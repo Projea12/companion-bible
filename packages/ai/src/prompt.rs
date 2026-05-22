@@ -76,9 +76,7 @@ impl SermonPromptBuilder {
         user.push_str("Segment: ");
         user.push_str(segment_text);
 
-        format!(
-            "{SYS_START}{SYSTEM_PROMPT}{SYS_END}{USER_START}{user}{USER_END}{ASSISTANT_START}"
-        )
+        format!("{SYS_START}{SYSTEM_PROMPT}{SYS_END}{USER_START}{user}{USER_END}{ASSISTANT_START}")
     }
 }
 

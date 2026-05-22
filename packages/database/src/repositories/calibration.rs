@@ -61,10 +61,7 @@ impl CalibrationRepository {
     }
 
     /// Persist a new service record for a completed sermon.
-    pub async fn add_service_record(
-        &self,
-        record: ServiceRecord,
-    ) -> Result<(), DatabaseError> {
+    pub async fn add_service_record(&self, record: ServiceRecord) -> Result<(), DatabaseError> {
         sqlx::query(
             "INSERT INTO service_records
                  (id, sermon_id, total_detections, auto_accepted, operator_corrected,
@@ -94,15 +91,13 @@ impl CalibrationRepository {
         &self,
         limit: i64,
     ) -> Result<Vec<ServiceRecord>, DatabaseError> {
-        sqlx::query_as(
-            "SELECT * FROM service_records ORDER BY created_at DESC LIMIT ?",
-        )
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| DatabaseError::QueryFailed {
-            reason: e.to_string(),
-        })
+        sqlx::query_as("SELECT * FROM service_records ORDER BY created_at DESC LIMIT ?")
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed {
+                reason: e.to_string(),
+            })
     }
 
     // ── private ───────────────────────────────────────────────────────────────
@@ -115,8 +110,10 @@ impl CalibrationRepository {
                 reason: e.to_string(),
             })?;
 
-        row.map(|(id,)| id).ok_or_else(|| DatabaseError::QueryFailed {
-            reason: "no church record found — call ChurchRepository::get_or_create first".into(),
-        })
+        row.map(|(id,)| id)
+            .ok_or_else(|| DatabaseError::QueryFailed {
+                reason: "no church record found — call ChurchRepository::get_or_create first"
+                    .into(),
+            })
     }
 }

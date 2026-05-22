@@ -31,7 +31,9 @@ pub struct NoiseGate {
 impl NoiseGate {
     /// Create a gate with the given RMS `threshold` (normalised, [0, 1]).
     pub fn new(threshold: f32) -> Self {
-        Self { threshold: threshold.clamp(0.0, 1.0) }
+        Self {
+            threshold: threshold.clamp(0.0, 1.0),
+        }
     }
 
     /// Threshold below which a chunk is zeroed.
@@ -225,7 +227,9 @@ impl Default for NoiseSuppressor {
 
 impl NoiseSuppressor {
     pub fn new() -> Self {
-        Self { inner: AudioPreprocessor::new() }
+        Self {
+            inner: AudioPreprocessor::new(),
+        }
     }
 
     /// Denoise `chunk`, returning a `Vec<f32>` of the same length.

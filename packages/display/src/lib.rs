@@ -29,11 +29,13 @@ mod tests {
         BibleReference::new("Romans", 8).with_verse(28)
     }
 
-    fn ok_renderer() -> Box<dyn Fn(&DisplayedState) -> Result<(), String> + Send> {
+    type Renderer = Box<dyn Fn(&DisplayedState) -> Result<(), String> + Send>;
+
+    fn ok_renderer() -> Renderer {
         Box::new(|_| Ok(()))
     }
 
-    fn failing_renderer() -> Box<dyn Fn(&DisplayedState) -> Result<(), String> + Send> {
+    fn failing_renderer() -> Renderer {
         Box::new(|_| Err("render error".into()))
     }
 
@@ -196,7 +198,8 @@ mod tests {
     fn show_verse_sets_state() {
         let mut c = ctrl();
         let r = john_3_16();
-        c.show_verse(r.clone(), "For God so loved the world…").unwrap();
+        c.show_verse(r.clone(), "For God so loved the world…")
+            .unwrap();
         assert_eq!(
             *c.state(),
             DisplayedState::Verse(r, "For God so loved the world…".into())
@@ -771,10 +774,7 @@ mod monitor_tests {
     #[test]
     fn disconnected_to_connected_returns_some_connected() {
         let mut m = DisplayMonitor::new(layout(1, false));
-        assert_eq!(
-            m.update(layout(2, true)),
-            Some(ScreenStatus::Connected)
-        );
+        assert_eq!(m.update(layout(2, true)), Some(ScreenStatus::Connected));
     }
 
     #[test]
@@ -789,10 +789,7 @@ mod monitor_tests {
     #[test]
     fn connected_to_disconnected_returns_some_disconnected() {
         let mut m = DisplayMonitor::new(layout(2, true));
-        assert_eq!(
-            m.update(layout(1, false)),
-            Some(ScreenStatus::Disconnected)
-        );
+        assert_eq!(m.update(layout(1, false)), Some(ScreenStatus::Disconnected));
     }
 
     #[test]
@@ -805,10 +802,7 @@ mod monitor_tests {
     #[test]
     fn connected_to_zero_monitors_is_disconnected() {
         let mut m = DisplayMonitor::new(layout(2, true));
-        assert_eq!(
-            m.update(layout(0, false)),
-            Some(ScreenStatus::Disconnected)
-        );
+        assert_eq!(m.update(layout(0, false)), Some(ScreenStatus::Disconnected));
     }
 
     // ── screen swap detection ─────────────────────────────────────────────────
@@ -834,10 +828,7 @@ mod monitor_tests {
     #[test]
     fn swapped_to_disconnected_returns_some_disconnected() {
         let mut m = DisplayMonitor::new(layout(2, false));
-        assert_eq!(
-            m.update(layout(1, false)),
-            Some(ScreenStatus::Disconnected)
-        );
+        assert_eq!(m.update(layout(1, false)), Some(ScreenStatus::Disconnected));
     }
 
     // ── reconnect after disconnect ────────────────────────────────────────────
@@ -846,10 +837,7 @@ mod monitor_tests {
     fn reconnect_after_disconnect_returns_connected() {
         let mut m = DisplayMonitor::new(layout(2, true));
         m.update(layout(1, false));
-        assert_eq!(
-            m.update(layout(2, true)),
-            Some(ScreenStatus::Connected)
-        );
+        assert_eq!(m.update(layout(2, true)), Some(ScreenStatus::Connected));
         assert_eq!(*m.status(), ScreenStatus::Connected);
     }
 
@@ -857,10 +845,7 @@ mod monitor_tests {
     fn fix_swap_returns_connected() {
         let mut m = DisplayMonitor::new(layout(2, false));
         assert_eq!(*m.status(), ScreenStatus::Swapped);
-        assert_eq!(
-            m.update(layout(2, true)),
-            Some(ScreenStatus::Connected)
-        );
+        assert_eq!(m.update(layout(2, true)), Some(ScreenStatus::Connected));
     }
 
     // ── no spurious events on startup ─────────────────────────────────────────
@@ -926,9 +911,9 @@ mod monitor_tests {
 
 #[cfg(test)]
 mod undo_tests {
-    use std::time::{Duration, Instant};
     use super::{ActionId, DisplayedState, SubPoint, UndoError, UndoSystem, UNDO_WINDOW};
     use companion_events::BibleReference;
+    use std::time::{Duration, Instant};
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -958,7 +943,7 @@ mod undo_tests {
     }
 
     fn at_boundary(t0: Instant) -> Instant {
-        t0 + UNDO_WINDOW   // exactly 5 s → expired
+        t0 + UNDO_WINDOW // exactly 5 s → expired
     }
 
     fn expired(t0: Instant) -> Instant {
@@ -971,8 +956,8 @@ mod undo_tests {
     fn record_discard_returns_incrementing_ids() {
         let (mut sys, t0) = sys();
         let id1 = sys.record_discard(john_3_16(), t0);
-        let id2 = sys.record_discard(sermon(),    t0);
-        let id3 = sys.record_discard(sub(),       t0);
+        let id2 = sys.record_discard(sermon(), t0);
+        let id3 = sys.record_discard(sub(), t0);
         assert_eq!([id1, id2, id3], [1, 2, 3]);
     }
 
@@ -1125,7 +1110,7 @@ mod undo_tests {
     fn expire_old_removes_stale_actions() {
         let (mut sys, t0) = sys();
         sys.record_discard(john_3_16(), t0);
-        sys.record_discard(sermon(),    t0);
+        sys.record_discard(sermon(), t0);
         assert_eq!(sys.expire_old(expired(t0)).len(), 2);
         assert!(sys.is_empty());
     }
@@ -1134,7 +1119,7 @@ mod undo_tests {
     fn expire_old_returns_expired_ids() {
         let (mut sys, t0) = sys();
         let id1 = sys.record_discard(john_3_16(), t0);
-        let id2 = sys.record_discard(sermon(),    t0);
+        let id2 = sys.record_discard(sermon(), t0);
         let mut expired_ids = sys.expire_old(expired(t0));
         expired_ids.sort();
         assert_eq!(expired_ids, vec![id1, id2]);
@@ -1143,12 +1128,12 @@ mod undo_tests {
     #[test]
     fn expire_old_leaves_fresh_actions_intact() {
         let (mut sys, t0) = sys();
-        let old_id  = sys.record_discard(john_3_16(), t0);
+        let old_id = sys.record_discard(john_3_16(), t0);
         let fresh_t = t0 + Duration::from_secs(4); // still has 1s remaining
         let fresh_id = sys.record_discard(sermon(), fresh_t);
 
         // Poll happens 4.5 s after t0 — old_id expired, fresh_id still valid.
-        let now = t0 + Duration::from_millis(4_500);
+        let _now = t0 + Duration::from_millis(4_500);
         // old_id: 4500ms elapsed >= 5000ms? No. Hmm — let me recalculate.
         // Actually old_id was recorded at t0; now is t0 + 4500ms. 4500 < 5000. Still valid.
         // Let me use a wider gap.
@@ -1183,7 +1168,7 @@ mod undo_tests {
     fn undo_most_recent_of_two_discards() {
         let (mut sys, t0) = sys();
         let id1 = sys.record_discard(john_3_16(), t0);
-        let id2 = sys.record_discard(sermon(),    t0);
+        let id2 = sys.record_discard(sermon(), t0);
 
         // Undo only the second discard.
         let restored = sys.undo(id2, within(t0)).unwrap();
@@ -1198,7 +1183,7 @@ mod undo_tests {
     fn undo_first_of_two_discards_leaves_second_intact() {
         let (mut sys, t0) = sys();
         let id1 = sys.record_discard(john_3_16(), t0);
-        let id2 = sys.record_discard(sermon(),    t0);
+        let id2 = sys.record_discard(sermon(), t0);
 
         sys.undo(id1, within(t0)).unwrap();
         assert_eq!(sys.len(), 1);
@@ -1209,8 +1194,8 @@ mod undo_tests {
     fn undo_all_three_sequential_discards() {
         let (mut sys, t0) = sys();
         let id1 = sys.record_discard(john_3_16(), t0);
-        let id2 = sys.record_discard(sermon(),    t0);
-        let id3 = sys.record_discard(sub(),       t0);
+        let id2 = sys.record_discard(sermon(), t0);
+        let id3 = sys.record_discard(sub(), t0);
 
         assert_eq!(sys.undo(id3, within(t0)).unwrap(), sub());
         assert_eq!(sys.undo(id2, within(t0)).unwrap(), sermon());
@@ -1223,15 +1208,12 @@ mod undo_tests {
         let (mut sys, t0) = sys();
         let id1 = sys.record_discard(john_3_16(), t0);
         // Second discard happens 4.8 s later.
-        let t1  = t0 + Duration::from_millis(4_800);
+        let t1 = t0 + Duration::from_millis(4_800);
         let id2 = sys.record_discard(sermon(), t1);
 
         // Poll at t0 + 5.1 s: id1 is expired (5100ms), id2 is still valid (300ms).
         let poll = t0 + Duration::from_millis(5_100);
-        assert_eq!(
-            sys.undo(id1, poll).unwrap_err(),
-            UndoError::Expired(id1)
-        );
+        assert_eq!(sys.undo(id1, poll).unwrap_err(), UndoError::Expired(id1));
         assert_eq!(sys.undo(id2, poll).unwrap(), sermon());
         assert!(sys.is_empty());
     }

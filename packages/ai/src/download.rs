@@ -76,9 +76,8 @@ where
     let tmp = dest.with_extension("tmp");
     fetch_with_progress(spec.url, &tmp, &mut on_progress, spec.size_mb * 1_048_576)?;
 
-    verify_sha256(&tmp, spec.sha256).map_err(|e| {
+    verify_sha256(&tmp, spec.sha256).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
-        e
     })?;
 
     std::fs::rename(&tmp, &dest)?;
@@ -152,14 +151,22 @@ where
     }
 
     // If the server honoured the Range request we append; otherwise restart.
-    let (mut file, mut downloaded) = if status == reqwest::StatusCode::PARTIAL_CONTENT && already > 0 {
-        let f = std::fs::OpenOptions::new().append(true).open(dest)?;
-        (f, already)
-    } else {
-        (std::fs::File::create(dest)?, 0)
-    };
+    let (mut file, mut downloaded) =
+        if status == reqwest::StatusCode::PARTIAL_CONTENT && already > 0 {
+            let f = std::fs::OpenOptions::new().append(true).open(dest)?;
+            (f, already)
+        } else {
+            (std::fs::File::create(dest)?, 0)
+        };
 
-    let total = response.content_length().map(|n| n + downloaded).or(if total_hint > 0 { Some(total_hint) } else { None });
+    let total = response
+        .content_length()
+        .map(|n| n + downloaded)
+        .or(if total_hint > 0 {
+            Some(total_hint)
+        } else {
+            None
+        });
     let mut buf = vec![0u8; 65_536];
 
     loop {

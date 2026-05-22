@@ -15,7 +15,10 @@ pub enum SetupProgress {
     /// Model is already present and the checksum matched.
     AlreadyPresent,
     /// Download in progress.
-    Downloading { bytes_done: u64, bytes_total: Option<u64> },
+    Downloading {
+        bytes_done: u64,
+        bytes_total: Option<u64>,
+    },
     /// Verifying SHA-256 checksum.
     Verifying,
     /// Loading weights into memory.
@@ -38,7 +41,10 @@ impl SetupProgress {
 
     pub fn download_percent(&self) -> Option<u8> {
         match self {
-            Self::Downloading { bytes_done, bytes_total: Some(total) } if *total > 0 => {
+            Self::Downloading {
+                bytes_done,
+                bytes_total: Some(total),
+            } if *total > 0 => {
                 Some(((*bytes_done as f64 / *total as f64) * 100.0).min(100.0) as u8)
             }
             _ => None,
@@ -98,9 +104,16 @@ impl LocalAIManager {
                 .map_err(|e| LocalAIError::LoadFailed(e.to_string()))?;
             on_progress(SetupProgress::AlreadyPresent);
         } else {
-            download_model_if_needed(&PHI3_MINI_4BIT, &self.models_dir, |bytes_done, bytes_total| {
-                on_progress(SetupProgress::Downloading { bytes_done, bytes_total });
-            })
+            download_model_if_needed(
+                &PHI3_MINI_4BIT,
+                &self.models_dir,
+                |bytes_done, bytes_total| {
+                    on_progress(SetupProgress::Downloading {
+                        bytes_done,
+                        bytes_total,
+                    });
+                },
+            )
             .map_err(|e| LocalAIError::LoadFailed(e.to_string()))?;
 
             on_progress(SetupProgress::Verifying);

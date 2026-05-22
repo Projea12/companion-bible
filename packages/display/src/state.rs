@@ -13,9 +13,10 @@ impl SubPoint {
 }
 
 /// Every distinct state the congregation display can be in.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub enum DisplayedState {
     /// Screen is completely black — used during transitions or blackout moments.
+    #[default]
     Blank,
     /// A sermon title is shown full-screen.
     SermonTitle(String),
@@ -23,12 +24,6 @@ pub enum DisplayedState {
     SubPoint(SubPoint),
     /// A scripture verse is shown: (reference, verse text).
     Verse(BibleReference, String),
-}
-
-impl Default for DisplayedState {
-    fn default() -> Self {
-        Self::Blank
-    }
 }
 
 impl std::fmt::Display for DisplayedState {

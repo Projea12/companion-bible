@@ -88,10 +88,14 @@ mod tests {
     fn books_testament_split_is_correct() {
         let b = bible();
         let books = b.books();
-        let ot: Vec<_> =
-            books.iter().filter(|b| b.testament == Testament::OldTestament).collect();
-        let nt: Vec<_> =
-            books.iter().filter(|b| b.testament == Testament::NewTestament).collect();
+        let ot: Vec<_> = books
+            .iter()
+            .filter(|b| b.testament == Testament::OldTestament)
+            .collect();
+        let nt: Vec<_> = books
+            .iter()
+            .filter(|b| b.testament == Testament::NewTestament)
+            .collect();
         assert_eq!(ot.len(), 39, "expected 39 OT books");
         assert_eq!(nt.len(), 27, "expected 27 NT books");
         assert_eq!(ot.last().unwrap().name, "Malachi");
@@ -105,7 +109,10 @@ mod tests {
         assert_eq!(psalms.chapter_count, 150);
         assert_eq!(psalms.testament, Testament::OldTestament);
         assert_eq!(psalms.order, 19);
-        assert!(psalms.verse_count > 2_000, "Psalms should have >2000 verses");
+        assert!(
+            psalms.verse_count > 2_000,
+            "Psalms should have >2000 verses"
+        );
     }
 
     #[test]
@@ -159,20 +166,72 @@ mod tests {
     fn book_exists_all_66() {
         let b = bible();
         let names = [
-            "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy",
-            "Joshua", "Judges", "Ruth", "1 Samuel", "2 Samuel",
-            "1 Kings", "2 Kings", "1 Chronicles", "2 Chronicles", "Ezra",
-            "Nehemiah", "Esther", "Job", "Psalms", "Proverbs",
-            "Ecclesiastes", "Song of Solomon", "Isaiah", "Jeremiah",
-            "Lamentations", "Ezekiel", "Daniel", "Hosea", "Joel", "Amos",
-            "Obadiah", "Jonah", "Micah", "Nahum", "Habakkuk",
-            "Zephaniah", "Haggai", "Zechariah", "Malachi", "Matthew",
-            "Mark", "Luke", "John", "Acts", "Romans",
-            "1 Corinthians", "2 Corinthians", "Galatians", "Ephesians",
-            "Philippians", "Colossians", "1 Thessalonians", "2 Thessalonians",
-            "1 Timothy", "2 Timothy", "Titus", "Philemon", "Hebrews",
-            "James", "1 Peter", "2 Peter", "1 John", "2 John", "3 John",
-            "Jude", "Revelation",
+            "Genesis",
+            "Exodus",
+            "Leviticus",
+            "Numbers",
+            "Deuteronomy",
+            "Joshua",
+            "Judges",
+            "Ruth",
+            "1 Samuel",
+            "2 Samuel",
+            "1 Kings",
+            "2 Kings",
+            "1 Chronicles",
+            "2 Chronicles",
+            "Ezra",
+            "Nehemiah",
+            "Esther",
+            "Job",
+            "Psalms",
+            "Proverbs",
+            "Ecclesiastes",
+            "Song of Solomon",
+            "Isaiah",
+            "Jeremiah",
+            "Lamentations",
+            "Ezekiel",
+            "Daniel",
+            "Hosea",
+            "Joel",
+            "Amos",
+            "Obadiah",
+            "Jonah",
+            "Micah",
+            "Nahum",
+            "Habakkuk",
+            "Zephaniah",
+            "Haggai",
+            "Zechariah",
+            "Malachi",
+            "Matthew",
+            "Mark",
+            "Luke",
+            "John",
+            "Acts",
+            "Romans",
+            "1 Corinthians",
+            "2 Corinthians",
+            "Galatians",
+            "Ephesians",
+            "Philippians",
+            "Colossians",
+            "1 Thessalonians",
+            "2 Thessalonians",
+            "1 Timothy",
+            "2 Timothy",
+            "Titus",
+            "Philemon",
+            "Hebrews",
+            "James",
+            "1 Peter",
+            "2 Peter",
+            "1 John",
+            "2 John",
+            "3 John",
+            "Jude",
+            "Revelation",
         ];
         for name in names {
             assert!(b.book_exists(name), "missing: {name}");
@@ -354,8 +413,7 @@ mod tests {
     #[test]
     fn validate_valid_revelation_22_21() {
         let b = bible();
-        let result =
-            BibleValidator::new(&b).validate(&BibleReference::verse("Revelation", 22, 21));
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Revelation", 22, 21));
         assert!(result.is_valid());
     }
 
@@ -363,8 +421,12 @@ mod tests {
     fn validate_is_valid_helper() {
         let b = bible();
         let v = BibleValidator::new(&b);
-        assert!(v.validate(&BibleReference::verse("Genesis", 1, 1)).is_valid());
-        assert!(!v.validate(&BibleReference::verse("Hezekiah", 1, 1)).is_valid());
+        assert!(v
+            .validate(&BibleReference::verse("Genesis", 1, 1))
+            .is_valid());
+        assert!(!v
+            .validate(&BibleReference::verse("Hezekiah", 1, 1))
+            .is_valid());
     }
 
     // ── BibleValidator — InvalidBook ──────────────────────────────────────────
@@ -432,7 +494,10 @@ mod tests {
         let result = BibleValidator::new(&b).validate(&BibleReference::verse("Obadiah", 2, 1));
         assert!(matches!(
             result,
-            ValidationResult::InvalidChapter { total_chapters: 1, .. }
+            ValidationResult::InvalidChapter {
+                total_chapters: 1,
+                ..
+            }
         ));
     }
 
@@ -474,7 +539,11 @@ mod tests {
         let result = BibleValidator::new(&b).validate(&BibleReference::verse("John", 3, 37));
         assert!(matches!(
             result,
-            ValidationResult::InvalidVerse { total_verses: 36, verse: 37, .. }
+            ValidationResult::InvalidVerse {
+                total_verses: 36,
+                verse: 37,
+                ..
+            }
         ));
     }
 
@@ -503,8 +572,7 @@ mod tests {
     #[test]
     fn validate_invalid_book_takes_priority_over_invalid_chapter() {
         let b = bible();
-        let result =
-            BibleValidator::new(&b).validate(&BibleReference::verse("Hezekiah", 255, 255));
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Hezekiah", 255, 255));
         assert!(matches!(result, ValidationResult::InvalidBook { .. }));
     }
 
@@ -568,7 +636,11 @@ mod tests {
         let b = bible();
         let upper = b.search("LOVE");
         let lower = b.search("love");
-        assert_eq!(upper.len(), lower.len(), "case should not affect result count");
+        assert_eq!(
+            upper.len(),
+            lower.len(),
+            "case should not affect result count"
+        );
     }
 
     #[test]
@@ -597,7 +669,10 @@ mod tests {
         let multi = b.search("God is love");
         let max_single = single.iter().map(|r| r.score).max().unwrap_or(0);
         let max_multi = multi.iter().map(|r| r.score).max().unwrap_or(0);
-        assert!(max_multi > max_single, "multi-term query should yield higher max score");
+        assert!(
+            max_multi > max_single,
+            "multi-term query should yield higher max score"
+        );
     }
 
     #[test]
@@ -733,6 +808,7 @@ mod tests {
 
         /// Strategy: pick a random valid book by index, then random valid
         /// chapter and verse within that book's actual bounds.
+        #[allow(dead_code)]
         fn valid_reference_strategy(b: &KjvBible) -> impl Strategy<Value = BibleReference> {
             let books: Vec<(String, u8)> = b
                 .books()
@@ -899,8 +975,7 @@ mod tests {
     #[test]
     fn boundary_revelation_22_21_is_valid() {
         let b = bible();
-        let result =
-            BibleValidator::new(&b).validate(&BibleReference::verse("Revelation", 22, 21));
+        let result = BibleValidator::new(&b).validate(&BibleReference::verse("Revelation", 22, 21));
         assert!(result.is_valid(), "Revelation 22:21 should be valid");
     }
 
@@ -909,7 +984,10 @@ mod tests {
         let b = bible();
         for book in b.book_names() {
             let result = BibleValidator::new(&b).validate(&BibleReference::verse(book, 1, 1));
-            assert!(result.is_valid(), "{book} 1:1 should be valid, got: {result}");
+            assert!(
+                result.is_valid(),
+                "{book} 1:1 should be valid, got: {result}"
+            );
         }
     }
 

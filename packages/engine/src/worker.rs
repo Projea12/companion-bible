@@ -59,7 +59,13 @@ impl LocalAiHandle {
         recent_transcript: String,
     ) -> Option<mpsc::Receiver<LocalAIResult>> {
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
-        let job = Job { segment_text, active_book, active_chapter, recent_transcript, reply: reply_tx };
+        let job = Job {
+            segment_text,
+            active_book,
+            active_chapter,
+            recent_transcript,
+            reply: reply_tx,
+        };
         match self.tx.try_send(job) {
             Ok(_) => Some(reply_rx),
             Err(_) => None, // worker busy — caller degrades gracefully

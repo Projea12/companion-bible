@@ -51,7 +51,10 @@ impl ConnectivityMonitor {
             })
             .expect("failed to spawn connectivity-monitor thread");
 
-        MonitorHandle { stop, _thread: Mutex::new(Some(thread)) }
+        MonitorHandle {
+            stop,
+            _thread: Mutex::new(Some(thread)),
+        }
     }
 
     /// One-shot non-blocking check — returns `true` if internet is reachable.
@@ -151,7 +154,10 @@ mod tests {
         let after_first = count.load(Ordering::Relaxed);
 
         // No second check has fired within 50ms (interval is 5s).
-        assert!(after_first <= 1, "on_change fired {after_first} times before first interval");
+        assert!(
+            after_first <= 1,
+            "on_change fired {after_first} times before first interval"
+        );
     }
 
     #[test]

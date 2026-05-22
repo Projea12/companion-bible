@@ -101,12 +101,11 @@ impl CalibrationThresholds {
         auto_delta = auto_delta.clamp(-MAX_ADJUSTMENT, MAX_ADJUSTMENT);
         warning_delta = warning_delta.clamp(-MAX_ADJUSTMENT, MAX_ADJUSTMENT);
 
-        let new_auto = (self.auto_display + auto_delta)
-            .clamp(AUTO_DISPLAY_MIN, AUTO_DISPLAY_MAX);
+        let new_auto = (self.auto_display + auto_delta).clamp(AUTO_DISPLAY_MIN, AUTO_DISPLAY_MAX);
 
         let warning_ceiling = (new_auto - WARNING_GAP).max(WARNING_MIN);
-        let new_warning = (self.show_with_warning + warning_delta)
-            .clamp(WARNING_MIN, warning_ceiling);
+        let new_warning =
+            (self.show_with_warning + warning_delta).clamp(WARNING_MIN, warning_ceiling);
 
         Self {
             auto_display: new_auto,
@@ -156,8 +155,14 @@ mod tests {
         let t = CalibrationThresholds::default();
         // 25 rejected out of 100 → discard_rate = 0.25 > 0.20
         let after = t.adjust_for_service(&record(100, 70, 5, 25));
-        assert!(after.auto_display > t.auto_display, "auto_display should rise");
-        assert!(after.show_with_warning > t.show_with_warning, "warning should rise");
+        assert!(
+            after.auto_display > t.auto_display,
+            "auto_display should rise"
+        );
+        assert!(
+            after.show_with_warning > t.show_with_warning,
+            "warning should rise"
+        );
     }
 
     #[test]
@@ -165,7 +170,10 @@ mod tests {
         let t = CalibrationThresholds::default();
         // 20 corrected, 5 rejected → correction_rate=0.20 > 0.15, discard_rate=0.05=0.05
         let after = t.adjust_for_service(&record(100, 75, 20, 5));
-        assert!(after.auto_display > t.auto_display, "auto_display should rise");
+        assert!(
+            after.auto_display > t.auto_display,
+            "auto_display should rise"
+        );
     }
 
     #[test]
@@ -184,8 +192,14 @@ mod tests {
         let t = CalibrationThresholds::new(0.96, 0.80);
         // 80% auto-accepted, 2% corrections, 2% rejections
         let after = t.adjust_for_service(&record(100, 80, 2, 2));
-        assert!(after.auto_display < t.auto_display, "auto_display should relax");
-        assert!(after.show_with_warning < t.show_with_warning, "warning should relax");
+        assert!(
+            after.auto_display < t.auto_display,
+            "auto_display should relax"
+        );
+        assert!(
+            after.show_with_warning < t.show_with_warning,
+            "warning should relax"
+        );
     }
 
     #[test]
@@ -334,8 +348,14 @@ mod tests {
         let perfect = record(100, 100, 0, 0);
         for i in 0..100 {
             t = t.adjust_for_service(if i % 2 == 0 { &bad } else { &perfect });
-            assert!(t.auto_display >= 0.85, "auto_display dropped below 0.85 on iteration {i}");
-            assert!(t.auto_display <= 0.99, "auto_display exceeded 0.99 on iteration {i}");
+            assert!(
+                t.auto_display >= 0.85,
+                "auto_display dropped below 0.85 on iteration {i}"
+            );
+            assert!(
+                t.auto_display <= 0.99,
+                "auto_display exceeded 0.99 on iteration {i}"
+            );
             assert!(
                 t.show_with_warning < t.auto_display,
                 "invariant violated on iteration {i}"

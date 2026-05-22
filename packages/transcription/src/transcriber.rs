@@ -42,13 +42,21 @@ pub(crate) struct EmittedSet {
 
 impl EmittedSet {
     pub(crate) fn new(prune_after: Duration) -> Self {
-        Self { entries: VecDeque::new(), prune_after }
+        Self {
+            entries: VecDeque::new(),
+            prune_after,
+        }
     }
 
     /// Remove entries older than `prune_after`.
     pub(crate) fn prune(&mut self) {
         let cutoff = Instant::now() - self.prune_after;
-        while self.entries.front().map(|(t, _)| *t < cutoff).unwrap_or(false) {
+        while self
+            .entries
+            .front()
+            .map(|(t, _)| *t < cutoff)
+            .unwrap_or(false)
+        {
             self.entries.pop_front();
         }
     }
@@ -153,7 +161,17 @@ impl WhisperTranscriber {
         let (sender, receiver) = segment_channel();
         let stop_flag = Arc::new(AtomicBool::new(true));
         let book_context = Arc::new(Mutex::new(None::<String>));
-        (Self { window, options, book_context, stop_flag, handle: None, sender }, receiver)
+        (
+            Self {
+                window,
+                options,
+                book_context,
+                stop_flag,
+                handle: None,
+                sender,
+            },
+            receiver,
+        )
     }
 
     // ── Book context ──────────────────────────────────────────────────────────

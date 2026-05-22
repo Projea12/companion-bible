@@ -49,7 +49,11 @@ async fn setup_engine() -> (DetectionEngine, TempDir) {
 
     let bible = KjvBible::load(bible_path()).unwrap();
     let engine = DetectionEngine::new(
-        EngineConfig { sermon_id: "s1".into(), api_key: None },
+        EngineConfig {
+            sermon_id: "s1".into(),
+            api_key: None,
+            openai_api_key: None,
+        },
         bible,
         ChurchRepository::new(pool.clone()),
         CalibrationRepository::new(pool.clone()),
@@ -69,26 +73,46 @@ async fn setup_engine() -> (DetectionEngine, TempDir) {
 type Case<'a> = (&'a str, &'a str, u8, u8);
 
 const KNOWN_REFERENCES: &[Case<'static>] = &[
-    ("for God so loved the world John 3:16",          "John",            3,  16),
-    ("Romans 8:28 all things work together for good", "Romans",          8,  28),
-    ("Psalm 23:1 the Lord is my shepherd",            "Psalms",          23,  1),
-    ("in the beginning Genesis 1:1",                  "Genesis",          1,  1),
-    ("Blessed are the poor in spirit Matthew 5:3",    "Matthew",          5,  3),
-    ("1 Corinthians 13:4 love is patient",            "1 Corinthians",   13,  4),
-    ("trust in the Lord Proverbs 3:5",                "Proverbs",         3,  5),
-    ("they shall mount up with wings Isaiah 40:31",   "Isaiah",          40, 31),
-    ("I can do all things Philippians 4:13",          "Philippians",      4, 13),
-    ("faith is the substance Hebrews 11:1",           "Hebrews",         11,  1),
-    ("go into all the world Mark 16:15",              "Mark",            16, 15),
-    ("nothing is impossible Luke 1:37",               "Luke",             1, 37),
-    ("you shall be my witnesses Acts 1:8",            "Acts",             1,  8),
-    ("all scripture 2 Timothy 3:16",                  "2 Timothy",        3, 16),
-    ("by grace Ephesians 2:8",                        "Ephesians",        2,  8),
-    ("plans to prosper you Jeremiah 29:11",           "Jeremiah",        29, 11),
-    ("the fruit of the Spirit Galatians 5:22",        "Galatians",        5, 22),
-    ("I stand at the door Revelation 3:20",           "Revelation",       3, 20),
-    ("heartily as to the Lord Colossians 3:23",       "Colossians",       3, 23),
-    ("every good gift James 1:17",                    "James",            1, 17),
+    ("for God so loved the world John 3:16", "John", 3, 16),
+    (
+        "Romans 8:28 all things work together for good",
+        "Romans",
+        8,
+        28,
+    ),
+    ("Psalm 23:1 the Lord is my shepherd", "Psalms", 23, 1),
+    ("in the beginning Genesis 1:1", "Genesis", 1, 1),
+    (
+        "Blessed are the poor in spirit Matthew 5:3",
+        "Matthew",
+        5,
+        3,
+    ),
+    ("1 Corinthians 13:4 love is patient", "1 Corinthians", 13, 4),
+    ("trust in the Lord Proverbs 3:5", "Proverbs", 3, 5),
+    (
+        "they shall mount up with wings Isaiah 40:31",
+        "Isaiah",
+        40,
+        31,
+    ),
+    ("I can do all things Philippians 4:13", "Philippians", 4, 13),
+    ("faith is the substance Hebrews 11:1", "Hebrews", 11, 1),
+    ("go into all the world Mark 16:15", "Mark", 16, 15),
+    ("nothing is impossible Luke 1:37", "Luke", 1, 37),
+    ("you shall be my witnesses Acts 1:8", "Acts", 1, 8),
+    ("all scripture 2 Timothy 3:16", "2 Timothy", 3, 16),
+    ("by grace Ephesians 2:8", "Ephesians", 2, 8),
+    ("plans to prosper you Jeremiah 29:11", "Jeremiah", 29, 11),
+    ("the fruit of the Spirit Galatians 5:22", "Galatians", 5, 22),
+    ("I stand at the door Revelation 3:20", "Revelation", 3, 20),
+    (
+        "heartily as to the Lord Colossians 3:23",
+        "Colossians",
+        3,
+        23,
+    ),
+    ("every good gift James 1:17", "James", 1, 17),
 ];
 
 #[tokio::test]
@@ -160,11 +184,8 @@ async fn no_false_positives_on_non_verse_text() {
     for text in NON_VERSE_TEXTS {
         let decision = engine.process(segment(text)).await;
 
-        if decision.reference.is_some() {
-            false_positives.push(format!(
-                "FALSE POSITIVE: \"{text}\" → {:?}",
-                decision.reference.unwrap()
-            ));
+        if let Some(r) = decision.reference {
+            false_positives.push(format!("FALSE POSITIVE: \"{text}\" → {r:?}"));
         }
     }
 

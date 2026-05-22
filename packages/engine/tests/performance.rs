@@ -22,9 +22,9 @@ use tempfile::TempDir;
 // ─── shared constants ────────────────────────────────────────────────────────
 
 const PATTERN_BUDGET_MS: u128 = 5;
-const ENGINE_PATTERN_BUDGET_MS: u128 = 50;     // well inside the 400 ms budget
-const ENGINE_LOCAL_AI_BUDGET_MS: u128 = 400;   // full pattern + local AI budget
-const ENGINE_ALL_LAYERS_BUDGET_MS: u128 = 800;  // full three-layer budget
+const ENGINE_PATTERN_BUDGET_MS: u128 = 50; // well inside the 400 ms budget
+const ENGINE_LOCAL_AI_BUDGET_MS: u128 = 400; // full pattern + local AI budget
+const ENGINE_ALL_LAYERS_BUDGET_MS: u128 = 800; // full three-layer budget
 
 const PERF_ITERATIONS: u32 = 100;
 
@@ -64,7 +64,11 @@ async fn setup_engine() -> (DetectionEngine, TempDir) {
 
     let bible = KjvBible::load(bible_path()).unwrap();
     let engine = DetectionEngine::new(
-        EngineConfig { sermon_id: "s1".into(), api_key: None },
+        EngineConfig {
+            sermon_id: "s1".into(),
+            api_key: None,
+            openai_api_key: None,
+        },
         bible,
         ChurchRepository::new(pool.clone()),
         CalibrationRepository::new(pool.clone()),
@@ -137,7 +141,9 @@ fn pattern_layer_long_text_under_5ms() {
         let t0 = Instant::now();
         let _ = engine.find_all(long_text);
         let elapsed = t0.elapsed();
-        if elapsed > worst { worst = elapsed; }
+        if elapsed > worst {
+            worst = elapsed;
+        }
     }
 
     assert!(
@@ -218,19 +224,26 @@ async fn engine_pattern_plus_local_ai_under_400ms() {
     let pool = connect(&db_path, &PoolConfig::default()).await.unwrap();
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Test', 'uk')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at) \
          VALUES ('s1', 'c1', '2026-01-01', '2026-01-01T10:00:00Z')",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
 
-    let ai = LocalAI::load(LocalAIConfig::new(model_path.clone()))
-        .expect("model load failed");
+    let ai = LocalAI::load(LocalAIConfig::new(model_path.clone())).expect("model load failed");
 
     let bible = KjvBible::load(bible_path()).unwrap();
     let mut engine = DetectionEngine::new(
-        EngineConfig { sermon_id: "s1".into(), api_key: None },
+        EngineConfig {
+            sermon_id: "s1".into(),
+            api_key: None,
+            openai_api_key: None,
+        },
         bible,
         ChurchRepository::new(pool.clone()),
         CalibrationRepository::new(pool.clone()),
@@ -295,19 +308,26 @@ async fn engine_all_three_layers_under_800ms() {
     let pool = connect(&db_path, &PoolConfig::default()).await.unwrap();
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Test', 'uk')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at) \
          VALUES ('s1', 'c1', '2026-01-01', '2026-01-01T10:00:00Z')",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
 
-    let ai = LocalAI::load(LocalAIConfig::new(model_path.clone()))
-        .expect("model load failed");
+    let ai = LocalAI::load(LocalAIConfig::new(model_path.clone())).expect("model load failed");
 
     let bible = KjvBible::load(bible_path()).unwrap();
     let mut engine = DetectionEngine::new(
-        EngineConfig { sermon_id: "s1".into(), api_key: Some(api_key) },
+        EngineConfig {
+            sermon_id: "s1".into(),
+            api_key: Some(api_key),
+            openai_api_key: None,
+        },
         bible,
         ChurchRepository::new(pool.clone()),
         CalibrationRepository::new(pool.clone()),
@@ -318,10 +338,7 @@ async fn engine_all_three_layers_under_800ms() {
     .await
     .unwrap();
 
-    let texts = [
-        "as it is written in John 3:16",
-        "Romans 8:28 and we know",
-    ];
+    let texts = ["as it is written in John 3:16", "Romans 8:28 and we know"];
 
     // Warm-up
     let _ = engine.process(segment(texts[0])).await;

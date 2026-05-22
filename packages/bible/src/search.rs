@@ -21,8 +21,8 @@ pub(crate) fn score_verse(lower_verse: &str, terms: &[String]) -> u32 {
     for term in terms {
         if lower_verse.contains(term.as_str()) {
             score += 1; // substring hit
-            // Whole-word bonus: chars before and after the match must be
-            // non-alphabetic (or the match is at the string boundary).
+                        // Whole-word bonus: chars before and after the match must be
+                        // non-alphabetic (or the match is at the string boundary).
             if is_whole_word_match(lower_verse, term) {
                 score += 10;
             }
@@ -43,7 +43,7 @@ fn is_whole_word_match(text: &str, term: &str) -> bool {
     }
 
     let mut start = 0;
-    while let Some(pos) = text[start..].find(term.as_ref() as &str) {
+    while let Some(pos) = text[start..].find(term) {
         let abs = start + pos;
         let before_ok = abs == 0 || !bytes[abs - 1].is_ascii_alphabetic();
         let after_ok = abs + tlen >= tlen_text || !bytes[abs + tlen].is_ascii_alphabetic();

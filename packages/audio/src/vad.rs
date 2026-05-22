@@ -71,7 +71,7 @@ pub struct VoiceActivityDetector {
 enum VadBackend {
     Energy,
     #[cfg(feature = "neural-vad")]
-    Neural(NeuralState),
+    Neural(Box<NeuralState>),
 }
 
 // ─── Constructors ─────────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ impl VoiceActivityDetector {
             return Err(VadError::ModelNotFound(path.display().to_string()));
         }
         Ok(Self {
-            backend: VadBackend::Neural(NeuralState::load(path)?),
+            backend: VadBackend::Neural(Box::new(NeuralState::load(path)?)),
             window: VecDeque::with_capacity(WINDOW_SIZE),
             prob_threshold: DEFAULT_THRESHOLD,
         })
@@ -131,9 +131,7 @@ impl VoiceActivityDetector {
         let prob = match &mut self.backend {
             VadBackend::Energy => rms(chunk),
             #[cfg(feature = "neural-vad")]
-            VadBackend::Neural(state) => {
-                state.infer(chunk).unwrap_or_else(|_| rms(chunk))
-            }
+            VadBackend::Neural(state) => state.infer(chunk).unwrap_or_else(|_| rms(chunk)),
         };
 
         let is_speech = prob >= self.prob_threshold;
@@ -274,13 +272,17 @@ impl NeuralState {
         padded[..n].copy_from_slice(&chunk[..n]);
 
         let audio: Tensor =
-            tract_ndarray::Array2::<f32>::from_shape_fn((1, CHUNK_SIZE), |(_, i)| padded[i])
-                .into();
+            tract_ndarray::Array2::<f32>::from_shape_fn((1, CHUNK_SIZE), |(_, i)| padded[i]).into();
         let sr: Tensor = tract_ndarray::arr1(&[SAMPLE_RATE]).into();
 
         let mut outputs = self
             .model
-            .run(tvec![audio, sr, self.h.clone(), self.c.clone()])
+            .run(tvec![
+                audio.into(),
+                sr.into(),
+                self.h.clone().into(),
+                self.c.clone().into()
+            ])
             .map_err(|e| VadError::Inference(e.to_string()))?;
 
         // Extract in reverse index order to avoid index shifting after remove().

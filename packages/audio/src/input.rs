@@ -12,7 +12,8 @@ use crate::error::AudioError;
 pub trait AudioInput: Send + Sync {
     fn available_devices(&self) -> Result<Vec<AudioDevice>, AudioError>;
     fn select_device(&mut self, device_id: &str) -> Result<(), AudioError>;
-    fn start(&mut self, callback: Box<dyn Fn(Vec<f32>) + Send + 'static>) -> Result<(), AudioError>;
+    fn start(&mut self, callback: Box<dyn Fn(Vec<f32>) + Send + 'static>)
+        -> Result<(), AudioError>;
     fn stop(&mut self);
     /// Peak level in [0.0, 1.0] from the most recent buffer.
     fn current_level(&self) -> f32;
@@ -68,9 +69,9 @@ impl CpalInput {
             .map_err(|e| AudioError::CpalDevice(e.to_string()))?;
 
         Ok(devices
-            .filter_map(|d| {
+            .map(|d| {
                 let is_default = d.name().ok().as_deref() == Some(&default_name);
-                Some((d, is_default))
+                (d, is_default)
             })
             .collect())
     }
@@ -81,7 +82,9 @@ impl AudioInput for CpalInput {
         let devs = Self::host_devices()?;
         let mut out = Vec::new();
         for (dev, is_default) in devs {
-            let name = dev.name().map_err(|e| AudioError::CpalDevice(e.to_string()))?;
+            let name = dev
+                .name()
+                .map_err(|e| AudioError::CpalDevice(e.to_string()))?;
             let device_type = infer_device_type(&name);
             if let Some(ref f) = self.filter {
                 if &device_type != f {
@@ -113,7 +116,10 @@ impl AudioInput for CpalInput {
         Ok(())
     }
 
-    fn start(&mut self, callback: Box<dyn Fn(Vec<f32>) + Send + 'static>) -> Result<(), AudioError> {
+    fn start(
+        &mut self,
+        callback: Box<dyn Fn(Vec<f32>) + Send + 'static>,
+    ) -> Result<(), AudioError> {
         self.stop();
 
         let host = cpal::default_host();
@@ -136,7 +142,9 @@ impl AudioInput for CpalInput {
         eprintln!(
             "[audio] device='{}' native={}Hz/{}ch/{:?}",
             device.name().unwrap_or_default(),
-            native_rate, native_channels, config.sample_format()
+            native_rate,
+            native_channels,
+            config.sample_format()
         );
 
         // Store native rate so callers can read it after start().
@@ -175,7 +183,10 @@ impl AudioInput for CpalInput {
             SampleFormat::U16 => device.build_input_stream(
                 &config.into(),
                 move |data: &[u16], _| {
-                    let f32s: Vec<f32> = data.iter().map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0).collect();
+                    let f32s: Vec<f32> = data
+                        .iter()
+                        .map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0)
+                        .collect();
                     let mono = to_mono_f32(&f32s, native_channels);
                     let peak = mono.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
                     level.store(peak.to_bits(), Ordering::Relaxed);
@@ -184,7 +195,11 @@ impl AudioInput for CpalInput {
                 err_fn,
                 None,
             ),
-            fmt => return Err(AudioError::StreamBuild(format!("unsupported sample format: {fmt:?}"))),
+            fmt => {
+                return Err(AudioError::StreamBuild(format!(
+                    "unsupported sample format: {fmt:?}"
+                )))
+            }
         }
         .map_err(|e| AudioError::StreamBuild(e.to_string()))?;
 

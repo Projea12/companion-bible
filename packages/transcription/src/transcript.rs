@@ -40,16 +40,14 @@ impl TranscriptionSegment {
 ///
 /// Placed at the start of every initial prompt so Whisper expects scripture
 /// vocabulary, proper nouns, and the spoken cadence of a sermon.
-pub const SERMON_PREAMBLE: &str =
-    "A preacher is delivering a sermon from the Bible. \
+pub const SERMON_PREAMBLE: &str = "A preacher is delivering a sermon from the Bible. \
      Scripture references include book names, chapter numbers, and verse numbers.";
 
 /// All 66 canonical Bible book names, space-separated.
 ///
 /// Injected into the initial prompt so Whisper learns the correct spellings of
 /// uncommon names like Habakkuk, Ecclesiastes, and Zephaniah.
-pub const BIBLE_BOOKS: &str =
-    "Genesis Exodus Leviticus Numbers Deuteronomy Joshua Judges Ruth \
+pub const BIBLE_BOOKS: &str = "Genesis Exodus Leviticus Numbers Deuteronomy Joshua Judges Ruth \
      Samuel Kings Chronicles Ezra Nehemiah Esther Job Psalms Proverbs \
      Ecclesiastes Isaiah Jeremiah Lamentations Ezekiel Daniel Hosea Joel \
      Amos Obadiah Jonah Micah Nahum Habakkuk Zephaniah Haggai Zechariah \

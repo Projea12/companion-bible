@@ -53,9 +53,12 @@ fn synthesize(text: &str, voice: &str) -> Vec<f32> {
         .args([
             aiff.to_str().unwrap(),
             wav.to_str().unwrap(),
-            "-f", "WAVE",
-            "-d", "LEF32@16000",
-            "-c", "1",
+            "-f",
+            "WAVE",
+            "-d",
+            "LEF32@16000",
+            "-c",
+            "1",
         ])
         .status()
         .expect("`afconvert` must be available (macOS only)");
@@ -342,10 +345,7 @@ fn transcribe_obscure_book_names() {
     let found = ["habakkuk", "ecclesiastes", "zephaniah"]
         .iter()
         .any(|book| text.contains(book));
-    assert!(
-        found,
-        "expected at least one obscure book name in: {text}"
-    );
+    assert!(found, "expected at least one obscure book name in: {text}");
 }
 
 // ─── Confidence tests ─────────────────────────────────────────────────────────
@@ -361,7 +361,10 @@ fn clear_speech_has_high_confidence() {
     let segs = model
         .transcribe(&audio, &TranscribeOptions::default())
         .expect("transcribe");
-    assert!(!segs.is_empty(), "expected at least one segment from clear speech");
+    assert!(
+        !segs.is_empty(),
+        "expected at least one segment from clear speech"
+    );
     for s in &segs {
         assert!(
             s.whisper_confidence >= 0.5,
@@ -401,7 +404,10 @@ fn all_segments_have_valid_timestamps() {
             s.whisper_confidence,
             s.text
         );
-        assert!(!s.is_duplicate, "is_duplicate must be false on first transcription");
+        assert!(
+            !s.is_duplicate,
+            "is_duplicate must be false on first transcription"
+        );
     }
 }
 
@@ -424,8 +430,12 @@ fn context_window_links_adjacent_segments() {
     for s in &segs {
         println!(
             "  [{}-{}ms] conf={:.3} dup={} ctx='{}'\n    text='{}'",
-            s.audio_start_ms, s.audio_end_ms, s.whisper_confidence,
-            s.is_duplicate, s.context_window, s.text
+            s.audio_start_ms,
+            s.audio_end_ms,
+            s.whisper_confidence,
+            s.is_duplicate,
+            s.context_window,
+            s.text
         );
     }
     // Middle segments should have a non-empty context window

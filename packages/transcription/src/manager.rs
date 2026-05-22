@@ -18,7 +18,10 @@ pub enum SetupProgress {
     AlreadyPresent,
     /// Download in progress.  `bytes_total` is `None` when the server does not
     /// send `Content-Length` (uncommon but possible).
-    Downloading { bytes_done: u64, bytes_total: Option<u64> },
+    Downloading {
+        bytes_done: u64,
+        bytes_total: Option<u64>,
+    },
     /// Download complete; verifying SHA-1.
     Verifying,
     /// Checksum passed; loading weights into memory.
@@ -43,7 +46,10 @@ impl SetupProgress {
     /// Download percentage [0, 100], or `None` for non-download steps.
     pub fn download_percent(&self) -> Option<u8> {
         match self {
-            Self::Downloading { bytes_done, bytes_total: Some(total) } if *total > 0 => {
+            Self::Downloading {
+                bytes_done,
+                bytes_total: Some(total),
+            } if *total > 0 => {
                 Some(((*bytes_done as f64 / *total as f64) * 100.0).min(100.0) as u8)
             }
             _ => None,
@@ -114,7 +120,10 @@ impl ModelManager {
             let cfg = DownloadConfig::whisper_medium(&self.models_dir);
 
             download_if_needed(&cfg, |bytes_done, bytes_total| {
-                on_progress(SetupProgress::Downloading { bytes_done, bytes_total });
+                on_progress(SetupProgress::Downloading {
+                    bytes_done,
+                    bytes_total,
+                });
             })?;
         }
 

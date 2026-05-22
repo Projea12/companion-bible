@@ -1,19 +1,21 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::capture::{AudioCapture, CaptureConfig, CaptureEvent};
 use crate::device::{infer_device_type, AudioDevice, DeviceType};
 use crate::error::AudioError;
 use crate::input::AudioInput;
-use crate::ring_buffer::{RingBuffer, DEFAULT_CAPACITY};
-use crate::preprocess::{
-    AmplitudeNormalizer, AudioPipeline, AudioPreprocessor, NoiseGate, NoiseSuppressor,
-    CHUNK_100MS, RNNOISE_FRAME_SIZE,
-};
-use crate::vad::{VadDecision, VoiceActivityDetector, CHUNK_SIZE, DEFAULT_THRESHOLD};
-use crate::capture::{AudioCapture, CaptureConfig, CaptureEvent};
-use crate::sliding_window::{AudioWindow, SlidingWindow, SAMPLE_RATE, WINDOW_CAPACITY, WINDOW_SECS};
 use crate::input::CpalInput;
+use crate::preprocess::{
+    AmplitudeNormalizer, AudioPipeline, AudioPreprocessor, NoiseGate, NoiseSuppressor, CHUNK_100MS,
+    RNNOISE_FRAME_SIZE,
+};
+use crate::ring_buffer::{RingBuffer, DEFAULT_CAPACITY};
+use crate::sliding_window::{
+    AudioWindow, SlidingWindow, SAMPLE_RATE, WINDOW_CAPACITY, WINDOW_SECS,
+};
 use crate::system::{AudioSystem, SystemConfig};
+use crate::vad::{VadDecision, VoiceActivityDetector, CHUNK_SIZE, DEFAULT_THRESHOLD};
 
 // ─── AudioDevice ──────────────────────────────────────────────────────────────
 
@@ -57,7 +59,10 @@ fn device_type_serde_roundtrip() {
 #[test]
 fn infer_usb_device() {
     assert_eq!(infer_device_type("USB Audio Codec"), DeviceType::UsbMic);
-    assert_eq!(infer_device_type("Focusrite USB Interface"), DeviceType::UsbMic);
+    assert_eq!(
+        infer_device_type("Focusrite USB Interface"),
+        DeviceType::UsbMic
+    );
 }
 
 #[test]
@@ -69,14 +74,22 @@ fn infer_mixer_device() {
 
 #[test]
 fn infer_builtin_device() {
-    assert_eq!(infer_device_type("Built-in Microphone"), DeviceType::Builtin);
+    assert_eq!(
+        infer_device_type("Built-in Microphone"),
+        DeviceType::Builtin
+    );
     assert_eq!(infer_device_type("Internal Mic"), DeviceType::Builtin);
 }
 
 // ─── Device enumeration ───────────────────────────────────────────────────────
 
 fn make_device(id: &str, name: &str, dt: DeviceType, is_default: bool) -> AudioDevice {
-    AudioDevice { id: id.into(), name: name.into(), device_type: dt, is_default }
+    AudioDevice {
+        id: id.into(),
+        name: name.into(),
+        device_type: dt,
+        is_default,
+    }
 }
 
 #[test]
@@ -110,12 +123,20 @@ fn enumeration_identifies_default_device() {
 #[test]
 fn enumeration_empty_returns_error() {
     let input = MockInput::new(vec![]);
-    assert!(matches!(input.available_devices(), Err(AudioError::NoDevices)));
+    assert!(matches!(
+        input.available_devices(),
+        Err(AudioError::NoDevices)
+    ));
 }
 
 #[test]
 fn enumeration_device_fields_are_correct() {
-    let devs = vec![make_device("usb-42", "Focusrite USB", DeviceType::UsbMic, false)];
+    let devs = vec![make_device(
+        "usb-42",
+        "Focusrite USB",
+        DeviceType::UsbMic,
+        false,
+    )];
     let input = MockInput::new(devs);
     let result = input.available_devices().unwrap();
     let d = &result[0];
@@ -139,7 +160,12 @@ fn selection_valid_device_is_recorded() {
 
 #[test]
 fn selection_unknown_device_errors() {
-    let mut input = MockInput::new(vec![make_device("d1", "USB Audio", DeviceType::UsbMic, false)]);
+    let mut input = MockInput::new(vec![make_device(
+        "d1",
+        "USB Audio",
+        DeviceType::UsbMic,
+        false,
+    )]);
     let err = input.select_device("ghost").unwrap_err();
     assert!(matches!(err, AudioError::DeviceNotFound(_)));
 }
@@ -158,9 +184,12 @@ fn selection_can_be_changed() {
 
 #[test]
 fn selection_persists_after_start_stop() {
-    let mut input = MockInput::new(vec![
-        make_device("d1", "USB Audio", DeviceType::UsbMic, false),
-    ]);
+    let mut input = MockInput::new(vec![make_device(
+        "d1",
+        "USB Audio",
+        DeviceType::UsbMic,
+        false,
+    )]);
     input.select_device("d1").unwrap();
     input.start(Box::new(|_| {})).unwrap();
     input.stop();
@@ -179,7 +208,12 @@ struct MockInput {
 
 impl MockInput {
     fn new(devices: Vec<AudioDevice>) -> Self {
-        Self { devices, selected: None, running: false, level: 0.0 }
+        Self {
+            devices,
+            selected: None,
+            running: false,
+            level: 0.0,
+        }
     }
 }
 
@@ -201,7 +235,10 @@ impl AudioInput for MockInput {
         }
     }
 
-    fn start(&mut self, callback: Box<dyn Fn(Vec<f32>) + Send + 'static>) -> Result<(), AudioError> {
+    fn start(
+        &mut self,
+        callback: Box<dyn Fn(Vec<f32>) + Send + 'static>,
+    ) -> Result<(), AudioError> {
         self.running = true;
         callback(vec![0.5, 0.4, 0.3]);
         self.level = 0.5;
@@ -225,7 +262,10 @@ impl AudioInput for MockInput {
 #[test]
 fn mock_available_devices_empty() {
     let input = MockInput::new(vec![]);
-    assert!(matches!(input.available_devices(), Err(AudioError::NoDevices)));
+    assert!(matches!(
+        input.available_devices(),
+        Err(AudioError::NoDevices)
+    ));
 }
 
 #[test]
@@ -284,10 +324,12 @@ fn mock_stop_resets_level() {
 #[test]
 #[ignore = "requires audio hardware: AUDIO_HW_TESTS=1"]
 fn hardware_builtin_mic_available_devices() {
-    use crate::BuiltinMicInput;
     use crate::input::AudioInput;
+    use crate::BuiltinMicInput;
     let input = BuiltinMicInput::new();
-    let devices = input.available_devices().expect("should find at least one device");
+    let devices = input
+        .available_devices()
+        .expect("should find at least one device");
     assert!(!devices.is_empty());
     for d in &devices {
         assert_eq!(d.device_type, DeviceType::Builtin);
@@ -297,9 +339,9 @@ fn hardware_builtin_mic_available_devices() {
 #[test]
 #[ignore = "requires audio hardware: AUDIO_HW_TESTS=1"]
 fn hardware_builtin_mic_start_stop() {
-    use std::time::Duration;
-    use crate::BuiltinMicInput;
     use crate::input::AudioInput;
+    use crate::BuiltinMicInput;
+    use std::time::Duration;
 
     let received = Arc::new(Mutex::new(0usize));
     let counter = Arc::clone(&received);
@@ -322,7 +364,7 @@ fn hardware_builtin_mic_start_stop() {
 #[test]
 fn ring_buffer_default_capacity_is_30_seconds_at_16khz() {
     assert_eq!(DEFAULT_CAPACITY, 524_288);
-    assert!(DEFAULT_CAPACITY >= 16_000 * 30);
+    const { assert!(DEFAULT_CAPACITY >= 16_000 * 30) };
     assert!(DEFAULT_CAPACITY.is_power_of_two());
 }
 
@@ -373,8 +415,8 @@ fn ring_buffer_read_empty_returns_empty_vec() {
 #[test]
 fn ring_buffer_drops_oldest_when_full() {
     let rb: RingBuffer<f32> = RingBuffer::new(4); // capacity = 4
-    rb.write(&[1.0, 2.0, 3.0, 4.0]);             // fills buffer
-    rb.write(&[5.0, 6.0]);                         // overwrites oldest two
+    rb.write(&[1.0, 2.0, 3.0, 4.0]); // fills buffer
+    rb.write(&[5.0, 6.0]); // overwrites oldest two
 
     // Buffer should now contain [3.0, 4.0, 5.0, 6.0] — oldest two dropped.
     assert_eq!(rb.available(), 4);
@@ -405,7 +447,7 @@ fn ring_buffer_wraps_around_correctly() {
     rb.write(&[1.0, 2.0, 3.0]);
     rb.read(2); // consume 2 → read_head = 2
     rb.write(&[4.0, 5.0]); // wraps: slots [0]=4.0 [1]=5.0, write_head=5
-    // available: 5 - 2 = 3 → [3.0, 4.0, 5.0]
+                           // available: 5 - 2 = 3 → [3.0, 4.0, 5.0]
     let out = rb.read(3);
     assert_eq!(out, vec![3.0, 4.0, 5.0]);
 }
@@ -452,7 +494,11 @@ fn overflow_fill_exact_capacity_saturates_available() {
     let rb: RingBuffer<i32> = RingBuffer::new(cap);
     let samples: Vec<i32> = (0..cap as i32).collect();
     rb.write(&samples);
-    assert_eq!(rb.available(), cap, "available should equal capacity when full");
+    assert_eq!(
+        rb.available(),
+        cap,
+        "available should equal capacity when full"
+    );
     assert!(!rb.is_empty());
 }
 
@@ -460,10 +506,14 @@ fn overflow_fill_exact_capacity_saturates_available() {
 fn overflow_one_extra_drops_oldest_not_newest() {
     let rb: RingBuffer<i32> = RingBuffer::new(4);
     rb.write(&[10, 20, 30, 40]); // fills buffer
-    rb.write(&[50]);              // one overflow: drops 10
+    rb.write(&[50]); // one overflow: drops 10
 
     let out = rb.read(4);
-    assert_eq!(out, vec![20, 30, 40, 50], "oldest sample (10) must be dropped, not newest (50)");
+    assert_eq!(
+        out,
+        vec![20, 30, 40, 50],
+        "oldest sample (10) must be dropped, not newest (50)"
+    );
 }
 
 #[test]
@@ -560,11 +610,16 @@ fn concurrent_spsc_completes_without_deadlock() {
         let mut consumed = 0usize;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
-            assert!(std::time::Instant::now() < deadline, "timed out — possible livelock");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out — possible livelock"
+            );
             let out = reader_rb.read(64);
             consumed += out.len();
             if out.is_empty() {
-                if done_r.load(Ordering::Acquire) && reader_rb.is_empty() { break; }
+                if done_r.load(Ordering::Acquire) && reader_rb.is_empty() {
+                    break;
+                }
                 std::hint::spin_loop();
             }
         }
@@ -573,7 +628,10 @@ fn concurrent_spsc_completes_without_deadlock() {
 
     writer.join().unwrap();
     let consumed = reader.join().unwrap();
-    assert_eq!(consumed, TOTAL as usize, "every written sample must be read when no lapping occurs");
+    assert_eq!(
+        consumed, TOTAL as usize,
+        "every written sample must be read when no lapping occurs"
+    );
 }
 
 #[test]
@@ -611,7 +669,9 @@ fn concurrent_spsc_no_lapping_preserves_fifo_order() {
                 reads += 1;
             }
             if out.is_empty() {
-                if done_r.load(Ordering::Acquire) && reader_rb.is_empty() { break; }
+                if done_r.load(Ordering::Acquire) && reader_rb.is_empty() {
+                    break;
+                }
                 std::hint::spin_loop();
             }
         }
@@ -652,12 +712,14 @@ fn concurrent_spsc_all_read_values_within_written_range() {
             let out = reader_rb.read(32);
             for &v in &out {
                 assert!(
-                    v >= 0 && v < TOTAL,
+                    (0..TOTAL).contains(&v),
                     "value {v} outside [0, {TOTAL}) — was never written"
                 );
             }
             if out.is_empty() {
-                if done_r.load(Ordering::Acquire) && reader_rb.is_empty() { break; }
+                if done_r.load(Ordering::Acquire) && reader_rb.is_empty() {
+                    break;
+                }
                 std::hint::spin_loop();
             }
         }
@@ -677,7 +739,6 @@ fn loud_chunk() -> Vec<f32> {
     // Full-scale square wave — RMS = 1.0
     vec![1.0f32; CHUNK_SIZE]
 }
-
 
 #[test]
 fn vad_default_threshold_is_half() {
@@ -721,8 +782,8 @@ fn vad_loud_signal_above_threshold_returns_speech() {
 fn vad_rolling_window_requires_3_of_5_frames() {
     let mut vad = VoiceActivityDetector::new_energy();
     // 2 speech, 2 silence → not enough yet
-    vad.detect(&loud_chunk());   // speech
-    vad.detect(&loud_chunk());   // speech
+    vad.detect(&loud_chunk()); // speech
+    vad.detect(&loud_chunk()); // speech
     vad.detect(&silence_chunk()); // silence
     vad.detect(&silence_chunk()); // silence
     let result = vad.detect(&silence_chunk()); // silence → 2/5 → Silence
@@ -732,9 +793,9 @@ fn vad_rolling_window_requires_3_of_5_frames() {
 #[test]
 fn vad_rolling_window_3_of_5_confirms_speech() {
     let mut vad = VoiceActivityDetector::new_energy();
-    vad.detect(&loud_chunk());    // speech
-    vad.detect(&loud_chunk());    // speech
-    vad.detect(&loud_chunk());    // speech
+    vad.detect(&loud_chunk()); // speech
+    vad.detect(&loud_chunk()); // speech
+    vad.detect(&loud_chunk()); // speech
     vad.detect(&silence_chunk()); // silence
     let result = vad.detect(&silence_chunk()); // silence → 3/5 → Speech
     assert_eq!(result, VadDecision::Speech);
@@ -753,9 +814,9 @@ fn vad_window_size_is_five() {
 #[test]
 fn vad_window_snapshot_reflects_decisions() {
     let mut vad = VoiceActivityDetector::new_energy();
-    vad.detect(&loud_chunk());    // speech (true)
+    vad.detect(&loud_chunk()); // speech (true)
     vad.detect(&silence_chunk()); // silence (false)
-    vad.detect(&loud_chunk());    // speech (true)
+    vad.detect(&loud_chunk()); // speech (true)
     let snap = vad.window_snapshot();
     assert_eq!(snap, vec![true, false, true]);
 }
@@ -775,7 +836,9 @@ fn vad_reset_clears_window_and_state() {
 fn vad_reset_resets_accumulated_speech() {
     let mut vad = VoiceActivityDetector::new_energy();
     // Fill window with speech
-    for _ in 0..5 { vad.detect(&loud_chunk()); }
+    for _ in 0..5 {
+        vad.detect(&loud_chunk());
+    }
     vad.reset();
     // After reset, a single silence frame should be Silence (0/1 in window)
     assert_eq!(vad.detect(&silence_chunk()), VadDecision::Silence);
@@ -785,11 +848,15 @@ fn vad_reset_resets_accumulated_speech() {
 fn vad_transition_speech_to_silence() {
     let mut vad = VoiceActivityDetector::new_energy();
     // Fill window with speech
-    for _ in 0..5 { vad.detect(&loud_chunk()); }
+    for _ in 0..5 {
+        vad.detect(&loud_chunk());
+    }
     assert_eq!(vad.detect(&loud_chunk()), VadDecision::Speech);
 
     // Flood with silence — after 3 silence frames the vote flips
-    for _ in 0..3 { vad.detect(&silence_chunk()); }
+    for _ in 0..3 {
+        vad.detect(&silence_chunk());
+    }
     // Window: [speech, speech, silence, silence, silence] → 2 speech < 3
     assert_eq!(vad.detect(&silence_chunk()), VadDecision::Silence);
 }
@@ -1165,7 +1232,10 @@ fn preprocessor_short_chunk_is_buffered() {
     let mut p = AudioPreprocessor::new();
     let partial = vec![0.5f32; RNNOISE_FRAME_SIZE - 1];
     let out = p.process(&partial);
-    assert!(out.is_empty(), "partial frame should be buffered, not returned");
+    assert!(
+        out.is_empty(),
+        "partial frame should be buffered, not returned"
+    );
 }
 
 #[test]
@@ -1253,9 +1323,7 @@ fn preprocessor_process_under_10ms_per_frame() {
         "process() averaged {per_frame_us:.1} µs — exceeds 10 ms budget"
     );
 
-    println!(
-        "AudioPreprocessor::process() RNNoise: {per_frame_us:.0} µs/frame over {ITERS} iters"
-    );
+    println!("AudioPreprocessor::process() RNNoise: {per_frame_us:.0} µs/frame over {ITERS} iters");
 }
 
 // ─── NoiseSuppressor ──────────────────────────────────────────────────────────
@@ -1326,7 +1394,10 @@ fn noise_suppressor_flush_after_process_is_empty() {
     // process() returns same length — staging was already drained internally.
     assert_eq!(out.len(), 200);
     let flushed = ns.flush();
-    assert!(flushed.is_empty(), "nothing left in staging after eager-flush process()");
+    assert!(
+        flushed.is_empty(),
+        "nothing left in staging after eager-flush process()"
+    );
 }
 
 // ─── AmplitudeNormalizer ──────────────────────────────────────────────────────
@@ -1355,7 +1426,10 @@ fn normalizer_does_not_modify_silence() {
     let mut n = AmplitudeNormalizer::new(0.1);
     let mut samples = vec![0.0f32; 512];
     n.process(&mut samples);
-    assert!(samples.iter().all(|&s| s == 0.0), "silence should not be modified");
+    assert!(
+        samples.iter().all(|&s| s == 0.0),
+        "silence should not be modified"
+    );
 }
 
 #[test]
@@ -1445,7 +1519,10 @@ fn normalizer_set_smoothing_affects_convergence_rate() {
 
     let slow = gain_after_one_step(0.01);
     let fast = gain_after_one_step(0.5);
-    assert!(fast > slow, "higher smoothing should yield faster gain increase; slow={slow:.3} fast={fast:.3}");
+    assert!(
+        fast > slow,
+        "higher smoothing should yield faster gain increase; slow={slow:.3} fast={fast:.3}"
+    );
 }
 
 // ─── AudioPipeline ────────────────────────────────────────────────────────────
@@ -1546,7 +1623,10 @@ fn generator_hum_rms_is_measurable() {
     // Sanity: ensure the synthesised hum has non-trivial energy before testing attenuation.
     let hum = make_generator_hum(0.15);
     let r = rms_of(&hum);
-    assert!(r > 0.05, "hum RMS {r:.4} too low — generator synthesis broken");
+    assert!(
+        r > 0.05,
+        "hum RMS {r:.4} too low — generator synthesis broken"
+    );
 }
 
 #[test]
@@ -1672,7 +1752,11 @@ fn speech_survives_crowd_noise_after_suppression() {
     // with crowd noise at 25% of speech amplitude.
     let speech = make_speech_like();
     let noise = make_crowd_noise(0.1);
-    let mixed: Vec<f32> = speech.iter().zip(noise.iter()).map(|(s, n)| s + n).collect();
+    let mixed: Vec<f32> = speech
+        .iter()
+        .zip(noise.iter())
+        .map(|(s, n)| s + n)
+        .collect();
 
     let mut p = AudioPipeline::new(0.02, 0.2);
     for _ in 0..5 {
@@ -1736,7 +1820,11 @@ fn reverb_produces_nonzero_output_and_changes_waveform() {
 
     assert!(rms_of(&reverbed) > 0.0, "reverbed signal must be non-zero");
     // At least some samples should differ from the original (reflections added).
-    let diffs = speech.iter().zip(reverbed.iter()).filter(|(&a, &b)| (a - b).abs() > 1e-6).count();
+    let diffs = speech
+        .iter()
+        .zip(reverbed.iter())
+        .filter(|(&a, &b)| (a - b).abs() > 1e-6)
+        .count();
     assert!(diffs > 0, "reverb should alter the waveform");
 }
 
@@ -1817,12 +1905,7 @@ fn pipeline_full_chain_under_20ms_per_100ms_chunk() {
     let chunk = make_noisy_speech(); // realistic worst case: speech + noise
 
     // Extend to CHUNK_100MS so we exercise a full 100 ms processing cycle.
-    let chunk: Vec<f32> = chunk
-        .iter()
-        .cloned()
-        .cycle()
-        .take(CHUNK_100MS)
-        .collect();
+    let chunk: Vec<f32> = chunk.iter().cloned().cycle().take(CHUNK_100MS).collect();
 
     // Warm up: prime RNN and IIR state.
     for _ in 0..50 {
@@ -1880,9 +1963,7 @@ fn noise_suppressor_process_under_15ms_per_100ms_chunk() {
         "NoiseSuppressor::process() averaged {per_chunk_us:.1} µs — exceeds 15 ms budget"
     );
 
-    println!(
-        "NoiseSuppressor (RNNoise only): {per_chunk_us:.0} µs/chunk over {ITERS} iters"
-    );
+    println!("NoiseSuppressor (RNNoise only): {per_chunk_us:.0} µs/chunk over {ITERS} iters");
 }
 
 // ─── AudioCapture — mock infrastructure ──────────────────────────────────────
@@ -1895,21 +1976,24 @@ fn noise_suppressor_process_under_15ms_per_100ms_chunk() {
 //     itself (simulates a device that produces audio immediately on reconnect).
 //   - available: when false, start() returns an error (simulates a missing device).
 
+type AudioCallback = Arc<Mutex<Option<Box<dyn Fn(Vec<f32>) + Send + 'static>>>>;
+
 struct MockAudioInput {
-    callback: Arc<Mutex<Option<Box<dyn Fn(Vec<f32>) + Send + 'static>>>>,
+    callback: AudioCallback,
     available: Arc<AtomicBool>,
     fire_on_start: Arc<AtomicBool>,
 }
 
 struct MockDriver {
-    callback: Arc<Mutex<Option<Box<dyn Fn(Vec<f32>) + Send + 'static>>>>,
+    callback: AudioCallback,
 }
 
 impl MockAudioInput {
     fn new() -> (Self, MockDriver) {
-        let cb: Arc<Mutex<Option<Box<dyn Fn(Vec<f32>) + Send + 'static>>>> =
-            Arc::new(Mutex::new(None));
-        let driver = MockDriver { callback: Arc::clone(&cb) };
+        let cb: AudioCallback = Arc::new(Mutex::new(None));
+        let driver = MockDriver {
+            callback: Arc::clone(&cb),
+        };
         let mock = Self {
             callback: cb,
             available: Arc::new(AtomicBool::new(true)),
@@ -1994,8 +2078,14 @@ fn capture_new_is_not_connected() {
 fn capture_subscribe_returns_receiver_once() {
     let (mock, _driver) = MockAudioInput::new();
     let mut cap = AudioCapture::new(Box::new(mock), make_buffer());
-    assert!(cap.subscribe().is_some(), "first subscribe should return Some");
-    assert!(cap.subscribe().is_none(), "second subscribe should return None");
+    assert!(
+        cap.subscribe().is_some(),
+        "first subscribe should return Some"
+    );
+    assert!(
+        cap.subscribe().is_none(),
+        "second subscribe should return None"
+    );
 }
 
 #[test]
@@ -2069,8 +2159,7 @@ fn capture_level_stays_zero_without_audio() {
 fn capture_written_to_ring_buffer() {
     let buffer = make_buffer();
     let (mock, driver) = MockAudioInput::new();
-    let mut cap =
-        AudioCapture::with_config(Box::new(mock), Arc::clone(&buffer), fast_config());
+    let mut cap = AudioCapture::with_config(Box::new(mock), Arc::clone(&buffer), fast_config());
     cap.start().expect("start failed");
 
     let samples = vec![0.5f32; 256];
@@ -2113,7 +2202,10 @@ fn capture_is_connected_false_after_disconnect() {
         .recv_timeout(std::time::Duration::from_millis(500))
         .expect("expected AudioInputLost");
 
-    assert!(!cap.is_connected(), "is_connected should be false after disconnect");
+    assert!(
+        !cap.is_connected(),
+        "is_connected should be false after disconnect"
+    );
     cap.stop();
 }
 
@@ -2207,7 +2299,10 @@ fn capture_is_connected_true_after_restore() {
         .recv_timeout(std::time::Duration::from_millis(600))
         .expect("expected AudioInputRestored");
 
-    assert!(cap.is_connected(), "is_connected should be true after restore");
+    assert!(
+        cap.is_connected(),
+        "is_connected should be true after restore"
+    );
     cap.stop();
 }
 
@@ -2267,13 +2362,15 @@ fn capture_integration_full_lifecycle() {
     let fire_on_start = Arc::clone(&mock.fire_on_start);
     let buffer = make_buffer();
 
-    let mut cap =
-        AudioCapture::with_config(Box::new(mock), Arc::clone(&buffer), fast_config());
+    let mut cap = AudioCapture::with_config(Box::new(mock), Arc::clone(&buffer), fast_config());
     let events = cap.subscribe().unwrap();
 
     // ── Step 1: start capture — audio flows to the ring buffer ────────────────
     cap.start().expect("Step 1 FAIL — start() must not error");
-    assert!(cap.is_connected(), "Step 1 FAIL — should be connected immediately after start()");
+    assert!(
+        cap.is_connected(),
+        "Step 1 FAIL — should be connected immediately after start()"
+    );
 
     // Drive a distinctive linear-ramp waveform so we can verify identity in the
     // ring buffer (not just presence of some samples).
@@ -2337,9 +2434,9 @@ fn capture_integration_full_lifecycle() {
     fire_on_start.store(true, Ordering::Relaxed);
 
     // reconnect_interval (80 ms) + probe wait (2 × 20 ms) + margin.
-    let event2 = events
-        .recv_timeout(Duration::from_millis(500))
-        .expect("Step 3 FAIL — AudioInputRestored not received within 500 ms after enabling reconnect");
+    let event2 = events.recv_timeout(Duration::from_millis(500)).expect(
+        "Step 3 FAIL — AudioInputRestored not received within 500 ms after enabling reconnect",
+    );
     assert_eq!(
         event2,
         CaptureEvent::AudioInputRestored,
@@ -2352,7 +2449,10 @@ fn capture_integration_full_lifecycle() {
 
     // ── Teardown ──────────────────────────────────────────────────────────────
     cap.stop();
-    assert!(!cap.is_connected(), "Teardown FAIL — should not be connected after stop()");
+    assert!(
+        !cap.is_connected(),
+        "Teardown FAIL — should not be connected after stop()"
+    );
 }
 
 // ─── SlidingWindow ────────────────────────────────────────────────────────────
@@ -2427,8 +2527,13 @@ fn sliding_window_push_records_timestamp() {
     let before = std::time::Instant::now();
     w.push(&[0.5; 10]);
     let after = std::time::Instant::now();
-    let t = w.last_push_time().expect("last_push_time should be Some after push");
-    assert!(t >= before && t <= after, "timestamp must lie within the push call");
+    let t = w
+        .last_push_time()
+        .expect("last_push_time should be Some after push");
+    assert!(
+        t >= before && t <= after,
+        "timestamp must lie within the push call"
+    );
 }
 
 #[test]
@@ -2439,15 +2544,18 @@ fn sliding_window_push_updates_timestamp_each_call() {
     std::thread::sleep(std::time::Duration::from_millis(5));
     w.push(&[0.2; 10]);
     let second = w.last_push_time().unwrap();
-    assert!(second > first, "second push timestamp must be later than first");
+    assert!(
+        second > first,
+        "second push timestamp must be later than first"
+    );
 }
 
 #[test]
 fn sliding_window_push_drops_oldest_when_full() {
     // Use a tiny window (4 samples) so we can test drop-oldest precisely.
     let mut w = SlidingWindow::with_params(4, 1); // capacity = 4
-    w.push(&[1.0, 2.0, 3.0, 4.0]);              // fills buffer
-    w.push(&[5.0, 6.0]);                          // should drop 1.0, 2.0
+    w.push(&[1.0, 2.0, 3.0, 4.0]); // fills buffer
+    w.push(&[5.0, 6.0]); // should drop 1.0, 2.0
     assert_eq!(w.len(), 4);
     let all = w.last(std::time::Duration::from_secs(1));
     assert_eq!(all.samples, vec![3.0, 4.0, 5.0, 6.0]);
@@ -2457,7 +2565,7 @@ fn sliding_window_push_drops_oldest_when_full() {
 fn sliding_window_push_chunk_larger_than_capacity_keeps_tail() {
     // If a single chunk exceeds capacity, only the newest samples are kept.
     let mut w = SlidingWindow::with_params(4, 1); // capacity = 4
-    w.push(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);   // 6 > capacity 4
+    w.push(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]); // 6 > capacity 4
     assert_eq!(w.len(), 4);
     let all = w.last(std::time::Duration::from_secs(1));
     assert_eq!(all.samples, vec![3.0, 4.0, 5.0, 6.0]);
@@ -2471,7 +2579,11 @@ fn sliding_window_push_does_not_exceed_capacity() {
     for _ in 0..35 {
         w.push(&chunk);
     }
-    assert_eq!(w.len(), WINDOW_CAPACITY, "buffer must not exceed 30 s capacity");
+    assert_eq!(
+        w.len(),
+        WINDOW_CAPACITY,
+        "buffer must not exceed 30 s capacity"
+    );
 }
 
 // ── last ──────────────────────────────────────────────────────────────────────
@@ -2534,7 +2646,10 @@ fn audio_window_duration_is_correct() {
 
 #[test]
 fn audio_window_duration_zero_for_empty() {
-    let win = AudioWindow { samples: vec![], sample_rate: 16_000 };
+    let win = AudioWindow {
+        samples: vec![],
+        sample_rate: 16_000,
+    };
     assert_eq!(win.duration(), std::time::Duration::ZERO);
 }
 
@@ -2554,7 +2669,10 @@ fn new_audio_since_true_after_push() {
     // Small sleep so the push timestamp is strictly after `ts`.
     std::thread::sleep(std::time::Duration::from_millis(2));
     w.push(&[0.5f32; 64]);
-    assert!(w.new_audio_since(ts), "new_audio_since must be true when push happened after ts");
+    assert!(
+        w.new_audio_since(ts),
+        "new_audio_since must be true when push happened after ts"
+    );
 }
 
 #[test]
@@ -2674,14 +2792,20 @@ fn scheduler_pattern_triggers_only_on_new_audio() {
     w.push(&vec![0.5f32; SAMPLE_RATE as usize]); // 1 s
 
     // Step 3: fresh audio detected.
-    assert!(w.new_audio_since(checkpoint), "should detect audio pushed after checkpoint");
+    assert!(
+        w.new_audio_since(checkpoint),
+        "should detect audio pushed after checkpoint"
+    );
 
     // Step 4: advance checkpoint.
     std::thread::sleep(std::time::Duration::from_millis(2));
     let new_checkpoint = std::time::Instant::now();
 
     // Step 5: nothing new since new_checkpoint.
-    assert!(!w.new_audio_since(new_checkpoint), "no new audio after advancing checkpoint");
+    assert!(
+        !w.new_audio_since(new_checkpoint),
+        "no new audio after advancing checkpoint"
+    );
 
     // Buffer still holds the pushed audio for transcription.
     let span = w.last(std::time::Duration::from_secs(1));
@@ -2782,7 +2906,11 @@ fn last_15_seconds_returns_exactly_15_seconds() {
     w.push(&vec![0.25f32; SAMPLE_RATE as usize * 15]);
     w.push(&vec![0.75f32; SAMPLE_RATE as usize * 15]);
 
-    assert_eq!(w.len(), WINDOW_CAPACITY, "window must be full before the assertion");
+    assert_eq!(
+        w.len(),
+        WINDOW_CAPACITY,
+        "window must be full before the assertion"
+    );
 
     let win = w.last(std::time::Duration::from_secs(15));
 
@@ -2829,11 +2957,8 @@ fn audio_system_audio_reaches_sliding_window() {
     let buffer = Arc::new(RingBuffer::<f32>::new(DEFAULT_CAPACITY));
 
     let (mock, driver) = MockAudioInput::new();
-    let mut system = AudioSystem::with_config(
-        Box::new(mock),
-        Arc::clone(&buffer),
-        fast_system_config(),
-    );
+    let mut system =
+        AudioSystem::with_config(Box::new(mock), Arc::clone(&buffer), fast_system_config());
 
     system.start(Arc::clone(&buffer), 0.0, 0.1).unwrap();
 
@@ -2862,11 +2987,8 @@ fn audio_system_stop_halts_processing() {
     let buffer = Arc::new(RingBuffer::<f32>::new(DEFAULT_CAPACITY));
 
     let (mock, driver) = MockAudioInput::new();
-    let mut system = AudioSystem::with_config(
-        Box::new(mock),
-        Arc::clone(&buffer),
-        fast_system_config(),
-    );
+    let mut system =
+        AudioSystem::with_config(Box::new(mock), Arc::clone(&buffer), fast_system_config());
 
     system.start(Arc::clone(&buffer), 0.0, 0.1).unwrap();
 
@@ -2898,11 +3020,8 @@ fn audio_system_stop_halts_processing() {
 fn integration_speech_reaches_sliding_window() {
     let buffer = Arc::new(RingBuffer::<f32>::new(DEFAULT_CAPACITY));
     let (mock, driver) = MockAudioInput::new();
-    let mut system = AudioSystem::with_config(
-        Box::new(mock),
-        Arc::clone(&buffer),
-        fast_system_config(),
-    );
+    let mut system =
+        AudioSystem::with_config(Box::new(mock), Arc::clone(&buffer), fast_system_config());
     system.start(Arc::clone(&buffer), 0.0, 0.1).unwrap();
 
     // 500 ms of speech-like audio: 400 Hz sine wave at comfortable volume.
@@ -3000,11 +3119,8 @@ fn integration_rnnoise_reduces_noise() {
 fn integration_pipeline_latency_under_120ms() {
     let buffer = Arc::new(RingBuffer::<f32>::new(DEFAULT_CAPACITY));
     let (mock, driver) = MockAudioInput::new();
-    let mut system = AudioSystem::with_config(
-        Box::new(mock),
-        Arc::clone(&buffer),
-        fast_system_config(),
-    );
+    let mut system =
+        AudioSystem::with_config(Box::new(mock), Arc::clone(&buffer), fast_system_config());
     system.start(Arc::clone(&buffer), 0.0, 0.1).unwrap();
 
     // Let the system settle.
@@ -3092,12 +3208,14 @@ fn real_mic_audio_reaches_sliding_window() {
     if n > 0 {
         let win = w.last(std::time::Duration::from_secs(3));
         let rms: f32 = {
-            let sq: f32 = win.samples.iter().map(|s| s * s).sum::<f32>()
-                / win.samples.len() as f32;
+            let sq: f32 = win.samples.iter().map(|s| s * s).sum::<f32>() / win.samples.len() as f32;
             sq.sqrt()
         };
         println!("   Output RMS        : {rms:.4}");
     }
 
-    assert!(n > 0, "no audio arrived in SlidingWindow — is the microphone muted or unplugged?");
+    assert!(
+        n > 0,
+        "no audio arrived in SlidingWindow — is the microphone muted or unplugged?"
+    );
 }

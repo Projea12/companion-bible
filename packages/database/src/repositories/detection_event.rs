@@ -45,15 +45,13 @@ impl DetectionEventRepository {
         &self,
         sermon_id: &str,
     ) -> Result<Vec<DetectionEvent>, DatabaseError> {
-        sqlx::query_as(
-            "SELECT * FROM detection_events WHERE sermon_id = ? ORDER BY timestamp ASC",
-        )
-        .bind(sermon_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| DatabaseError::QueryFailed {
-            reason: e.to_string(),
-        })
+        sqlx::query_as("SELECT * FROM detection_events WHERE sermon_id = ? ORDER BY timestamp ASC")
+            .bind(sermon_id)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed {
+                reason: e.to_string(),
+            })
     }
 
     pub async fn update_operator_action(

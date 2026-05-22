@@ -41,30 +41,28 @@ pub async fn run(pool: &DbPool) -> Result<(), DatabaseError> {
 ///
 /// Returns `0` when no migrations have been applied yet (empty database).
 pub async fn current_version(pool: &DbPool) -> Result<i64, DatabaseError> {
-    let row: Option<(i64,)> = sqlx::query_as(
-        "SELECT MAX(version) FROM _sqlx_migrations WHERE success = TRUE",
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| DatabaseError::QueryFailed {
-        reason: e.to_string(),
-    })?;
+    let row: Option<(i64,)> =
+        sqlx::query_as("SELECT MAX(version) FROM _sqlx_migrations WHERE success = TRUE")
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed {
+                reason: e.to_string(),
+            })?;
 
-    Ok(row.and_then(|(v,)| Some(v)).unwrap_or(0))
+    Ok(row.map(|(v,)| v).unwrap_or(0))
 }
 
 /// Return `true` when all embedded migrations have been applied successfully.
 pub async fn is_up_to_date(pool: &DbPool) -> Result<bool, DatabaseError> {
     let expected = sqlx::migrate!().migrations.len() as i64;
 
-    let (applied,): (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM _sqlx_migrations WHERE success = TRUE",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| DatabaseError::QueryFailed {
-        reason: e.to_string(),
-    })?;
+    let (applied,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM _sqlx_migrations WHERE success = TRUE")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| DatabaseError::QueryFailed {
+                reason: e.to_string(),
+            })?;
 
     Ok(applied >= expected)
 }
@@ -86,12 +84,14 @@ pub async fn list_applied(pool: &DbPool) -> Result<Vec<AppliedMigration>, Databa
 
     Ok(rows
         .into_iter()
-        .map(|(version, description, installed_on, execution_time_ns)| AppliedMigration {
-            version,
-            description,
-            installed_on,
-            // sqlx stores execution_time in nanoseconds; convert to ms.
-            execution_time_ms: execution_time_ns / 1_000_000,
-        })
+        .map(
+            |(version, description, installed_on, execution_time_ns)| AppliedMigration {
+                version,
+                description,
+                installed_on,
+                // sqlx stores execution_time in nanoseconds; convert to ms.
+                execution_time_ms: execution_time_ns / 1_000_000,
+            },
+        )
         .collect())
 }

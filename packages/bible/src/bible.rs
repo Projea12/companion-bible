@@ -118,7 +118,12 @@ impl KjvBible {
             }
         }
 
-        Ok(KjvBible { text, meta, meta_index, search_index })
+        Ok(KjvBible {
+            text,
+            meta,
+            meta_index,
+            search_index,
+        })
     }
 
     // ── verse access ──────────────────────────────────────────────────────────
@@ -131,32 +136,40 @@ impl KjvBible {
             .ok_or_else(|| BibleError::BookNotFound { book: book.into() })?;
 
         let total_chapters = chapters.len() as u8;
-        let ch_idx = chapter.checked_sub(1).ok_or_else(|| BibleError::ChapterOutOfRange {
-            book: book.into(),
-            requested: chapter,
-            total: total_chapters,
-        })? as usize;
+        let ch_idx = chapter
+            .checked_sub(1)
+            .ok_or_else(|| BibleError::ChapterOutOfRange {
+                book: book.into(),
+                requested: chapter,
+                total: total_chapters,
+            })? as usize;
 
-        let verses = chapters.get(ch_idx).ok_or_else(|| BibleError::ChapterOutOfRange {
-            book: book.into(),
-            requested: chapter,
-            total: total_chapters,
-        })?;
+        let verses = chapters
+            .get(ch_idx)
+            .ok_or_else(|| BibleError::ChapterOutOfRange {
+                book: book.into(),
+                requested: chapter,
+                total: total_chapters,
+            })?;
 
         let total_verses = verses.len() as u8;
-        let v_idx = verse.checked_sub(1).ok_or_else(|| BibleError::VerseOutOfRange {
-            book: book.into(),
-            chapter,
-            requested: verse,
-            total: total_verses,
-        })? as usize;
+        let v_idx = verse
+            .checked_sub(1)
+            .ok_or_else(|| BibleError::VerseOutOfRange {
+                book: book.into(),
+                chapter,
+                requested: verse,
+                total: total_verses,
+            })? as usize;
 
-        let text = verses.get(v_idx).ok_or_else(|| BibleError::VerseOutOfRange {
-            book: book.into(),
-            chapter,
-            requested: verse,
-            total: total_verses,
-        })?;
+        let text = verses
+            .get(v_idx)
+            .ok_or_else(|| BibleError::VerseOutOfRange {
+                book: book.into(),
+                chapter,
+                requested: verse,
+                total: total_verses,
+            })?;
 
         Ok(VerseText {
             book: book.into(),
@@ -276,11 +289,13 @@ impl KjvBible {
             .ok_or_else(|| BibleError::BookNotFound { book: book.into() })?;
 
         let total_chapters = chapters.len() as u8;
-        let ch_idx = chapter.checked_sub(1).ok_or_else(|| BibleError::ChapterOutOfRange {
-            book: book.into(),
-            requested: chapter,
-            total: total_chapters,
-        })? as usize;
+        let ch_idx = chapter
+            .checked_sub(1)
+            .ok_or_else(|| BibleError::ChapterOutOfRange {
+                book: book.into(),
+                requested: chapter,
+                total: total_chapters,
+            })? as usize;
 
         chapters
             .get(ch_idx)

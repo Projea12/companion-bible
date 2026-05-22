@@ -41,33 +41,90 @@ use crate::transcript::TranscriptionSegment;
 /// Sent to AssemblyAI via UpdateConfiguration after Begin — up to 100 allowed.
 const KEYTERMS: &[&str] = &[
     // Old Testament
-    "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy",
-    "Joshua", "Judges", "Ruth",
-    "Samuel", "First Samuel", "Second Samuel",
-    "Kings", "First Kings", "Second Kings",
-    "Chronicles", "First Chronicles", "Second Chronicles",
-    "Ezra", "Nehemiah", "Esther", "Job",
-    "Psalm", "Psalms", "Proverbs", "Ecclesiastes",
-    "Song of Solomon", "Song of Songs",
-    "Isaiah", "Jeremiah", "Lamentations", "Ezekiel", "Daniel",
-    "Hosea", "Joel", "Amos", "Obadiah", "Jonah", "Micah",
-    "Nahum", "Habakkuk", "Zephaniah", "Haggai", "Zechariah", "Malachi",
+    "Genesis",
+    "Exodus",
+    "Leviticus",
+    "Numbers",
+    "Deuteronomy",
+    "Joshua",
+    "Judges",
+    "Ruth",
+    "Samuel",
+    "First Samuel",
+    "Second Samuel",
+    "Kings",
+    "First Kings",
+    "Second Kings",
+    "Chronicles",
+    "First Chronicles",
+    "Second Chronicles",
+    "Ezra",
+    "Nehemiah",
+    "Esther",
+    "Job",
+    "Psalm",
+    "Psalms",
+    "Proverbs",
+    "Ecclesiastes",
+    "Song of Solomon",
+    "Song of Songs",
+    "Isaiah",
+    "Jeremiah",
+    "Lamentations",
+    "Ezekiel",
+    "Daniel",
+    "Hosea",
+    "Joel",
+    "Amos",
+    "Obadiah",
+    "Jonah",
+    "Micah",
+    "Nahum",
+    "Habakkuk",
+    "Zephaniah",
+    "Haggai",
+    "Zechariah",
+    "Malachi",
     // New Testament
-    "Matthew", "Mark", "Luke", "John", "Acts", "Romans",
-    "Corinthians", "First Corinthians", "Second Corinthians",
-    "Galatians", "Ephesians", "Philippians", "Colossians",
-    "Thessalonians", "First Thessalonians", "Second Thessalonians",
-    "Timothy", "First Timothy", "Second Timothy",
-    "Titus", "Philemon", "Hebrews", "James",
-    "Peter", "First Peter", "Second Peter",
-    "First John", "Second John", "Third John",
-    "Jude", "Revelation",
+    "Matthew",
+    "Mark",
+    "Luke",
+    "John",
+    "Acts",
+    "Romans",
+    "Corinthians",
+    "First Corinthians",
+    "Second Corinthians",
+    "Galatians",
+    "Ephesians",
+    "Philippians",
+    "Colossians",
+    "Thessalonians",
+    "First Thessalonians",
+    "Second Thessalonians",
+    "Timothy",
+    "First Timothy",
+    "Second Timothy",
+    "Titus",
+    "Philemon",
+    "Hebrews",
+    "James",
+    "Peter",
+    "First Peter",
+    "Second Peter",
+    "First John",
+    "Second John",
+    "Third John",
+    "Jude",
+    "Revelation",
     // Common scripture terms
-    "verse", "chapter", "scripture", "passage",
+    "verse",
+    "chapter",
+    "scripture",
+    "passage",
 ];
 
-const API_ENDPOINT: &str =
-    "wss://streaming.assemblyai.com/v3/ws\
+const API_ENDPOINT: &str = "wss://streaming.assemblyai.com/v3/ws\
      ?sample_rate=16000\
      &speech_model=u3-rt-pro";
 
@@ -82,6 +139,7 @@ struct AaiMessage {
     transcript: String,
     /// true = end-of-turn (final, formatted); false = partial (in-progress).
     #[serde(default)]
+    #[allow(dead_code)]
     end_of_turn: bool,
 }
 
@@ -99,7 +157,16 @@ impl AssemblyAiTranscriber {
     pub fn new(api_key: String, window: Arc<Mutex<SlidingWindow>>) -> (Self, SegmentReceiver) {
         let (sender, receiver) = segment_channel();
         let stop_flag = Arc::new(AtomicBool::new(true));
-        (Self { api_key, window, stop_flag, handle: None, sender }, receiver)
+        (
+            Self {
+                api_key,
+                window,
+                stop_flag,
+                handle: None,
+                sender,
+            },
+            receiver,
+        )
     }
 
     /// Verify the API key and network reachability.
@@ -113,11 +180,9 @@ impl AssemblyAiTranscriber {
             .map_err(|e| e.to_string())?;
         req.headers_mut().insert(
             "Authorization",
-            api_key
-                .parse()
-                .map_err(|e: tokio_tungstenite::tungstenite::http::header::InvalidHeaderValue| {
-                    e.to_string()
-                })?,
+            api_key.parse().map_err(
+                |e: tokio_tungstenite::tungstenite::http::header::InvalidHeaderValue| e.to_string(),
+            )?,
         );
 
         let (mut ws, _) = tokio_tungstenite::connect_async(req)
@@ -129,8 +194,7 @@ impl AssemblyAiTranscriber {
                 Message::Text(t) => t,
                 _ => continue,
             };
-            let val: serde_json::Value =
-                serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            let val: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
             match val["type"].as_str() {
                 Some("Begin") => {
                     let _ = ws
@@ -139,9 +203,7 @@ impl AssemblyAiTranscriber {
                     return Ok(());
                 }
                 Some("Error") => {
-                    return Err(
-                        val["error"].as_str().unwrap_or("unknown error").to_string()
-                    )
+                    return Err(val["error"].as_str().unwrap_or("unknown error").to_string())
                 }
                 _ => {}
             }
@@ -235,13 +297,11 @@ async fn stream_loop(
                         break;
                     }
                     Some("Error") => {
-                        return Err(
-                            val["error"]
-                                .as_str()
-                                .unwrap_or("unknown error")
-                                .to_string()
-                                .into(),
-                        )
+                        return Err(val["error"]
+                            .as_str()
+                            .unwrap_or("unknown error")
+                            .to_string()
+                            .into())
                     }
                     _ => {}
                 }
@@ -329,10 +389,7 @@ async fn stream_loop(
             }
         };
 
-        // Only process end-of-turn (final, formatted) transcripts.
-        // Partials (end_of_turn: false) are not forwarded to the detection engine
-        // to avoid duplicate reference detections mid-turn.
-        if result.msg_type != "Turn" || !result.end_of_turn {
+        if result.msg_type != "Turn" {
             continue;
         }
 

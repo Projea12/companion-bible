@@ -122,8 +122,7 @@ impl ConfidenceArbitrator {
     /// - we are still within the time budget.
     pub fn should_wait_for_cloud(&self, results: &PartialResults, confidence: f32) -> bool {
         results.cloud_pending
-            && confidence >= CLOUD_WAIT_MIN_CONFIDENCE
-            && confidence <= CLOUD_WAIT_MAX_CONFIDENCE
+            && (CLOUD_WAIT_MIN_CONFIDENCE..=CLOUD_WAIT_MAX_CONFIDENCE).contains(&confidence)
             && results.elapsed_ms < self.cloud_wait_budget_ms
     }
 
@@ -208,9 +207,15 @@ impl ConfidenceArbitrator {
             }
         };
 
-        if let Some(p) = &results.pattern  { score_for(&mut candidates, p, PATTERN_WEIGHT); }
-        if let Some(l) = &results.local_ai { score_for(&mut candidates, l, LOCAL_AI_WEIGHT); }
-        if let Some(c) = &results.cloud    { score_for(&mut candidates, c, CLOUD_WEIGHT); }
+        if let Some(p) = &results.pattern {
+            score_for(&mut candidates, p, PATTERN_WEIGHT);
+        }
+        if let Some(l) = &results.local_ai {
+            score_for(&mut candidates, l, LOCAL_AI_WEIGHT);
+        }
+        if let Some(c) = &results.cloud {
+            score_for(&mut candidates, c, CLOUD_WEIGHT);
+        }
 
         candidates
             .into_iter()
@@ -308,7 +313,10 @@ mod tests {
         let a = arb();
         let consensus = a.consensus_confidence(&results);
         // Pattern alone would contribute only PATTERN_WEIGHT * 0.80 = 0.32.
-        assert!(consensus > 0.80, "consensus {consensus} should beat any single layer (0.80)");
+        assert!(
+            consensus > 0.80,
+            "consensus {consensus} should beat any single layer (0.80)"
+        );
     }
 
     #[test]
@@ -439,9 +447,18 @@ mod tests {
 
     #[test]
     fn decide_amber_warning_in_middle_band() {
-        assert_eq!(arb().decide_action(0.75), DisplayAction::DisplayWithAmberWarning);
-        assert_eq!(arb().decide_action(0.60), DisplayAction::DisplayWithAmberWarning);
-        assert_eq!(arb().decide_action(0.84), DisplayAction::DisplayWithAmberWarning);
+        assert_eq!(
+            arb().decide_action(0.75),
+            DisplayAction::DisplayWithAmberWarning
+        );
+        assert_eq!(
+            arb().decide_action(0.60),
+            DisplayAction::DisplayWithAmberWarning
+        );
+        assert_eq!(
+            arb().decide_action(0.84),
+            DisplayAction::DisplayWithAmberWarning
+        );
     }
 
     #[test]
@@ -456,7 +473,10 @@ mod tests {
     #[test]
     fn validate_clamps_negative_confidence() {
         let results = PartialResults {
-            pattern: Some(LayerResult { confidence: -0.5, ..john_3_16(0.0) }),
+            pattern: Some(LayerResult {
+                confidence: -0.5,
+                ..john_3_16(0.0)
+            }),
             ..Default::default()
         };
         let decision = arb().arbitrate(&results);
@@ -466,7 +486,10 @@ mod tests {
     #[test]
     fn validate_clamps_confidence_above_1() {
         let results = PartialResults {
-            pattern: Some(LayerResult { confidence: 1.5, ..john_3_16(0.0) }),
+            pattern: Some(LayerResult {
+                confidence: 1.5,
+                ..john_3_16(0.0)
+            }),
             ..Default::default()
         };
         let a = arb();
@@ -487,9 +510,16 @@ mod tests {
         let decision = arb().arbitrate(&results);
 
         assert!(decision.all_agree);
-        assert!(decision.confidence > 0.88, "confidence {} should be high", decision.confidence);
+        assert!(
+            decision.confidence > 0.88,
+            "confidence {} should be high",
+            decision.confidence
+        );
         assert_eq!(decision.action, DisplayAction::AutoDisplay);
-        assert_eq!(decision.reference.as_ref().unwrap().book.as_deref(), Some("John"));
+        assert_eq!(
+            decision.reference.as_ref().unwrap().book.as_deref(),
+            Some("John")
+        );
     }
 
     #[test]
@@ -519,7 +549,10 @@ mod tests {
 
         // Pattern alone at 0.92 → normalised = 0.92 → AutoDisplay.
         assert_eq!(decision.action, DisplayAction::AutoDisplay);
-        assert_eq!(decision.reference.as_ref().unwrap().book.as_deref(), Some("John"));
+        assert_eq!(
+            decision.reference.as_ref().unwrap().book.as_deref(),
+            Some("John")
+        );
     }
 
     #[test]
@@ -547,8 +580,8 @@ mod tests {
     fn scenario_cloud_overrides_pattern_with_higher_confidence() {
         // Pattern weakly suggests John 3:16; cloud is very confident about Romans 8:28.
         let results = PartialResults {
-            pattern: Some(john_3_16(0.40)),     // raw score: 0.4 × 0.40 = 0.16
-            cloud: Some(romans_8_28(0.95)),      // raw score: 0.25 × 0.95 = 0.2375
+            pattern: Some(john_3_16(0.40)), // raw score: 0.4 × 0.40 = 0.16
+            cloud: Some(romans_8_28(0.95)), // raw score: 0.25 × 0.95 = 0.2375
             cloud_pending: false,
             ..Default::default()
         };

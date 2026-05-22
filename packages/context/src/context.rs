@@ -226,10 +226,8 @@ impl SermonContext {
         let raw_patterns = self.engine.find_all(&normalized);
 
         // 4. Resolve each pattern against accumulated context.
-        let detections: Vec<Detection> = raw_patterns
-            .into_iter()
-            .map(|p| self.resolve(p))
-            .collect();
+        let detections: Vec<Detection> =
+            raw_patterns.into_iter().map(|p| self.resolve(p)).collect();
 
         // 5. Update context state from the resolved detections.
         self.integrate_detections(&detections, segment.audio_end_ms);
@@ -238,8 +236,12 @@ impl SermonContext {
         // Strip trailing punctuation before storing — Deepgram (even without
         // smart_format) may still emit periods that would break cross-utterance
         // pattern matching when segments are re-joined by rolling_transcript.text().
-        let corrected_clean = corrected.trim_end_matches(|c: char| ".!?,;:".contains(c)).trim().to_owned();
-        self.rolling_transcript.push(&corrected_clean, segment.audio_end_ms);
+        let corrected_clean = corrected
+            .trim_end_matches(|c: char| ".!?,;:".contains(c))
+            .trim()
+            .to_owned();
+        self.rolling_transcript
+            .push(&corrected_clean, segment.audio_end_ms);
         self.recent_segments.push_back(segment.clone());
         if self.recent_segments.len() > self.max_recent_segments {
             self.recent_segments.pop_front();
@@ -295,7 +297,11 @@ impl SermonContext {
             },
         };
 
-        Detection { raw_match: p, resolved, resolution_source }
+        Detection {
+            raw_match: p,
+            resolved,
+            resolution_source,
+        }
     }
 
     // ── Private — state update ────────────────────────────────────────────────
@@ -310,9 +316,7 @@ impl SermonContext {
 
         for d in detections {
             // Only high-confidence, book-bearing patterns may shift active context.
-            if d.raw_match.confidence >= CONTEXT_UPDATE_THRESHOLD
-                && d.raw_match.book.is_some()
-            {
+            if d.raw_match.confidence >= CONTEXT_UPDATE_THRESHOLD && d.raw_match.book.is_some() {
                 self.active_book = d.raw_match.book.clone();
                 if let Some(ch) = d.raw_match.chapter {
                     self.active_chapter = Some(ch);
@@ -495,7 +499,10 @@ mod tests {
         let mut ctx = SermonContext::new();
         let e = run(&mut ctx, "John chapter 3 verse 16");
         assert_eq!(e.detections.len(), 1);
-        assert_eq!(e.detections[0].resolution_source, ResolutionSource::Explicit);
+        assert_eq!(
+            e.detections[0].resolution_source,
+            ResolutionSource::Explicit
+        );
         assert_eq!(e.detections[0].raw_match.confidence, 0.95);
     }
 
@@ -634,7 +641,10 @@ mod tests {
         let mut ctx = SermonContext::with_anchor(anchor);
         ctx.active_chapter = None; // simulate no chapter yet
         let e = run(&mut ctx, "verse 16");
-        assert_eq!(e.detections[0].resolution_source, ResolutionSource::Unresolved);
+        assert_eq!(
+            e.detections[0].resolution_source,
+            ResolutionSource::Unresolved
+        );
     }
 
     // ── Normalisation ─────────────────────────────────────────────────────────
@@ -653,7 +663,10 @@ mod tests {
     fn enrich_normalizes_ordinal_book_prefix() {
         let mut ctx = SermonContext::new();
         // "first" → "1", "chapter thirteen" → "chapter 13", "verse thirteen" → "verse 13"
-        let e = run(&mut ctx, "first Corinthians chapter thirteen verse thirteen");
+        let e = run(
+            &mut ctx,
+            "first Corinthians chapter thirteen verse thirteen",
+        );
         assert!(
             !e.detections.is_empty(),
             "expected detection after normalisation; normalized_text='{}'",
@@ -670,7 +683,10 @@ mod tests {
     #[test]
     fn enrich_normalizes_psalm_119() {
         let mut ctx = SermonContext::new();
-        let e = run(&mut ctx, "Psalms chapter one hundred and nineteen verse one");
+        let e = run(
+            &mut ctx,
+            "Psalms chapter one hundred and nineteen verse one",
+        );
         assert!(!e.detections.is_empty(), "Psalm 119 not detected");
         assert_eq!(e.detections[0].raw_match.chapter, Some(119));
     }
@@ -857,7 +873,10 @@ mod tests {
         let e = run(&mut ctx, "from Genesis 1:1 to Revelation 22:21");
         assert_eq!(e.detections.len(), 2);
         assert_eq!(e.detections[0].raw_match.book.as_deref(), Some("Genesis"));
-        assert_eq!(e.detections[1].raw_match.book.as_deref(), Some("Revelation"));
+        assert_eq!(
+            e.detections[1].raw_match.book.as_deref(),
+            Some("Revelation")
+        );
     }
 
     #[test]
@@ -899,10 +918,7 @@ mod tests {
         assert_eq!(ctx.active_book.as_deref(), Some("Ephesians"));
         assert_eq!(ctx.active_chapter, Some(1));
         assert!(ctx.anchor_scripture.is_some());
-        assert_eq!(
-            ctx.anchor_scripture.as_ref().unwrap().book,
-            "Ephesians"
-        );
+        assert_eq!(ctx.anchor_scripture.as_ref().unwrap().book, "Ephesians");
     }
 
     #[test]
@@ -922,7 +938,10 @@ mod tests {
             title: "The Grace of God".to_string(),
             order_index: 0,
         });
-        let sp = ctx.current_sub_point.as_ref().expect("sub_point should be set");
+        let sp = ctx
+            .current_sub_point
+            .as_ref()
+            .expect("sub_point should be set");
         assert_eq!(sp.id, "sp-1");
         assert_eq!(sp.title, "The Grace of God");
         assert_eq!(sp.order_index, 0);
@@ -931,8 +950,16 @@ mod tests {
     #[test]
     fn set_sub_point_replaces_previous_sub_point() {
         let mut ctx = SermonContext::new();
-        ctx.set_sub_point(SubPointRef { id: "sp-1".into(), title: "Intro".into(), order_index: 0 });
-        ctx.set_sub_point(SubPointRef { id: "sp-2".into(), title: "Body".into(), order_index: 1 });
+        ctx.set_sub_point(SubPointRef {
+            id: "sp-1".into(),
+            title: "Intro".into(),
+            order_index: 0,
+        });
+        ctx.set_sub_point(SubPointRef {
+            id: "sp-2".into(),
+            title: "Body".into(),
+            order_index: 1,
+        });
         assert_eq!(ctx.current_sub_point.as_ref().unwrap().id, "sp-2");
     }
 
@@ -1125,10 +1152,13 @@ mod tests {
         assert_eq!(e.detections.len(), 1);
         let d = &e.detections[0];
         assert_eq!(d.resolution_source, ResolutionSource::BothInferred);
-        let r = d.resolved.as_ref().expect("verse 16 should resolve to John 3:16");
-        assert_eq!(r.book,    "John");
+        let r = d
+            .resolved
+            .as_ref()
+            .expect("verse 16 should resolve to John 3:16");
+        assert_eq!(r.book, "John");
         assert_eq!(r.chapter, 3);
-        assert_eq!(r.verse,   Some(16));
+        assert_eq!(r.verse, Some(16));
     }
 
     /// "as we read earlier" → matches the most recently mentioned verse
@@ -1139,9 +1169,9 @@ mod tests {
 
         let result = ctx.find_backreference("as we read earlier");
         let r = result.expect("should return the most recently mentioned verse");
-        assert_eq!(r.book,    "John");
+        assert_eq!(r.book, "John");
         assert_eq!(r.chapter, 3);
-        assert_eq!(r.verse,   Some(16));
+        assert_eq!(r.verse, Some(16));
     }
 
     /// Context confidence decays over time without an explicit reference
@@ -1191,11 +1221,11 @@ mod tests {
     #[test]
     fn find_backreference_returns_most_recent_verse() {
         let mut ctx = SermonContext::new();
-        ctx.update(BibleReference::new("John",   3u8).with_verse(16), 0);
+        ctx.update(BibleReference::new("John", 3u8).with_verse(16), 0);
         ctx.update(BibleReference::new("Romans", 8u8).with_verse(28), 5_000);
         let r = ctx.find_backreference("as we mentioned earlier").unwrap();
         // Should return the LAST mentioned verse (Romans 8:28), not John 3:16.
-        assert_eq!(r.book,  "Romans");
+        assert_eq!(r.book, "Romans");
         assert_eq!(r.verse, Some(28));
     }
 
@@ -1231,7 +1261,10 @@ mod tests {
         ctx.enrich(seg_at("early text", 0));
         ctx.enrich(seg_at("later text", 59_000));
         let text = ctx.rolling_transcript.text();
-        assert!(text.contains("early text"),  "segment at t=0 should still be retained");
+        assert!(
+            text.contains("early text"),
+            "segment at t=0 should still be retained"
+        );
         assert!(text.contains("later text"));
     }
 
@@ -1241,7 +1274,10 @@ mod tests {
         ctx.enrich(seg_at("old text", 0));
         ctx.enrich(seg_at("new text", 61_000)); // 61 s later → old evicted
         let text = ctx.rolling_transcript.text();
-        assert!(!text.contains("old text"),  "segment older than 60 s should be evicted");
+        assert!(
+            !text.contains("old text"),
+            "segment older than 60 s should be evicted"
+        );
         assert!(text.contains("new text"));
     }
 }

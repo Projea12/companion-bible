@@ -39,11 +39,18 @@ pub fn pattern_layer(enriched: &EnrichedSegment) -> Option<LayerResult> {
 /// Used to run the pattern engine over the rolling transcript buffer so that
 /// references split across multiple Deepgram utterances can be re-assembled.
 /// Prefers results that include a verse number over chapter-only results.
-pub fn pattern_layer_from_results(results: &[companion_detection::PatternResult]) -> Option<LayerResult> {
+pub fn pattern_layer_from_results(
+    results: &[companion_detection::PatternResult],
+) -> Option<LayerResult> {
     // Prefer full references (with verse) over partial ones.
-    let best = results.iter()
+    let best = results
+        .iter()
         .filter(|r| r.confidence > 0.0 && r.verse.is_some())
-        .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap_or(std::cmp::Ordering::Equal));
+        .max_by(|a, b| {
+            a.confidence
+                .partial_cmp(&b.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
     best.map(|r| LayerResult {
         book: r.book.clone(),
@@ -60,7 +67,12 @@ pub fn pattern_layer_from_results(results: &[companion_detection::PatternResult]
 /// Returns `None` when the model timed out, failed, or returned no reference.
 pub fn local_ai_layer(result: LocalAIResult) -> Option<LayerResult> {
     let response = result.reference?;
-    response_to_layer(response.book, response.chapter, response.verse, response.confidence)
+    response_to_layer(
+        response.book,
+        response.chapter,
+        response.verse,
+        response.confidence,
+    )
 }
 
 // ─── cloud AI layer ──────────────────────────────────────────────────────────
@@ -71,12 +83,9 @@ pub fn local_ai_layer(result: LocalAIResult) -> Option<LayerResult> {
 /// model returned no reference.
 pub fn cloud_ai_layer(result: CloudAIResult) -> Option<LayerResult> {
     match result {
-        CloudAIResult::Ok { reference: Some(r), .. } => response_to_layer(
-            r.book,
-            r.chapter,
-            r.verse,
-            r.confidence,
-        ),
+        CloudAIResult::Ok {
+            reference: Some(r), ..
+        } => response_to_layer(r.book, r.chapter, r.verse, r.confidence),
         _ => None,
     }
 }
@@ -214,13 +223,21 @@ mod tests {
 
     #[test]
     fn local_ai_layer_returns_none_on_timeout() {
-        let result = LocalAIResult { reference: None, timed_out: true, inference_ms: 400 };
+        let result = LocalAIResult {
+            reference: None,
+            timed_out: true,
+            inference_ms: 400,
+        };
         assert!(local_ai_layer(result).is_none());
     }
 
     #[test]
     fn local_ai_layer_returns_none_when_no_reference() {
-        let result = LocalAIResult { reference: None, timed_out: false, inference_ms: 150 };
+        let result = LocalAIResult {
+            reference: None,
+            timed_out: false,
+            inference_ms: 150,
+        };
         assert!(local_ai_layer(result).is_none());
     }
 
@@ -279,6 +296,10 @@ mod tests {
 
     #[test]
     fn cloud_ai_layer_returns_none_when_ok_but_no_reference() {
-        assert!(cloud_ai_layer(CloudAIResult::Ok { reference: None, latency_ms: 200 }).is_none());
+        assert!(cloud_ai_layer(CloudAIResult::Ok {
+            reference: None,
+            latency_ms: 200
+        })
+        .is_none());
     }
 }

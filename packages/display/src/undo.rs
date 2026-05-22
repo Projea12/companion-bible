@@ -33,6 +33,12 @@ pub struct UndoSystem {
     next_id: ActionId,
 }
 
+impl Default for UndoSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UndoSystem {
     pub fn new() -> Self {
         Self {
@@ -50,7 +56,11 @@ impl UndoSystem {
     pub fn record_discard(&mut self, previous_state: DisplayedState, now: Instant) -> ActionId {
         let id = self.next_id;
         self.next_id += 1;
-        self.stack.push_back(UndoableAction { id, previous_state, recorded_at: now });
+        self.stack.push_back(UndoableAction {
+            id,
+            previous_state,
+            recorded_at: now,
+        });
         id
     }
 

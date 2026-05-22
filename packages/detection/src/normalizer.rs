@@ -32,17 +32,37 @@
 
 /// Words for 1–19 (ones and teens).
 const ONES: &[(&str, u32)] = &[
-    ("one", 1), ("two", 2), ("three", 3), ("four", 4), ("five", 5),
-    ("six", 6), ("seven", 7), ("eight", 8), ("nine", 9), ("ten", 10),
-    ("eleven", 11), ("twelve", 12), ("thirteen", 13), ("fourteen", 14),
-    ("fifteen", 15), ("sixteen", 16), ("seventeen", 17), ("eighteen", 18),
+    ("one", 1),
+    ("two", 2),
+    ("three", 3),
+    ("four", 4),
+    ("five", 5),
+    ("six", 6),
+    ("seven", 7),
+    ("eight", 8),
+    ("nine", 9),
+    ("ten", 10),
+    ("eleven", 11),
+    ("twelve", 12),
+    ("thirteen", 13),
+    ("fourteen", 14),
+    ("fifteen", 15),
+    ("sixteen", 16),
+    ("seventeen", 17),
+    ("eighteen", 18),
     ("nineteen", 19),
 ];
 
 /// Words for 20, 30, … 90 (tens).
 const TENS: &[(&str, u32)] = &[
-    ("twenty", 20), ("thirty", 30), ("forty", 40), ("fifty", 50),
-    ("sixty", 60), ("seventy", 70), ("eighty", 80), ("ninety", 90),
+    ("twenty", 20),
+    ("thirty", 30),
+    ("forty", 40),
+    ("fifty", 50),
+    ("sixty", 60),
+    ("seventy", 70),
+    ("eighty", 80),
+    ("ninety", 90),
 ];
 
 /// Ordinal words and their cardinal equivalents.
@@ -50,12 +70,26 @@ const TENS: &[(&str, u32)] = &[
 /// Ordinals are used as book-number prefixes in spoken references:
 /// "First Corinthians", "Second Timothy", "Third John".
 const ORDINALS: &[(&str, u32)] = &[
-    ("first", 1), ("second", 2), ("third", 3), ("fourth", 4), ("fifth", 5),
-    ("sixth", 6), ("seventh", 7), ("eighth", 8), ("ninth", 9), ("tenth", 10),
-    ("eleventh", 11), ("twelfth", 12),
-    ("thirteenth", 13), ("fourteenth", 14), ("fifteenth", 15),
-    ("sixteenth", 16), ("seventeenth", 17), ("eighteenth", 18),
-    ("nineteenth", 19), ("twentieth", 20),
+    ("first", 1),
+    ("second", 2),
+    ("third", 3),
+    ("fourth", 4),
+    ("fifth", 5),
+    ("sixth", 6),
+    ("seventh", 7),
+    ("eighth", 8),
+    ("ninth", 9),
+    ("tenth", 10),
+    ("eleventh", 11),
+    ("twelfth", 12),
+    ("thirteenth", 13),
+    ("fourteenth", 14),
+    ("fifteenth", 15),
+    ("sixteenth", 16),
+    ("seventeenth", 17),
+    ("eighteenth", 18),
+    ("nineteenth", 19),
+    ("twentieth", 20),
 ];
 
 // ─── Lookup helpers ───────────────────────────────────────────────────────────
@@ -358,20 +392,43 @@ mod tests {
     /// Convert a number 1–199 to its canonical word form.
     fn to_words(n: u32) -> String {
         match n {
-            1  => "one".into(),        2  => "two".into(),       3  => "three".into(),
-            4  => "four".into(),       5  => "five".into(),       6  => "six".into(),
-            7  => "seven".into(),      8  => "eight".into(),      9  => "nine".into(),
-            10 => "ten".into(),        11 => "eleven".into(),     12 => "twelve".into(),
-            13 => "thirteen".into(),   14 => "fourteen".into(),   15 => "fifteen".into(),
-            16 => "sixteen".into(),    17 => "seventeen".into(),  18 => "eighteen".into(),
+            1 => "one".into(),
+            2 => "two".into(),
+            3 => "three".into(),
+            4 => "four".into(),
+            5 => "five".into(),
+            6 => "six".into(),
+            7 => "seven".into(),
+            8 => "eight".into(),
+            9 => "nine".into(),
+            10 => "ten".into(),
+            11 => "eleven".into(),
+            12 => "twelve".into(),
+            13 => "thirteen".into(),
+            14 => "fourteen".into(),
+            15 => "fifteen".into(),
+            16 => "sixteen".into(),
+            17 => "seventeen".into(),
+            18 => "eighteen".into(),
             19 => "nineteen".into(),
-            20 => "twenty".into(),     30 => "thirty".into(),     40 => "forty".into(),
-            50 => "fifty".into(),      60 => "sixty".into(),      70 => "seventy".into(),
-            80 => "eighty".into(),     90 => "ninety".into(),
+            20 => "twenty".into(),
+            30 => "thirty".into(),
+            40 => "forty".into(),
+            50 => "fifty".into(),
+            60 => "sixty".into(),
+            70 => "seventy".into(),
+            80 => "eighty".into(),
+            90 => "ninety".into(),
             21..=99 => {
                 let tens_word = match n / 10 {
-                    2 => "twenty", 3 => "thirty", 4 => "forty",  5 => "fifty",
-                    6 => "sixty",  7 => "seventy", 8 => "eighty", 9 => "ninety",
+                    2 => "twenty",
+                    3 => "thirty",
+                    4 => "forty",
+                    5 => "fifty",
+                    6 => "sixty",
+                    7 => "seventy",
+                    8 => "eighty",
+                    9 => "ninety",
                     _ => unreachable!(),
                 };
                 format!("{tens_word} {}", to_words(n % 10))
@@ -385,13 +442,26 @@ mod tests {
     /// Convert n to its ordinal word (first, second, … twentieth).
     fn to_ordinal(n: u32) -> &'static str {
         match n {
-            1  => "first",       2  => "second",      3  => "third",
-            4  => "fourth",      5  => "fifth",        6  => "sixth",
-            7  => "seventh",     8  => "eighth",       9  => "ninth",
-            10 => "tenth",       11 => "eleventh",     12 => "twelfth",
-            13 => "thirteenth",  14 => "fourteenth",   15 => "fifteenth",
-            16 => "sixteenth",   17 => "seventeenth",  18 => "eighteenth",
-            19 => "nineteenth",  20 => "twentieth",
+            1 => "first",
+            2 => "second",
+            3 => "third",
+            4 => "fourth",
+            5 => "fifth",
+            6 => "sixth",
+            7 => "seventh",
+            8 => "eighth",
+            9 => "ninth",
+            10 => "tenth",
+            11 => "eleventh",
+            12 => "twelfth",
+            13 => "thirteenth",
+            14 => "fourteenth",
+            15 => "fifteenth",
+            16 => "sixteenth",
+            17 => "seventeenth",
+            18 => "eighteenth",
+            19 => "nineteenth",
+            20 => "twentieth",
             _ => panic!("to_ordinal: unsupported n={n}"),
         }
     }
@@ -404,23 +474,27 @@ mod tests {
         for n in 1u32..=20 {
             let word = to_ordinal(n);
             let result = nn.ordinals_to_digits(word);
-            assert_eq!(result, n.to_string(), "ordinal '{word}' → '{result}' (expected {n})");
+            assert_eq!(
+                result,
+                n.to_string(),
+                "ordinal '{word}' → '{result}' (expected {n})"
+            );
         }
     }
 
     #[test]
     fn ordinals_case_insensitive() {
         let nn = nn();
-        assert_eq!(nn.ordinals_to_digits("FIRST"),  "1");
+        assert_eq!(nn.ordinals_to_digits("FIRST"), "1");
         assert_eq!(nn.ordinals_to_digits("Second"), "2");
-        assert_eq!(nn.ordinals_to_digits("tHiRd"),  "3");
+        assert_eq!(nn.ordinals_to_digits("tHiRd"), "3");
     }
 
     #[test]
     fn ordinals_does_not_touch_cardinals() {
         let nn = nn();
-        assert_eq!(nn.ordinals_to_digits("one"),      "one");
-        assert_eq!(nn.ordinals_to_digits("twenty"),   "twenty");
+        assert_eq!(nn.ordinals_to_digits("one"), "one");
+        assert_eq!(nn.ordinals_to_digits("twenty"), "twenty");
         assert_eq!(nn.ordinals_to_digits("nineteen"), "nineteen");
     }
 
@@ -466,29 +540,64 @@ mod tests {
         for n in 1u32..=150 {
             let words = to_words(n);
             let result = nn.cardinals_to_digits(&words);
-            assert_eq!(
-                result,
-                n.to_string(),
-                "n={n}: words='{words}' → '{result}'"
-            );
+            assert_eq!(result, n.to_string(), "n={n}: words='{words}' → '{result}'");
         }
     }
 
     // ── cardinals_to_digits: per-category explicit tests ─────────────────────
 
-    #[test]  fn cardinal_one()        { assert_eq!(nn().cardinals_to_digits("one"),   "1"); }
-    #[test]  fn cardinal_nine()       { assert_eq!(nn().cardinals_to_digits("nine"),  "9"); }
-    #[test]  fn cardinal_ten()        { assert_eq!(nn().cardinals_to_digits("ten"),   "10"); }
-    #[test]  fn cardinal_eleven()     { assert_eq!(nn().cardinals_to_digits("eleven"),"11"); }
-    #[test]  fn cardinal_nineteen()   { assert_eq!(nn().cardinals_to_digits("nineteen"),"19"); }
-    #[test]  fn cardinal_twenty()     { assert_eq!(nn().cardinals_to_digits("twenty"),"20"); }
-    #[test]  fn cardinal_twenty_one() { assert_eq!(nn().cardinals_to_digits("twenty one"),"21"); }
-    #[test]  fn cardinal_thirty()     { assert_eq!(nn().cardinals_to_digits("thirty"),"30"); }
-    #[test]  fn cardinal_thirty_one() { assert_eq!(nn().cardinals_to_digits("thirty one"),"31"); }
-    #[test]  fn cardinal_ninety_nine(){ assert_eq!(nn().cardinals_to_digits("ninety nine"),"99"); }
-    #[test]  fn cardinal_one_hundred(){ assert_eq!(nn().cardinals_to_digits("one hundred"),"100"); }
-    #[test]  fn cardinal_119()        { assert_eq!(nn().cardinals_to_digits("one hundred and nineteen"),"119"); }
-    #[test]  fn cardinal_150()        { assert_eq!(nn().cardinals_to_digits("one hundred and fifty"),"150"); }
+    #[test]
+    fn cardinal_one() {
+        assert_eq!(nn().cardinals_to_digits("one"), "1");
+    }
+    #[test]
+    fn cardinal_nine() {
+        assert_eq!(nn().cardinals_to_digits("nine"), "9");
+    }
+    #[test]
+    fn cardinal_ten() {
+        assert_eq!(nn().cardinals_to_digits("ten"), "10");
+    }
+    #[test]
+    fn cardinal_eleven() {
+        assert_eq!(nn().cardinals_to_digits("eleven"), "11");
+    }
+    #[test]
+    fn cardinal_nineteen() {
+        assert_eq!(nn().cardinals_to_digits("nineteen"), "19");
+    }
+    #[test]
+    fn cardinal_twenty() {
+        assert_eq!(nn().cardinals_to_digits("twenty"), "20");
+    }
+    #[test]
+    fn cardinal_twenty_one() {
+        assert_eq!(nn().cardinals_to_digits("twenty one"), "21");
+    }
+    #[test]
+    fn cardinal_thirty() {
+        assert_eq!(nn().cardinals_to_digits("thirty"), "30");
+    }
+    #[test]
+    fn cardinal_thirty_one() {
+        assert_eq!(nn().cardinals_to_digits("thirty one"), "31");
+    }
+    #[test]
+    fn cardinal_ninety_nine() {
+        assert_eq!(nn().cardinals_to_digits("ninety nine"), "99");
+    }
+    #[test]
+    fn cardinal_one_hundred() {
+        assert_eq!(nn().cardinals_to_digits("one hundred"), "100");
+    }
+    #[test]
+    fn cardinal_119() {
+        assert_eq!(nn().cardinals_to_digits("one hundred and nineteen"), "119");
+    }
+    #[test]
+    fn cardinal_150() {
+        assert_eq!(nn().cardinals_to_digits("one hundred and fifty"), "150");
+    }
 
     // ── cardinals_to_digits: hyphenated compounds ─────────────────────────────
 
@@ -515,7 +624,10 @@ mod tests {
     #[test]
     fn cardinal_hyphenated_in_hundreds() {
         // "one hundred and forty-five"
-        assert_eq!(nn().cardinals_to_digits("one hundred and forty-five"), "145");
+        assert_eq!(
+            nn().cardinals_to_digits("one hundred and forty-five"),
+            "145"
+        );
     }
 
     // ── cardinals_to_digits: spaced vs hyphenated equivalence ─────────────────
@@ -524,7 +636,7 @@ mod tests {
     fn cardinal_spaced_and_hyphenated_produce_same_result() {
         let nn = nn();
         for n in [21u32, 28, 32, 45, 50, 63, 76, 89, 99] {
-            let spaced   = to_words(n);
+            let spaced = to_words(n);
             let hyphenated = spaced.replace(' ', "-");
             assert_eq!(
                 nn.cardinals_to_digits(&spaced),
@@ -596,12 +708,18 @@ mod tests {
 
     #[test]
     fn cardinal_digits_already_unchanged() {
-        assert_eq!(nn().cardinals_to_digits("chapter 3 verse 16"), "chapter 3 verse 16");
+        assert_eq!(
+            nn().cardinals_to_digits("chapter 3 verse 16"),
+            "chapter 3 verse 16"
+        );
     }
 
     #[test]
     fn cardinal_mixed_words_and_digits() {
-        assert_eq!(nn().cardinals_to_digits("chapter three verse 16"), "chapter 3 verse 16");
+        assert_eq!(
+            nn().cardinals_to_digits("chapter three verse 16"),
+            "chapter 3 verse 16"
+        );
     }
 
     #[test]
@@ -612,7 +730,10 @@ mod tests {
 
     #[test]
     fn cardinal_one_not_followed_by_hundred() {
-        assert_eq!(nn().cardinals_to_digits("chapter one verse one"), "chapter 1 verse 1");
+        assert_eq!(
+            nn().cardinals_to_digits("chapter one verse one"),
+            "chapter 1 verse 1"
+        );
     }
 
     // ── compounds_to_digits ───────────────────────────────────────────────────
@@ -634,9 +755,9 @@ mod tests {
 
     #[test]
     fn compounds_does_not_replace_single_word_cardinal() {
-        assert_eq!(nn().compounds_to_digits("three"),  "three");
+        assert_eq!(nn().compounds_to_digits("three"), "three");
         assert_eq!(nn().compounds_to_digits("twenty"), "twenty");
-        assert_eq!(nn().compounds_to_digits("one"),    "one");
+        assert_eq!(nn().compounds_to_digits("one"), "one");
     }
 
     #[test]
@@ -734,23 +855,23 @@ mod tests {
         let nn = nn();
         // Books in the Bible go up to "Third" (3 John).
         let cases = [
-            ("First Samuel",       "1 Samuel"),
-            ("Second Samuel",      "2 Samuel"),
-            ("First Kings",        "1 Kings"),
-            ("Second Kings",       "2 Kings"),
-            ("First Chronicles",   "1 Chronicles"),
-            ("Second Chronicles",  "2 Chronicles"),
-            ("First Corinthians",  "1 Corinthians"),
+            ("First Samuel", "1 Samuel"),
+            ("Second Samuel", "2 Samuel"),
+            ("First Kings", "1 Kings"),
+            ("Second Kings", "2 Kings"),
+            ("First Chronicles", "1 Chronicles"),
+            ("Second Chronicles", "2 Chronicles"),
+            ("First Corinthians", "1 Corinthians"),
             ("Second Corinthians", "2 Corinthians"),
-            ("First Thessalonians","1 Thessalonians"),
-            ("Second Thessalonians","2 Thessalonians"),
-            ("First Timothy",      "1 Timothy"),
-            ("Second Timothy",     "2 Timothy"),
-            ("First Peter",        "1 Peter"),
-            ("Second Peter",       "2 Peter"),
-            ("First John",         "1 John"),
-            ("Second John",        "2 John"),
-            ("Third John",         "3 John"),
+            ("First Thessalonians", "1 Thessalonians"),
+            ("Second Thessalonians", "2 Thessalonians"),
+            ("First Timothy", "1 Timothy"),
+            ("Second Timothy", "2 Timothy"),
+            ("First Peter", "1 Peter"),
+            ("Second Peter", "2 Peter"),
+            ("First John", "1 John"),
+            ("Second John", "2 John"),
+            ("Third John", "3 John"),
         ];
         for (input, expected) in cases {
             assert_eq!(nn.normalize(input), expected, "input: '{input}'");
@@ -776,7 +897,10 @@ mod tests {
 
     #[test]
     fn cardinal_one_hundred_and_forty_nine() {
-        assert_eq!(nn().cardinals_to_digits("one hundred and forty nine"), "149");
+        assert_eq!(
+            nn().cardinals_to_digits("one hundred and forty nine"),
+            "149"
+        );
     }
 
     // ── Psalms: complete chapter range 1–150 via normalize ────────────────────

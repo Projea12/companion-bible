@@ -23,8 +23,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
 const TARGET_RATE: u32 = 16_000;
-const ENDPOINT: &str =
-    "wss://streaming.assemblyai.com/v3/ws\
+const ENDPOINT: &str = "wss://streaming.assemblyai.com/v3/ws\
      ?sample_rate=16000\
      &speech_model=u3-rt-pro";
 
@@ -55,7 +54,10 @@ async fn main() {
     println!("═══════════════════════════════════════════════════");
     println!(" Microphone : {device_name}");
     println!(" Native rate: {native_rate} Hz  channels: {channels}  format: {fmt:?}");
-    println!(" Target rate: {TARGET_RATE} Hz (downsample ratio {})", native_rate / TARGET_RATE);
+    println!(
+        " Target rate: {TARGET_RATE} Hz (downsample ratio {})",
+        native_rate / TARGET_RATE
+    );
     println!(" Model      : u3-rt-pro  (Universal-3 Pro Streaming)");
     println!("═══════════════════════════════════════════════════");
     println!(" Speak into your microphone. Press Ctrl+C to stop.");
@@ -74,13 +76,18 @@ async fn main() {
             {
                 let tx = audio_tx.clone();
                 move |data: &[f32], _| {
-                    if stop_stream.load(Ordering::Acquire) { return; }
+                    if stop_stream.load(Ordering::Acquire) {
+                        return;
+                    }
                     let mono = to_mono_f32(data, channels);
                     let resampled = downsample_box(&mono, native_rate, TARGET_RATE);
                     let peak = resampled.iter().copied().fold(0.0f32, f32::max);
                     // Print audio level so we can confirm audio is flowing.
-                    eprint!("\r[audio] level: {:.4}  chunks: {} samples     ",
-                        peak, resampled.len());
+                    eprint!(
+                        "\r[audio] level: {:.4}  chunks: {} samples     ",
+                        peak,
+                        resampled.len()
+                    );
                     let _ = tx.send(resampled);
                 }
             },
@@ -92,13 +99,18 @@ async fn main() {
             {
                 let tx = audio_tx.clone();
                 move |data: &[i16], _| {
-                    if stop_stream.load(Ordering::Acquire) { return; }
+                    if stop_stream.load(Ordering::Acquire) {
+                        return;
+                    }
                     let f32s: Vec<f32> = data.iter().map(|&s| s as f32 / i16::MAX as f32).collect();
                     let mono = to_mono_f32(&f32s, channels);
                     let resampled = downsample_box(&mono, native_rate, TARGET_RATE);
                     let peak = resampled.iter().copied().fold(0.0f32, f32::max);
-                    eprint!("\r[audio] level: {:.4}  chunks: {} samples     ",
-                        peak, resampled.len());
+                    eprint!(
+                        "\r[audio] level: {:.4}  chunks: {} samples     ",
+                        peak,
+                        resampled.len()
+                    );
                     let _ = tx.send(resampled);
                 }
             },
@@ -110,15 +122,21 @@ async fn main() {
             {
                 let tx = audio_tx.clone();
                 move |data: &[u16], _| {
-                    if stop_stream.load(Ordering::Acquire) { return; }
-                    let f32s: Vec<f32> = data.iter()
+                    if stop_stream.load(Ordering::Acquire) {
+                        return;
+                    }
+                    let f32s: Vec<f32> = data
+                        .iter()
                         .map(|&s| (s as f32 / u16::MAX as f32) * 2.0 - 1.0)
                         .collect();
                     let mono = to_mono_f32(&f32s, channels);
                     let resampled = downsample_box(&mono, native_rate, TARGET_RATE);
                     let peak = resampled.iter().copied().fold(0.0f32, f32::max);
-                    eprint!("\r[audio] level: {:.4}  chunks: {} samples     ",
-                        peak, resampled.len());
+                    eprint!(
+                        "\r[audio] level: {:.4}  chunks: {} samples     ",
+                        peak,
+                        resampled.len()
+                    );
                     let _ = tx.send(resampled);
                 }
             },
@@ -181,7 +199,9 @@ async fn main() {
                             "max_turn_silence": 2500,
                             "prompt": "Transcribe English. Transcribe verbatim with standard punctuation. Include filler words and incomplete utterances."
                         }).to_string();
-                        write.send(Message::Text(config_msg)).await
+                        write
+                            .send(Message::Text(config_msg))
+                            .await
                             .expect("Failed to send config");
                         break;
                     }
@@ -242,7 +262,9 @@ async fn main() {
                 }
             }
         }
-        let _ = write.send(Message::Text(r#"{"type":"Terminate"}"#.into())).await;
+        let _ = write
+            .send(Message::Text(r#"{"type":"Terminate"}"#.into()))
+            .await;
         println!("\n[ws] Terminate sent");
     });
 
@@ -265,8 +287,10 @@ async fn main() {
                         }
                     }
                     Some("Termination") => {
-                        println!("\n[ws] session terminated — audio: {}s",
-                            val["audio_duration_seconds"].as_f64().unwrap_or(0.0));
+                        println!(
+                            "\n[ws] session terminated — audio: {}s",
+                            val["audio_duration_seconds"].as_f64().unwrap_or(0.0)
+                        );
                         break;
                     }
                     _ => {

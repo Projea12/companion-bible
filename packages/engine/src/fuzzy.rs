@@ -4,10 +4,10 @@ use std::collections::HashSet;
 const MATCH_THRESHOLD: f32 = 0.55;
 
 const STOP_WORDS: &[&str] = &[
-    "the", "and", "for", "that", "this", "with", "not", "but", "are", "was", "were", "have",
-    "has", "had", "his", "her", "their", "our", "thy", "thee", "thou", "thine", "unto", "also",
-    "shall", "will", "unto", "even", "from", "which", "who", "whom", "what", "all", "they",
-    "them", "him", "she", "its", "hath", "doth", "saith", "said",
+    "the", "and", "for", "that", "this", "with", "not", "but", "are", "was", "were", "have", "has",
+    "had", "his", "her", "their", "our", "thy", "thee", "thou", "thine", "unto", "also", "shall",
+    "will", "unto", "even", "from", "which", "who", "whom", "what", "all", "they", "them", "him",
+    "she", "its", "hath", "doth", "saith", "said",
 ];
 
 /// Compare transcribed text against every verse in a chapter and return the
@@ -40,7 +40,10 @@ pub fn fuzzy_verse_match(
             if n_verse == 0 {
                 continue;
             }
-            let matches = verse_words.iter().filter(|w| text_words.contains(*w)).count();
+            let matches = verse_words
+                .iter()
+                .filter(|w| text_words.contains(*w))
+                .count();
             let score = matches as f32 / n_verse as f32;
             if score > best_score {
                 best_score = score;

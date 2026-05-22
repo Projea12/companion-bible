@@ -42,9 +42,13 @@ impl<T: Copy + Default> RingBuffer<T> {
     /// # Panics
     /// Panics if `capacity` is not a power of two or is zero.
     pub fn new(capacity: usize) -> Self {
-        assert!(capacity.is_power_of_two() && capacity > 0, "capacity must be a non-zero power of two");
-        let buf: Box<[UnsafeCell<T>]> =
-            (0..capacity).map(|_| UnsafeCell::new(T::default())).collect();
+        assert!(
+            capacity.is_power_of_two() && capacity > 0,
+            "capacity must be a non-zero power of two"
+        );
+        let buf: Box<[UnsafeCell<T>]> = (0..capacity)
+            .map(|_| UnsafeCell::new(T::default()))
+            .collect();
         Self {
             buf,
             capacity,

@@ -51,6 +51,7 @@ export function App() {
   // transcription
   const [assemblyaiKey, setAssemblyaiKey] = useState('');
   const [deepgramKey, setDeepgramKey] = useState('');
+  const [openaiKey, setOpenaiKey] = useState('');
   const [transcriptionMode, setTranscriptionMode] = useState<'assemblyai' | 'deepgram' | 'whisper'>(
     'whisper',
   );
@@ -318,6 +319,10 @@ export function App() {
     void invoke('set_deepgram_key', { key: deepgramKey });
   }, [deepgramKey]);
 
+  const handleSaveOpenAiKey = useCallback(() => {
+    void invoke('set_openai_key', { key: openaiKey });
+  }, [openaiKey]);
+
   const handleNextVerse = useCallback(() => {
     void invoke('next_verse');
   }, []);
@@ -454,7 +459,7 @@ export function App() {
         <div className="op-settings-panel">
           <div className="settings-panel-inner">
             <p className="settings-hint">
-              Keys are saved locally. Priority: AssemblyAI → Deepgram → Whisper (offline).
+              Transcription: AssemblyAI → Deepgram → Whisper (offline). Detection: OpenAI (primary).
             </p>
             <div className="settings-key-grid">
               <div className="settings-key-row">
@@ -501,6 +506,32 @@ export function App() {
                   </button>
                 </div>
                 {deepgramKey && <span className="settings-key-saved">✓ Saved</span>}
+              </div>
+
+              <div className="settings-key-divider" />
+
+              <div className="settings-key-row">
+                <div className="settings-key-meta">
+                  <span className="settings-key-label">OpenAI</span>
+                  <span className="settings-key-tag settings-key-tag--primary">
+                    Verse Detection
+                  </span>
+                </div>
+                <div className="settings-key-input-row">
+                  <input
+                    className="settings-input"
+                    type="password"
+                    placeholder="sk-…"
+                    value={openaiKey}
+                    onChange={(e) => setOpenaiKey(e.target.value)}
+                    onBlur={handleSaveOpenAiKey}
+                    autoComplete="off"
+                  />
+                  <button className="btn btn-secondary btn-sm" onClick={handleSaveOpenAiKey}>
+                    Save
+                  </button>
+                </div>
+                {openaiKey && <span className="settings-key-saved">✓ Saved</span>}
               </div>
             </div>
           </div>

@@ -1,4 +1,4 @@
-//! Cloud AI detection layer — wraps AnthropicClient with connectivity guard.
+//! Cloud AI detection layer — wraps AnthropicClient or OpenAIClient with connectivity guard.
 
 use std::time::Instant;
 
@@ -6,11 +6,14 @@ use serde::Deserialize;
 
 use crate::client::{AnthropicClient, CloudAIError};
 use crate::connectivity::ConnectivityMonitor;
+use crate::openai_client::{OpenAIClient, OpenAIError};
 use crate::prompt::CloudPromptBuilder;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TIMEOUT_MS: u64 = 800;
+/// OpenAI is the primary layer — give it more budget than the fallback Anthropic client.
+const OPENAI_TIMEOUT_MS: u64 = 2000;
 
 // ─── CloudAIResponse ─────────────────────────────────────────────────────────
 
@@ -145,11 +148,80 @@ impl CloudAI {
     }
 }
 
+// ─── OpenAICloudAI ────────────────────────────────────────────────────────────
+
+/// Primary cloud detection layer using OpenAI gpt-4o-mini.
+/// Same detect() interface as CloudAI — drop-in replacement.
+pub struct OpenAICloudAI {
+    client: OpenAIClient,
+    connectivity_fn: Box<dyn Fn() -> bool + Send + Sync>,
+}
+
+impl OpenAICloudAI {
+    pub fn new(api_key: impl Into<String>) -> Self {
+        Self {
+            client: OpenAIClient::new(api_key, OPENAI_TIMEOUT_MS),
+            connectivity_fn: Box::new(ConnectivityMonitor::is_connected),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn with_connectivity(mut self, connected: bool) -> Self {
+        self.connectivity_fn = Box::new(move || connected);
+        self
+    }
+
+    pub fn detect(
+        &self,
+        segment_text: &str,
+        active_book: Option<&str>,
+        active_chapter: Option<u8>,
+        recent_transcript: &str,
+        anchor_scripture: Option<&str>,
+    ) -> CloudAIResult {
+        if !(self.connectivity_fn)() {
+            return CloudAIResult::Unavailable;
+        }
+
+        let t0 = Instant::now();
+
+        let (system, user) = CloudPromptBuilder::new()
+            .with_context(active_book, active_chapter)
+            .with_transcript(recent_transcript)
+            .with_anchor(anchor_scripture.unwrap_or(""))
+            .build(segment_text);
+
+        match self.client.complete(&system, &user) {
+            Ok(text) => {
+                let latency_ms = t0.elapsed().as_millis() as u64;
+                match parse_cloud_response(&text) {
+                    Ok(response) => CloudAIResult::Ok {
+                        reference: Some(response),
+                        latency_ms,
+                    },
+                    Err(_) => CloudAIResult::Error {
+                        reason: format!("malformed response: {text}"),
+                        latency_ms,
+                    },
+                }
+            }
+            Err(OpenAIError::Timeout(_)) => CloudAIResult::Timeout {
+                latency_ms: t0.elapsed().as_millis() as u64,
+            },
+            Err(OpenAIError::Unavailable) => CloudAIResult::Unavailable,
+            Err(e) => CloudAIResult::Error {
+                reason: e.to_string(),
+                latency_ms: t0.elapsed().as_millis() as u64,
+            },
+        }
+    }
+}
+
 // ─── Response parser ──────────────────────────────────────────────────────────
 
 pub(crate) fn parse_cloud_response(raw: &str) -> Result<CloudAIResponse, ()> {
     let start = raw.find('{').ok_or(())?;
-    let end   = raw.rfind('}').ok_or(())?;
+    let end = raw.rfind('}').ok_or(())?;
     serde_json::from_str(&raw[start..=end]).map_err(|_| ())
 }
 
@@ -163,7 +235,8 @@ mod tests {
 
     #[test]
     fn valid_response_parses_all_fields() {
-        let raw = r#"{"book":"John","chapter":3,"verse":16,"confidence":0.97,"unattributed":false}"#;
+        let raw =
+            r#"{"book":"John","chapter":3,"verse":16,"confidence":0.97,"unattributed":false}"#;
         let r = parse_cloud_response(raw).unwrap();
         assert_eq!(r.book.as_deref(), Some("John"));
         assert_eq!(r.chapter, Some(3));
@@ -174,7 +247,8 @@ mod tests {
 
     #[test]
     fn unattributed_quotation_flag_parsed() {
-        let raw = r#"{"book":"Psalms","chapter":23,"verse":1,"confidence":0.88,"unattributed":true}"#;
+        let raw =
+            r#"{"book":"Psalms","chapter":23,"verse":1,"confidence":0.88,"unattributed":true}"#;
         let r = parse_cloud_response(raw).unwrap();
         assert!(r.unattributed);
         assert_eq!(r.book.as_deref(), Some("Psalms"));
@@ -189,7 +263,8 @@ mod tests {
 
     #[test]
     fn null_book_parses_ok() {
-        let raw = r#"{"book":null,"chapter":null,"verse":null,"confidence":0.1,"unattributed":false}"#;
+        let raw =
+            r#"{"book":null,"chapter":null,"verse":null,"confidence":0.1,"unattributed":false}"#;
         let r = parse_cloud_response(raw).unwrap();
         assert!(r.book.is_none());
     }
@@ -265,14 +340,14 @@ mod tests {
         let mut server = mockito::Server::new();
         let body = r#"{"content":[{"type":"text","text":"{\"book\":\"John\",\"chapter\":3,\"verse\":16,\"confidence\":0.97,\"unattributed\":false}"}]}"#;
 
-        server.mock("POST", "/")
+        server
+            .mock("POST", "/")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(body)
             .create();
 
-        let client = crate::client::AnthropicClient::new("key", 3_000)
-            .with_endpoint(server.url());
+        let client = crate::client::AnthropicClient::new("key", 3_000).with_endpoint(server.url());
 
         let ai = CloudAI::new("key")
             .with_connectivity(true)
@@ -291,17 +366,17 @@ mod tests {
     fn detect_returns_timeout_when_deadline_exceeded() {
         let mut server = mockito::Server::new();
 
-        server.mock("POST", "/")
+        server
+            .mock("POST", "/")
             .with_status(200)
-            .with_body_from_fn(|_| {
+            .with_chunked_body(|_| {
                 std::thread::sleep(std::time::Duration::from_millis(300));
                 Ok(())
             })
             .create();
 
         // 1 ms timeout — will fire before the server responds.
-        let client = crate::client::AnthropicClient::new("key", 1)
-            .with_endpoint(server.url());
+        let client = crate::client::AnthropicClient::new("key", 1).with_endpoint(server.url());
 
         let ai = CloudAI::new("key")
             .with_connectivity(true)
@@ -309,7 +384,10 @@ mod tests {
 
         let result = ai.detect("test", None, None, "", None);
         assert!(
-            matches!(result, CloudAIResult::Timeout { .. } | CloudAIResult::Error { .. }),
+            matches!(
+                result,
+                CloudAIResult::Timeout { .. } | CloudAIResult::Error { .. }
+            ),
             "expected Timeout or Error, got: {result:?}"
         );
     }
@@ -322,14 +400,14 @@ mod tests {
         // Server returns 200 but with content that isn't valid JSON for our schema.
         let body = r#"{"content":[{"type":"text","text":"I cannot determine the reference."}]}"#;
 
-        server.mock("POST", "/")
+        server
+            .mock("POST", "/")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(body)
             .create();
 
-        let client = crate::client::AnthropicClient::new("key", 3_000)
-            .with_endpoint(server.url());
+        let client = crate::client::AnthropicClient::new("key", 3_000).with_endpoint(server.url());
 
         let ai = CloudAI::new("key")
             .with_connectivity(true)
@@ -343,7 +421,8 @@ mod tests {
 
     #[test]
     fn accuracy_john_3_16() {
-        let raw = r#"{"book":"John","chapter":3,"verse":16,"confidence":0.98,"unattributed":false}"#;
+        let raw =
+            r#"{"book":"John","chapter":3,"verse":16,"confidence":0.98,"unattributed":false}"#;
         let r = parse_cloud_response(raw).unwrap();
         assert_eq!(r.book.as_deref(), Some("John"));
         assert_eq!(r.chapter, Some(3));
@@ -353,7 +432,8 @@ mod tests {
 
     #[test]
     fn accuracy_romans_8_28() {
-        let raw = r#"{"book":"Romans","chapter":8,"verse":28,"confidence":0.95,"unattributed":false}"#;
+        let raw =
+            r#"{"book":"Romans","chapter":8,"verse":28,"confidence":0.95,"unattributed":false}"#;
         let r = parse_cloud_response(raw).unwrap();
         assert_eq!(r.book.as_deref(), Some("Romans"));
         assert_eq!(r.chapter, Some(8));
@@ -363,7 +443,8 @@ mod tests {
     #[test]
     fn accuracy_unattributed_psalm_23() {
         // "The Lord is my shepherd" — model identifies without speaker naming it.
-        let raw = r#"{"book":"Psalms","chapter":23,"verse":1,"confidence":0.91,"unattributed":true}"#;
+        let raw =
+            r#"{"book":"Psalms","chapter":23,"verse":1,"confidence":0.91,"unattributed":true}"#;
         let r = parse_cloud_response(raw).unwrap();
         assert_eq!(r.book.as_deref(), Some("Psalms"));
         assert!(r.unattributed);
@@ -371,7 +452,8 @@ mod tests {
 
     #[test]
     fn accuracy_low_confidence_returns_null_book() {
-        let raw = r#"{"book":null,"chapter":null,"verse":null,"confidence":0.12,"unattributed":false}"#;
+        let raw =
+            r#"{"book":null,"chapter":null,"verse":null,"confidence":0.12,"unattributed":false}"#;
         let r = parse_cloud_response(raw).unwrap();
         assert!(r.book.is_none());
         assert!(r.confidence < 0.5);

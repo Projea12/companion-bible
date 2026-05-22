@@ -16,12 +16,7 @@ pub struct LayerResult {
 }
 
 impl LayerResult {
-    pub fn new(
-        book: impl Into<String>,
-        chapter: u8,
-        verse: u8,
-        confidence: f32,
-    ) -> Self {
+    pub fn new(book: impl Into<String>, chapter: u8, verse: u8, confidence: f32) -> Self {
         Self {
             book: Some(book.into()),
             chapter: Some(chapter),
@@ -92,18 +87,28 @@ impl PartialResults {
     /// Number of layers that have completed (pending = false, regardless of result).
     pub fn layers_responded(&self) -> usize {
         let mut n = 0;
-        if self.pattern.is_some() { n += 1; }
-        if !self.local_ai_pending { n += 1; }
-        if !self.cloud_pending    { n += 1; }
+        if self.pattern.is_some() {
+            n += 1;
+        }
+        if !self.local_ai_pending {
+            n += 1;
+        }
+        if !self.cloud_pending {
+            n += 1;
+        }
         n
     }
 
     /// Non-None results across all layers.
     pub fn available_results(&self) -> Vec<&LayerResult> {
-        [self.pattern.as_ref(), self.local_ai.as_ref(), self.cloud.as_ref()]
-            .into_iter()
-            .flatten()
-            .collect()
+        [
+            self.pattern.as_ref(),
+            self.local_ai.as_ref(),
+            self.cloud.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     }
 }
 

@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 use crate::{
     close, connect, migration, AppState, AppStateSerializer, CalibrationRepository,
-    CalibrationThresholds, Church, ChurchRepository, ChurchSettings, DetectionEvent,
-    DetectionEventRepository, DbPool, PoolConfig, Sermon, SermonRepository, ServiceRecord,
-    SubPoint, Verse, VerseRepository, WalEntry, WriteAheadLog,
+    CalibrationThresholds, Church, ChurchRepository, ChurchSettings, DbPool, DetectionEvent,
+    DetectionEventRepository, PoolConfig, Sermon, SermonRepository, ServiceRecord, SubPoint, Verse,
+    VerseRepository, WalEntry, WriteAheadLog,
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -19,9 +19,7 @@ async fn open_db(dir: &std::path::Path) -> DbPool {
 }
 
 fn table_exists_sql(table: &str) -> String {
-    format!(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{table}'"
-    )
+    format!("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{table}'")
 }
 
 fn test_db_path(dir: &std::path::Path) -> PathBuf {
@@ -85,8 +83,10 @@ async fn wal_mode_is_enabled() {
         .await
         .unwrap();
 
-    let row: (String,) =
-        sqlx::query_as("PRAGMA journal_mode").fetch_one(&pool).await.unwrap();
+    let row: (String,) = sqlx::query_as("PRAGMA journal_mode")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(row.0, "wal", "journal_mode should be WAL");
     close(pool).await;
 }
@@ -98,8 +98,10 @@ async fn foreign_keys_are_enabled() {
         .await
         .unwrap();
 
-    let row: (i64,) =
-        sqlx::query_as("PRAGMA foreign_keys").fetch_one(&pool).await.unwrap();
+    let row: (i64,) = sqlx::query_as("PRAGMA foreign_keys")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(row.0, 1, "foreign_keys should be ON");
     close(pool).await;
 }
@@ -141,7 +143,10 @@ async fn close_shuts_down_pool() {
     close(pool).await;
 
     // After close, the pool is shut down and new queries should fail.
-    assert!(pool_clone.is_closed(), "pool should be closed after close()");
+    assert!(
+        pool_clone.is_closed(),
+        "pool should be closed after close()"
+    );
 }
 
 // ── bad path ──────────────────────────────────────────────────────────────────
@@ -215,18 +220,15 @@ async fn can_insert_and_read_church() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
-    let (name,): (String,) =
-        sqlx::query_as("SELECT name FROM churches WHERE id = 'c1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let (name,): (String,) = sqlx::query_as("SELECT name FROM churches WHERE id = 'c1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
     assert_eq!(name, "Grace Church");
     close(pool).await;
@@ -237,12 +239,10 @@ async fn church_onboarding_defaults_to_false() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let (complete,): (i64,) =
         sqlx::query_as("SELECT onboarding_complete FROM churches WHERE id = 'c1'")
@@ -259,12 +259,10 @@ async fn can_insert_and_read_sermon() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     sqlx::query(
         "INSERT INTO sermons (id, church_id, pastor, date, started_at)
@@ -274,11 +272,10 @@ async fn can_insert_and_read_sermon() {
     .await
     .unwrap();
 
-    let (pastor,): (String,) =
-        sqlx::query_as("SELECT pastor FROM sermons WHERE id = 's1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let (pastor,): (String,) = sqlx::query_as("SELECT pastor FROM sermons WHERE id = 's1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
     assert_eq!(pastor, "Pastor John");
     close(pool).await;
@@ -289,12 +286,10 @@ async fn can_insert_and_read_sub_point() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
@@ -312,11 +307,10 @@ async fn can_insert_and_read_sub_point() {
     .await
     .unwrap();
 
-    let (title,): (String,) =
-        sqlx::query_as("SELECT title FROM sub_points WHERE id = 'sp1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let (title,): (String,) = sqlx::query_as("SELECT title FROM sub_points WHERE id = 'sp1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
     assert_eq!(title, "The Power of Faith");
     close(pool).await;
@@ -335,11 +329,12 @@ async fn can_insert_and_read_verse() {
     .await
     .unwrap();
 
-    let (text,): (String,) =
-        sqlx::query_as("SELECT text FROM verses WHERE book='John' AND chapter=3 AND verse_number=16")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let (text,): (String,) = sqlx::query_as(
+        "SELECT text FROM verses WHERE book='John' AND chapter=3 AND verse_number=16",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
 
     assert!(text.contains("God so loved"));
     close(pool).await;
@@ -359,7 +354,10 @@ async fn sermon_rejects_unknown_church_id() {
     .execute(&pool)
     .await;
 
-    assert!(result.is_err(), "FK constraint should reject unknown church_id");
+    assert!(
+        result.is_err(),
+        "FK constraint should reject unknown church_id"
+    );
     close(pool).await;
 }
 
@@ -375,7 +373,10 @@ async fn sub_point_rejects_unknown_sermon_id() {
     .execute(&pool)
     .await;
 
-    assert!(result.is_err(), "FK constraint should reject unknown sermon_id");
+    assert!(
+        result.is_err(),
+        "FK constraint should reject unknown sermon_id"
+    );
     close(pool).await;
 }
 
@@ -399,7 +400,10 @@ async fn verses_unique_constraint_rejects_duplicate() {
     .execute(&pool)
     .await;
 
-    assert!(result.is_err(), "UNIQUE constraint should reject duplicate verse");
+    assert!(
+        result.is_err(),
+        "UNIQUE constraint should reject duplicate verse"
+    );
     close(pool).await;
 }
 
@@ -408,12 +412,10 @@ async fn deleting_church_cascades_to_sermons() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
@@ -428,13 +430,15 @@ async fn deleting_church_cascades_to_sermons() {
         .await
         .unwrap();
 
-    let (count,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM sermons WHERE id = 's1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sermons WHERE id = 's1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
-    assert_eq!(count, 0, "deleting a church should cascade-delete its sermons");
+    assert_eq!(
+        count, 0,
+        "deleting a church should cascade-delete its sermons"
+    );
     close(pool).await;
 }
 
@@ -443,12 +447,10 @@ async fn deleting_sermon_cascades_to_sub_points() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
@@ -471,13 +473,15 @@ async fn deleting_sermon_cascades_to_sub_points() {
         .await
         .unwrap();
 
-    let (count,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM sub_points WHERE id = 'sp1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sub_points WHERE id = 'sp1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
-    assert_eq!(count, 0, "deleting a sermon should cascade-delete its sub_points");
+    assert_eq!(
+        count, 0,
+        "deleting a sermon should cascade-delete its sub_points"
+    );
     close(pool).await;
 }
 
@@ -526,12 +530,10 @@ async fn can_insert_and_read_detection_event() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
          VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
@@ -571,7 +573,10 @@ async fn detection_event_rejects_invalid_sermon_id() {
     .execute(&pool)
     .await;
 
-    assert!(result.is_err(), "FK constraint should reject unknown sermon_id");
+    assert!(
+        result.is_err(),
+        "FK constraint should reject unknown sermon_id"
+    );
     close(pool).await;
 }
 
@@ -580,12 +585,10 @@ async fn detection_event_rejects_confidence_out_of_range() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
          VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
@@ -602,7 +605,10 @@ async fn detection_event_rejects_confidence_out_of_range() {
     .execute(&pool)
     .await;
 
-    assert!(result.is_err(), "CHECK constraint should reject confidence > 1.0");
+    assert!(
+        result.is_err(),
+        "CHECK constraint should reject confidence > 1.0"
+    );
     close(pool).await;
 }
 
@@ -611,12 +617,10 @@ async fn deleting_sermon_cascades_to_detection_events() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
          VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
@@ -638,13 +642,15 @@ async fn deleting_sermon_cascades_to_detection_events() {
         .await
         .unwrap();
 
-    let (count,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM detection_events WHERE id = 'd1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM detection_events WHERE id = 'd1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
-    assert_eq!(count, 0, "deleting sermon should cascade-delete detection_events");
+    assert_eq!(
+        count, 0,
+        "deleting sermon should cascade-delete detection_events"
+    );
     close(pool).await;
 }
 
@@ -655,12 +661,10 @@ async fn can_insert_and_read_app_state() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO app_state (key, value) VALUES ('display_mode', '\"fullscreen\"')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO app_state (key, value) VALUES ('display_mode', '\"fullscreen\"')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let (value,): (String,) =
         sqlx::query_as("SELECT value FROM app_state WHERE key = 'display_mode'")
@@ -682,10 +686,9 @@ async fn app_state_rejects_duplicate_key() {
         .await
         .unwrap();
 
-    let result =
-        sqlx::query("INSERT INTO app_state (key, value) VALUES ('theme', '\"light\"')")
-            .execute(&pool)
-            .await;
+    let result = sqlx::query("INSERT INTO app_state (key, value) VALUES ('theme', '\"light\"')")
+        .execute(&pool)
+        .await;
 
     assert!(result.is_err(), "PRIMARY KEY should reject duplicate key");
     close(pool).await;
@@ -698,12 +701,10 @@ async fn can_insert_and_read_church_setting() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO church_settings (church_id, key, value)
          VALUES ('c1', 'preferred_translation', '\"KJV\"')",
@@ -728,12 +729,10 @@ async fn church_settings_rejects_duplicate_key_for_same_church() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO church_settings (church_id, key, value) VALUES ('c1', 'font_size', '16')",
     )
@@ -747,7 +746,10 @@ async fn church_settings_rejects_duplicate_key_for_same_church() {
     .execute(&pool)
     .await;
 
-    assert!(result.is_err(), "composite PK should reject duplicate (church_id, key)");
+    assert!(
+        result.is_err(),
+        "composite PK should reject duplicate (church_id, key)"
+    );
     close(pool).await;
 }
 
@@ -772,12 +774,10 @@ async fn deleting_church_cascades_to_church_settings() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace Church', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO church_settings (church_id, key, value) VALUES ('c1', 'font_size', '16')",
     )
@@ -796,7 +796,10 @@ async fn deleting_church_cascades_to_church_settings() {
             .await
             .unwrap();
 
-    assert_eq!(count, 0, "deleting church should cascade-delete church_settings");
+    assert_eq!(
+        count, 0,
+        "deleting church should cascade-delete church_settings"
+    );
     close(pool).await;
 }
 
@@ -807,7 +810,9 @@ async fn migration_creates_calibration_thresholds_table() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
     let (count,): (i64,) = sqlx::query_as(&table_exists_sql("calibration_thresholds"))
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 1);
     close(pool).await;
 }
@@ -818,16 +823,22 @@ async fn can_insert_and_read_calibration_threshold() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO calibration_thresholds (id, church_id, stage, accept_above, escalate_below)
          VALUES ('t1', 'c1', 'pattern', 0.85, 0.4)",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let (stage,): (String,) =
         sqlx::query_as("SELECT stage FROM calibration_thresholds WHERE id = 't1'")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(stage, "pattern");
     close(pool).await;
 }
@@ -838,12 +849,15 @@ async fn calibration_threshold_rejects_invalid_stage() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     let result = sqlx::query(
         "INSERT INTO calibration_thresholds (id, church_id, stage, accept_above, escalate_below)
          VALUES ('t1', 'c1', 'unknown_stage', 0.9, 0.5)",
     )
-    .execute(&pool).await;
+    .execute(&pool)
+    .await;
     assert!(result.is_err(), "CHECK should reject unknown stage");
     close(pool).await;
 }
@@ -854,13 +868,19 @@ async fn calibration_threshold_rejects_inverted_thresholds() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     let result = sqlx::query(
         "INSERT INTO calibration_thresholds (id, church_id, stage, accept_above, escalate_below)
          VALUES ('t1', 'c1', 'pattern', 0.3, 0.8)",
     )
-    .execute(&pool).await;
-    assert!(result.is_err(), "CHECK should reject accept_above < escalate_below");
+    .execute(&pool)
+    .await;
+    assert!(
+        result.is_err(),
+        "CHECK should reject accept_above < escalate_below"
+    );
     close(pool).await;
 }
 
@@ -870,16 +890,24 @@ async fn calibration_threshold_unique_per_church_stage() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO calibration_thresholds (id, church_id, stage) VALUES ('t1', 'c1', 'pattern')",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     let result = sqlx::query(
         "INSERT INTO calibration_thresholds (id, church_id, stage) VALUES ('t2', 'c1', 'pattern')",
     )
-    .execute(&pool).await;
-    assert!(result.is_err(), "UNIQUE should reject duplicate (church_id, stage)");
+    .execute(&pool)
+    .await;
+    assert!(
+        result.is_err(),
+        "UNIQUE should reject duplicate (church_id, stage)"
+    );
     close(pool).await;
 }
 
@@ -890,7 +918,9 @@ async fn migration_creates_service_records_table() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
     let (count,): (i64,) = sqlx::query_as(&table_exists_sql("service_records"))
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 1);
     close(pool).await;
 }
@@ -901,21 +931,29 @@ async fn can_insert_and_read_service_record() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
          VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query(
         "INSERT INTO service_records (id, sermon_id, total_detections, auto_accepted)
          VALUES ('r1', 's1', 10, 8)",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let (total,): (i64,) =
         sqlx::query_as("SELECT total_detections FROM service_records WHERE id = 'r1'")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(total, 10);
     close(pool).await;
 }
@@ -926,18 +964,27 @@ async fn service_record_unique_per_sermon() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
          VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO service_records (id, sermon_id) VALUES ('r1', 's1')")
-        .execute(&pool).await.unwrap();
-    let result =
-        sqlx::query("INSERT INTO service_records (id, sermon_id) VALUES ('r2', 's1')")
-            .execute(&pool).await;
-    assert!(result.is_err(), "UNIQUE should allow only one service_record per sermon");
+        .execute(&pool)
+        .await
+        .unwrap();
+    let result = sqlx::query("INSERT INTO service_records (id, sermon_id) VALUES ('r2', 's1')")
+        .execute(&pool)
+        .await;
+    assert!(
+        result.is_err(),
+        "UNIQUE should allow only one service_record per sermon"
+    );
     close(pool).await;
 }
 
@@ -948,7 +995,9 @@ async fn migration_creates_operator_patterns_table() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
     let (count,): (i64,) = sqlx::query_as(&table_exists_sql("operator_patterns"))
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 1);
     close(pool).await;
 }
@@ -959,16 +1008,22 @@ async fn can_insert_and_read_operator_pattern() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO operator_patterns (id, church_id, pattern, book_name)
          VALUES ('p1', 'c1', 'Ps.', 'Psalms')",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let (book,): (String,) =
         sqlx::query_as("SELECT book_name FROM operator_patterns WHERE id = 'p1'")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(book, "Psalms");
     close(pool).await;
 }
@@ -979,12 +1034,15 @@ async fn operator_pattern_rejects_invalid_match_type() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     let result = sqlx::query(
         "INSERT INTO operator_patterns (id, church_id, pattern, book_name, match_type)
          VALUES ('p1', 'c1', 'Ps.', 'Psalms', 'fuzzy')",
     )
-    .execute(&pool).await;
+    .execute(&pool)
+    .await;
     assert!(result.is_err(), "CHECK should reject unknown match_type");
     close(pool).await;
 }
@@ -996,7 +1054,9 @@ async fn migration_creates_acoustic_profiles_table() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
     let (count,): (i64,) = sqlx::query_as(&table_exists_sql("acoustic_profiles"))
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 1);
     close(pool).await;
 }
@@ -1007,16 +1067,21 @@ async fn can_insert_and_read_acoustic_profile() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO acoustic_profiles (id, church_id, name, sample_rate, vad_threshold)
          VALUES ('a1', 'c1', 'Main Hall', 16000, 0.6)",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
 
-    let (name,): (String,) =
-        sqlx::query_as("SELECT name FROM acoustic_profiles WHERE id = 'a1'")
-            .fetch_one(&pool).await.unwrap();
+    let (name,): (String,) = sqlx::query_as("SELECT name FROM acoustic_profiles WHERE id = 'a1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(name, "Main Hall");
     close(pool).await;
 }
@@ -1027,12 +1092,15 @@ async fn acoustic_profile_rejects_invalid_vad_threshold() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     let result = sqlx::query(
         "INSERT INTO acoustic_profiles (id, church_id, name, vad_threshold)
          VALUES ('a1', 'c1', 'Test', 1.5)",
     )
-    .execute(&pool).await;
+    .execute(&pool)
+    .await;
     assert!(result.is_err(), "CHECK should reject vad_threshold > 1.0");
     close(pool).await;
 }
@@ -1044,7 +1112,9 @@ async fn migration_creates_hardware_profiles_table() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
     let (count,): (i64,) = sqlx::query_as(&table_exists_sql("hardware_profiles"))
-        .fetch_one(&pool).await.unwrap();
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 1);
     close(pool).await;
 }
@@ -1055,16 +1125,22 @@ async fn can_insert_and_read_hardware_profile() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO hardware_profiles (id, church_id, device_name, device_id)
          VALUES ('h1', 'c1', 'USB Microphone', 'dev-001')",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
 
     let (name,): (String,) =
         sqlx::query_as("SELECT device_name FROM hardware_profiles WHERE id = 'h1'")
-            .fetch_one(&pool).await.unwrap();
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(name, "USB Microphone");
     close(pool).await;
 }
@@ -1075,18 +1151,26 @@ async fn hardware_profile_unique_per_church_device() {
     let pool = open_db(dir.path()).await;
 
     sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO hardware_profiles (id, church_id, device_name, device_id)
          VALUES ('h1', 'c1', 'USB Mic', 'dev-001')",
     )
-    .execute(&pool).await.unwrap();
+    .execute(&pool)
+    .await
+    .unwrap();
     let result = sqlx::query(
         "INSERT INTO hardware_profiles (id, church_id, device_name, device_id)
          VALUES ('h2', 'c1', 'USB Mic v2', 'dev-001')",
     )
-    .execute(&pool).await;
-    assert!(result.is_err(), "UNIQUE should reject duplicate (church_id, device_id)");
+    .execute(&pool)
+    .await;
+    assert!(
+        result.is_err(),
+        "UNIQUE should reject duplicate (church_id, device_id)"
+    );
     close(pool).await;
 }
 
@@ -1116,7 +1200,11 @@ async fn list_applied_returns_4_migrations_in_order() {
     let applied = migration::list_applied(&pool).await.unwrap();
     assert_eq!(applied.len(), 5, "should have 5 applied migrations");
     for (i, m) in applied.iter().enumerate() {
-        assert_eq!(m.version, (i + 1) as i64, "migrations must be sorted by version");
+        assert_eq!(
+            m.version,
+            (i + 1) as i64,
+            "migrations must be sorted by version"
+        );
     }
     close(pool).await;
 }
@@ -1130,7 +1218,11 @@ async fn migrations_are_idempotent() {
     migration::run(&pool).await.unwrap();
 
     let applied = migration::list_applied(&pool).await.unwrap();
-    assert_eq!(applied.len(), 5, "second run must not add duplicate entries");
+    assert_eq!(
+        applied.len(),
+        5,
+        "second run must not add duplicate entries"
+    );
     close(pool).await;
 }
 
@@ -1140,7 +1232,11 @@ async fn migration_versions_are_sequential() {
     let pool = open_db(dir.path()).await;
     let applied = migration::list_applied(&pool).await.unwrap();
     let versions: Vec<i64> = applied.iter().map(|m| m.version).collect();
-    assert_eq!(versions, vec![1, 2, 3, 4, 5], "versions must be 1..5 in order");
+    assert_eq!(
+        versions,
+        vec![1, 2, 3, 4, 5],
+        "versions must be 1..5 in order"
+    );
     close(pool).await;
 }
 
@@ -1150,8 +1246,14 @@ async fn applied_migrations_have_descriptions() {
     let pool = open_db(dir.path()).await;
     let applied = migration::list_applied(&pool).await.unwrap();
     for m in &applied {
-        assert!(!m.description.is_empty(), "every migration must have a description");
-        assert!(!m.installed_on.is_empty(), "every migration must have an installed_on timestamp");
+        assert!(
+            !m.description.is_empty(),
+            "every migration must have a description"
+        );
+        assert!(
+            !m.installed_on.is_empty(),
+            "every migration must have an installed_on timestamp"
+        );
     }
     close(pool).await;
 }
@@ -1197,12 +1299,11 @@ async fn verse_from_row_maps_all_fields() {
     .await
     .unwrap();
 
-    let verse: Verse = sqlx::query_as(
-        "SELECT * FROM verses WHERE book='John' AND chapter=3 AND verse_number=16",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let verse: Verse =
+        sqlx::query_as("SELECT * FROM verses WHERE book='John' AND chapter=3 AND verse_number=16")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     assert!(verse.id > 0);
     assert_eq!(verse.book, "John");
@@ -1218,12 +1319,10 @@ async fn sermon_from_row_maps_optional_fields() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
          VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
@@ -1250,12 +1349,10 @@ async fn sub_point_from_row_maps_all_fields() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
          VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
@@ -1288,12 +1385,10 @@ async fn detection_event_from_row_maps_all_fields() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
          VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
@@ -1311,11 +1406,10 @@ async fn detection_event_from_row_maps_all_fields() {
     .await
     .unwrap();
 
-    let ev: DetectionEvent =
-        sqlx::query_as("SELECT * FROM detection_events WHERE id = 'd1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let ev: DetectionEvent = sqlx::query_as("SELECT * FROM detection_events WHERE id = 'd1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
     assert_eq!(ev.id, "d1");
     assert_eq!(ev.raw_transcript, "John 3:16");
@@ -1331,12 +1425,10 @@ async fn church_settings_from_row_maps_all_fields() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO church_settings (church_id, key, value)
          VALUES ('c1', 'preferred_translation', '\"KJV\"')",
@@ -1363,12 +1455,10 @@ async fn calibration_thresholds_from_row_maps_all_fields() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO calibration_thresholds (id, church_id, stage, accept_above, escalate_below)
          VALUES ('t1', 'c1', 'local_ai', 0.88, 0.45)",
@@ -1395,12 +1485,10 @@ async fn service_record_from_row_maps_optional_fields() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
          VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
@@ -1417,11 +1505,10 @@ async fn service_record_from_row_maps_optional_fields() {
     .await
     .unwrap();
 
-    let sr: ServiceRecord =
-        sqlx::query_as("SELECT * FROM service_records WHERE id = 'r1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let sr: ServiceRecord = sqlx::query_as("SELECT * FROM service_records WHERE id = 'r1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
 
     assert_eq!(sr.total_detections, 20);
     assert_eq!(sr.auto_accepted, 18);
@@ -1563,12 +1650,48 @@ fn service_record_serde_round_trip() {
 
 async fn insert_test_verses(pool: &DbPool) {
     let verses = [
-        ("Genesis", 1i64, 1i64, "In the beginning God created the heaven and the earth.", 1i64),
-        ("Genesis", 1, 2, "And the earth was without form, and void.", 1),
-        ("Genesis", 2, 1, "Thus the heavens and the earth were finished.", 1),
-        ("John", 3, 16, "For God so loved the world, that he gave his only begotten Son.", 43),
-        ("John", 3, 17, "For God sent not his Son into the world to condemn the world.", 43),
-        ("Psalms", 23, 1, "The LORD is my shepherd; I shall not want.", 19),
+        (
+            "Genesis",
+            1i64,
+            1i64,
+            "In the beginning God created the heaven and the earth.",
+            1i64,
+        ),
+        (
+            "Genesis",
+            1,
+            2,
+            "And the earth was without form, and void.",
+            1,
+        ),
+        (
+            "Genesis",
+            2,
+            1,
+            "Thus the heavens and the earth were finished.",
+            1,
+        ),
+        (
+            "John",
+            3,
+            16,
+            "For God so loved the world, that he gave his only begotten Son.",
+            43,
+        ),
+        (
+            "John",
+            3,
+            17,
+            "For God sent not his Son into the world to condemn the world.",
+            43,
+        ),
+        (
+            "Psalms",
+            23,
+            1,
+            "The LORD is my shepherd; I shall not want.",
+            19,
+        ),
     ];
     for (book, ch, v, text, order) in verses {
         sqlx::query(
@@ -1658,8 +1781,7 @@ async fn verse_repo_search_results_ordered_by_book_order_then_chapter_verse() {
     for window in results.windows(2) {
         let (a, b) = (&window[0], &window[1]);
         assert!(
-            (a.book_order, a.chapter, a.verse_number)
-                <= (b.book_order, b.chapter, b.verse_number)
+            (a.book_order, a.chapter, a.verse_number) <= (b.book_order, b.chapter, b.verse_number)
         );
     }
     close(pool).await;
@@ -1728,12 +1850,10 @@ async fn sermon_repo_create_returns_the_sermon() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let repo = SermonRepository::new(pool.clone());
     let sermon = make_sermon("s1", "c1", "2026-05-15T09:00:00Z");
@@ -1748,12 +1868,10 @@ async fn sermon_repo_create_persists_to_database() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let repo = SermonRepository::new(pool.clone());
     repo.create(make_sermon("s1", "c1", "2026-05-15T09:00:00Z"))
@@ -1773,12 +1891,10 @@ async fn sermon_repo_get_by_id_returns_some_for_existing_sermon() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let repo = SermonRepository::new(pool.clone());
     let original = make_sermon("s1", "c1", "2026-05-15T09:00:00Z");
@@ -1806,12 +1922,10 @@ async fn sermon_repo_update_changes_mutable_fields() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let repo = SermonRepository::new(pool.clone());
     repo.create(make_sermon("s1", "c1", "2026-05-15T09:00:00Z"))
@@ -1842,12 +1956,10 @@ async fn sermon_repo_get_recent_returns_newest_first() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let repo = SermonRepository::new(pool.clone());
     repo.create(make_sermon("s1", "c1", "2026-05-10T09:00:00Z"))
@@ -1873,12 +1985,10 @@ async fn sermon_repo_get_recent_respects_limit() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let repo = SermonRepository::new(pool.clone());
     for i in 1..=5i64 {
@@ -1901,12 +2011,10 @@ async fn sermon_repo_end_sermon_sets_ended_at() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let repo = SermonRepository::new(pool.clone());
     repo.create(make_sermon("s1", "c1", "2026-05-15T09:00:00Z"))
@@ -1953,12 +2061,10 @@ fn make_detection_event(id: &str, sermon_id: &str, transcript: &str) -> Detectio
 }
 
 async fn seed_church_and_sermon(pool: &DbPool) {
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')",
-    )
-    .execute(pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('c1', 'Grace', 'Lagos')")
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO sermons (id, church_id, date, started_at)
          VALUES ('s1', 'c1', '2026-05-15', '2026-05-15T09:00:00Z')",
@@ -1993,11 +2099,10 @@ async fn detection_event_repo_create_persists_to_database() {
         .await
         .unwrap();
 
-    let (count,): (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM detection_events WHERE id = 'd1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM detection_events WHERE id = 'd1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 1);
     close(pool).await;
 }
@@ -2087,7 +2192,10 @@ async fn church_repo_get_or_create_inserts_when_empty() {
     let pool = open_db(dir.path()).await;
 
     let repo = ChurchRepository::new(pool.clone());
-    let church = repo.get_or_create("c1", "Grace Church", "Lagos").await.unwrap();
+    let church = repo
+        .get_or_create("c1", "Grace Church", "Lagos")
+        .await
+        .unwrap();
 
     assert_eq!(church.id, "c1");
     assert_eq!(church.name, "Grace Church");
@@ -2100,12 +2208,10 @@ async fn church_repo_get_or_create_returns_existing_when_present() {
     let dir = tempdir().unwrap();
     let pool = open_db(dir.path()).await;
 
-    sqlx::query(
-        "INSERT INTO churches (id, name, region) VALUES ('existing', 'Old Name', 'Abuja')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("INSERT INTO churches (id, name, region) VALUES ('existing', 'Old Name', 'Abuja')")
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let repo = ChurchRepository::new(pool.clone());
     // Supplying different data should NOT overwrite the existing row.
@@ -2126,7 +2232,9 @@ async fn church_repo_update_setting_inserts_new_key() {
 
     let repo = ChurchRepository::new(pool.clone());
     repo.get_or_create("c1", "Grace", "Lagos").await.unwrap();
-    repo.update_setting("display_font_size", "18").await.unwrap();
+    repo.update_setting("display_font_size", "18")
+        .await
+        .unwrap();
 
     let value = repo.get_setting("display_font_size").await.unwrap();
     assert_eq!(value.as_deref(), Some("18"));
@@ -2171,8 +2279,14 @@ async fn church_repo_multiple_settings_are_independent() {
     repo.update_setting("font_size", "16").await.unwrap();
     repo.update_setting("theme", "dark").await.unwrap();
 
-    assert_eq!(repo.get_setting("font_size").await.unwrap().as_deref(), Some("16"));
-    assert_eq!(repo.get_setting("theme").await.unwrap().as_deref(), Some("dark"));
+    assert_eq!(
+        repo.get_setting("font_size").await.unwrap().as_deref(),
+        Some("16")
+    );
+    assert_eq!(
+        repo.get_setting("theme").await.unwrap().as_deref(),
+        Some("dark")
+    );
     close(pool).await;
 }
 
@@ -2274,7 +2388,11 @@ async fn calibration_repo_update_thresholds_upserts_existing_stage() {
     repo.update_thresholds(updated).await.unwrap();
 
     let thresholds = repo.get_thresholds().await.unwrap();
-    assert_eq!(thresholds.len(), 1, "upsert must not create a duplicate row");
+    assert_eq!(
+        thresholds.len(),
+        1,
+        "upsert must not create a duplicate row"
+    );
     assert!((thresholds[0].accept_above - 0.95).abs() < 1e-9);
     assert!((thresholds[0].escalate_below - 0.6).abs() < 1e-9);
     close(pool).await;
@@ -2370,9 +2488,24 @@ fn wal_write_returns_sequential_sequence_numbers() {
     let dir = tempdir().unwrap();
     let wal = WriteAheadLog::open(dir.path().join("test.wal")).unwrap();
 
-    let s1 = wal.write(WalEntry::SettingChanged { key: "a".into(), value: "1".into() }).unwrap();
-    let s2 = wal.write(WalEntry::SettingChanged { key: "b".into(), value: "2".into() }).unwrap();
-    let s3 = wal.write(WalEntry::SettingChanged { key: "c".into(), value: "3".into() }).unwrap();
+    let s1 = wal
+        .write(WalEntry::SettingChanged {
+            key: "a".into(),
+            value: "1".into(),
+        })
+        .unwrap();
+    let s2 = wal
+        .write(WalEntry::SettingChanged {
+            key: "b".into(),
+            value: "2".into(),
+        })
+        .unwrap();
+    let s3 = wal
+        .write(WalEntry::SettingChanged {
+            key: "c".into(),
+            value: "3".into(),
+        })
+        .unwrap();
 
     assert_eq!(s1, 1);
     assert_eq!(s2, 2);
@@ -2418,7 +2551,10 @@ fn wal_write_produces_valid_newline_delimited_json() {
     let record: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
     assert_eq!(record["seq"], 1);
     assert!(record["ts"].is_number());
-    assert!(record["crc"].is_number(), "every record must include a crc checksum");
+    assert!(
+        record["crc"].is_number(),
+        "every record must include a crc checksum"
+    );
     assert_eq!(record["entry"]["type"], "sermon_started");
     assert_eq!(record["entry"]["sermon_id"], "s1");
 }
@@ -2449,18 +2585,36 @@ fn wal_reopen_resumes_sequence_from_existing_entries() {
     // Session 1: write 3 entries.
     {
         let wal = WriteAheadLog::open(&path).unwrap();
-        wal.write(WalEntry::SettingChanged { key: "a".into(), value: "1".into() }).unwrap();
-        wal.write(WalEntry::SettingChanged { key: "b".into(), value: "2".into() }).unwrap();
-        wal.write(WalEntry::SettingChanged { key: "c".into(), value: "3".into() }).unwrap();
+        wal.write(WalEntry::SettingChanged {
+            key: "a".into(),
+            value: "1".into(),
+        })
+        .unwrap();
+        wal.write(WalEntry::SettingChanged {
+            key: "b".into(),
+            value: "2".into(),
+        })
+        .unwrap();
+        wal.write(WalEntry::SettingChanged {
+            key: "c".into(),
+            value: "3".into(),
+        })
+        .unwrap();
     }
 
     // Session 2: should resume from 4.
     let wal2 = WriteAheadLog::open(&path).unwrap();
     let seq = wal2
-        .write(WalEntry::SettingChanged { key: "d".into(), value: "4".into() })
+        .write(WalEntry::SettingChanged {
+            key: "d".into(),
+            value: "4".into(),
+        })
         .unwrap();
 
-    assert_eq!(seq, 4, "sequence must continue from where the previous session left off");
+    assert_eq!(
+        seq, 4,
+        "sequence must continue from where the previous session left off"
+    );
 
     let line_count = std::fs::read_to_string(&path).unwrap().lines().count();
     assert_eq!(line_count, 4, "file must contain all 4 entries");
@@ -2530,7 +2684,10 @@ fn wal_write_each_entry_variant() {
         .unwrap()
         .lines()
         .count();
-    assert_eq!(line_count as u64, total, "every variant must produce exactly one line");
+    assert_eq!(
+        line_count as u64, total,
+        "every variant must produce exactly one line"
+    );
 }
 
 #[test]
@@ -2591,8 +2748,11 @@ fn wal_checkpoint_returns_incremented_sequence_number() {
     let wal = WriteAheadLog::open(dir.path().join("test.wal")).unwrap();
 
     // Prior write advances seq to 1; checkpoint should be 2.
-    wal.write(WalEntry::SettingChanged { key: "a".into(), value: "1".into() })
-        .unwrap();
+    wal.write(WalEntry::SettingChanged {
+        key: "a".into(),
+        value: "1".into(),
+    })
+    .unwrap();
     let seq = wal.checkpoint(make_app_state()).unwrap();
 
     assert_eq!(seq, 2);
@@ -2606,8 +2766,7 @@ fn wal_checkpoint_writes_checkpoint_variant_to_file() {
     wal.checkpoint(make_app_state()).unwrap();
 
     let contents = std::fs::read_to_string(&path).unwrap();
-    let record: serde_json::Value =
-        serde_json::from_str(contents.trim()).unwrap();
+    let record: serde_json::Value = serde_json::from_str(contents.trim()).unwrap();
 
     assert_eq!(record["entry"]["type"], "checkpoint");
     assert!(record["crc"].is_number());
@@ -2656,7 +2815,10 @@ fn wal_replay_uses_the_last_of_multiple_checkpoints() {
 
     let wal = WriteAheadLog::open(&path).unwrap();
     let recovered = wal.replay().unwrap();
-    assert_eq!(recovered, state_v2, "replay must start from the last checkpoint");
+    assert_eq!(
+        recovered, state_v2,
+        "replay must start from the last checkpoint"
+    );
 }
 
 #[test]
@@ -2763,7 +2925,10 @@ fn wal_replay_applies_setting_changed_after_checkpoint() {
 
     let wal = WriteAheadLog::open(&path).unwrap();
     let state = wal.replay().unwrap();
-    assert_eq!(state.settings.get("theme").map(String::as_str), Some("light"));
+    assert_eq!(
+        state.settings.get("theme").map(String::as_str),
+        Some("light")
+    );
 }
 
 #[test]
@@ -2798,7 +2963,10 @@ fn wal_replay_without_checkpoint_applies_all_entries() {
     assert!(state.church.is_some());
     assert_eq!(state.church.as_ref().unwrap().id, "c1");
     assert!(state.active_sermon.is_some());
-    assert_eq!(state.settings.get("theme").map(String::as_str), Some("dark"));
+    assert_eq!(
+        state.settings.get("theme").map(String::as_str),
+        Some("dark")
+    );
 }
 
 #[test]
@@ -2830,8 +2998,7 @@ fn wal_replay_skips_entry_with_wrong_checksum() {
     // Corrupt the checksum on line 2 (the DetectionRecorded entry).
     let contents = std::fs::read_to_string(&path).unwrap();
     let lines: Vec<&str> = contents.lines().collect();
-    let mut bad_record: serde_json::Value =
-        serde_json::from_str(lines[1]).unwrap();
+    let mut bad_record: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
     bad_record["crc"] = serde_json::json!(0u64);
     let patched = format!(
         "{}\n{}\n{}\n",
@@ -2845,7 +3012,10 @@ fn wal_replay_skips_entry_with_wrong_checksum() {
     let state = wal.replay().unwrap();
 
     // The corrupted DetectionRecorded must have been dropped.
-    assert!(state.pending_detections.is_empty(), "corrupted detection must be skipped");
+    assert!(
+        state.pending_detections.is_empty(),
+        "corrupted detection must be skipped"
+    );
     // The valid SettingChanged after it must still be applied.
     assert_eq!(
         state.settings.get("theme").map(String::as_str),
@@ -2924,7 +3094,11 @@ fn wal_rotate_archives_the_active_wal_file() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("app.wal");
     let wal = WriteAheadLog::open(&path).unwrap();
-    wal.write(WalEntry::SettingChanged { key: "a".into(), value: "1".into() }).unwrap();
+    wal.write(WalEntry::SettingChanged {
+        key: "a".into(),
+        value: "1".into(),
+    })
+    .unwrap();
 
     wal.rotate().unwrap();
 
@@ -2949,13 +3123,24 @@ fn wal_rotate_new_writes_start_at_sequence_1() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("app.wal");
     let wal = WriteAheadLog::open(&path).unwrap();
-    wal.write(WalEntry::SettingChanged { key: "a".into(), value: "1".into() }).unwrap();
-    wal.write(WalEntry::SettingChanged { key: "b".into(), value: "2".into() }).unwrap();
+    wal.write(WalEntry::SettingChanged {
+        key: "a".into(),
+        value: "1".into(),
+    })
+    .unwrap();
+    wal.write(WalEntry::SettingChanged {
+        key: "b".into(),
+        value: "2".into(),
+    })
+    .unwrap();
 
     wal.rotate().unwrap();
 
     let seq = wal
-        .write(WalEntry::SettingChanged { key: "c".into(), value: "3".into() })
+        .write(WalEntry::SettingChanged {
+            key: "c".into(),
+            value: "3".into(),
+        })
         .unwrap();
     assert_eq!(seq, 1, "sequence must reset to 1 after rotation");
 }
@@ -2965,8 +3150,11 @@ fn wal_rotate_old_content_is_preserved_in_archive() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("app.wal");
     let wal = WriteAheadLog::open(&path).unwrap();
-    wal.write(WalEntry::SettingChanged { key: "pre-rotate".into(), value: "yes".into() })
-        .unwrap();
+    wal.write(WalEntry::SettingChanged {
+        key: "pre-rotate".into(),
+        value: "yes".into(),
+    })
+    .unwrap();
 
     wal.rotate().unwrap();
 
@@ -3004,10 +3192,17 @@ fn wal_rotate_prunes_archives_older_than_keep_days() {
     std::fs::write(&old_archive, b"old archive content\n").unwrap();
 
     let wal = WriteAheadLog::open(&path).unwrap();
-    wal.write(WalEntry::SettingChanged { key: "k".into(), value: "v".into() }).unwrap();
+    wal.write(WalEntry::SettingChanged {
+        key: "k".into(),
+        value: "v".into(),
+    })
+    .unwrap();
     wal.rotate_keeping(7).unwrap();
 
-    assert!(!old_archive.exists(), "archive older than keep_days must be deleted");
+    assert!(
+        !old_archive.exists(),
+        "archive older than keep_days must be deleted"
+    );
 }
 
 #[test]
@@ -3023,7 +3218,10 @@ fn wal_rotate_keeps_archives_within_keep_days() {
     let wal = WriteAheadLog::open(&path).unwrap();
     wal.rotate_keeping(7).unwrap();
 
-    assert!(recent_archive.exists(), "archive within keep_days must be retained");
+    assert!(
+        recent_archive.exists(),
+        "archive within keep_days must be retained"
+    );
 }
 
 #[test]
@@ -3033,7 +3231,11 @@ fn wal_rotate_replay_sees_only_post_rotation_entries() {
     let wal = WriteAheadLog::open(&path).unwrap();
 
     // Pre-rotation entries.
-    wal.write(WalEntry::SettingChanged { key: "old".into(), value: "before".into() }).unwrap();
+    wal.write(WalEntry::SettingChanged {
+        key: "old".into(),
+        value: "before".into(),
+    })
+    .unwrap();
     wal.rotate().unwrap();
 
     // Post-rotation entries + checkpoint.
@@ -3042,7 +3244,10 @@ fn wal_rotate_replay_sees_only_post_rotation_entries() {
     wal.checkpoint(state).unwrap();
 
     let recovered = wal.replay().unwrap();
-    assert_eq!(recovered.settings.get("new").map(String::as_str), Some("after"));
+    assert_eq!(
+        recovered.settings.get("new").map(String::as_str),
+        Some("after")
+    );
     // "old" was in the archived file — not visible to replay on the active WAL.
     assert!(!recovered.settings.contains_key("old"));
 }
@@ -3072,24 +3277,26 @@ fn wal_full_write_replay_cycle() {
         .unwrap();
 
         // Mid-session checkpoint.
-        let mut base = AppState::default();
-        base.church = Some(Church {
-            id: "c1".into(),
-            name: "Grace".into(),
-            region: "Lagos".into(),
-            installed_at: "2026-05-15T00:00:00Z".into(),
-            onboarding_complete: true,
-        });
-        base.active_sermon = Some(Sermon {
-            id: "s1".into(),
-            church_id: "c1".into(),
-            title: None,
-            pastor: None,
-            date: "2026-05-15".into(),
-            anchor_scripture: None,
-            started_at: "2026-05-15T09:00:00Z".into(),
-            ended_at: None,
-        });
+        let base = AppState {
+            church: Some(Church {
+                id: "c1".into(),
+                name: "Grace".into(),
+                region: "Lagos".into(),
+                installed_at: "2026-05-15T00:00:00Z".into(),
+                onboarding_complete: true,
+            }),
+            active_sermon: Some(Sermon {
+                id: "s1".into(),
+                church_id: "c1".into(),
+                title: None,
+                pastor: None,
+                date: "2026-05-15".into(),
+                anchor_scripture: None,
+                started_at: "2026-05-15T09:00:00Z".into(),
+                ended_at: None,
+            }),
+            ..Default::default()
+        };
         wal.checkpoint(base).unwrap();
 
         // Entries after checkpoint.
@@ -3118,7 +3325,10 @@ fn wal_full_write_replay_cycle() {
     assert!(state.church.is_some());
     assert_eq!(state.pending_detections.len(), 5);
     assert_eq!(
-        state.active_sermon.as_ref().and_then(|s| s.ended_at.as_deref()),
+        state
+            .active_sermon
+            .as_ref()
+            .and_then(|s| s.ended_at.as_deref()),
         Some("2026-05-15T11:00:00Z")
     );
 }
@@ -3174,7 +3384,11 @@ fn wal_replay_handles_multiple_consecutive_corrupted_entries() {
         2,
         "only entries with valid checksums must survive"
     );
-    let ids: Vec<&str> = state.pending_detections.iter().map(|d| d.id.as_str()).collect();
+    let ids: Vec<&str> = state
+        .pending_detections
+        .iter()
+        .map(|d| d.id.as_str())
+        .collect();
     assert!(ids.contains(&"d3"));
     assert!(ids.contains(&"d4"));
 }
@@ -3240,10 +3454,16 @@ fn wal_replay_without_checkpoint_rebuilds_full_state_from_entries() {
             region: "Lagos".into(),
         })
         .unwrap();
-        wal.write(WalEntry::SettingChanged { key: "theme".into(), value: "dark".into() })
-            .unwrap();
-        wal.write(WalEntry::SettingChanged { key: "font_size".into(), value: "18".into() })
-            .unwrap();
+        wal.write(WalEntry::SettingChanged {
+            key: "theme".into(),
+            value: "dark".into(),
+        })
+        .unwrap();
+        wal.write(WalEntry::SettingChanged {
+            key: "font_size".into(),
+            value: "18".into(),
+        })
+        .unwrap();
         wal.write(WalEntry::SermonStarted {
             sermon_id: "s1".into(),
             church_id: "c1".into(),
@@ -3275,8 +3495,14 @@ fn wal_replay_without_checkpoint_rebuilds_full_state_from_entries() {
     let state = wal.replay().unwrap();
 
     assert_eq!(state.church.as_ref().map(|c| c.id.as_str()), Some("c1"));
-    assert_eq!(state.settings.get("theme").map(String::as_str), Some("dark"));
-    assert_eq!(state.settings.get("font_size").map(String::as_str), Some("18"));
+    assert_eq!(
+        state.settings.get("theme").map(String::as_str),
+        Some("dark")
+    );
+    assert_eq!(
+        state.settings.get("font_size").map(String::as_str),
+        Some("18")
+    );
     assert!(state.active_sermon.is_some());
     assert_eq!(state.pending_detections.len(), 3);
     assert_eq!(state.calibration.len(), 1);
@@ -3380,8 +3606,11 @@ fn wal_crash_simulation_1000_entries_state_is_consistent() {
     let state = wal.replay().unwrap();
 
     // No duplicate event IDs.
-    let ids: std::collections::HashSet<&str> =
-        state.pending_detections.iter().map(|d| d.id.as_str()).collect();
+    let ids: std::collections::HashSet<&str> = state
+        .pending_detections
+        .iter()
+        .map(|d| d.id.as_str())
+        .collect();
     assert_eq!(
         ids.len(),
         state.pending_detections.len(),
@@ -3436,37 +3665,33 @@ fn make_full_app_state() -> AppState {
             started_at: "2026-05-15T09:00:00Z".into(),
             ended_at: None,
         }),
-        pending_detections: vec![
-            DetectionEvent {
-                id: "d1".into(),
-                sermon_id: "s1".into(),
-                raw_transcript: "John 3:16".into(),
-                pattern_result: Some(r#"{"book":"John"}"#.into()),
-                local_ai_result: None,
-                cloud_ai_result: None,
-                final_reference: Some("John 3:16".into()),
-                confidence: 0.97,
-                decision: "auto_accept".into(),
-                operator_action: None,
-                correct_reference: None,
-                processing_time_ms: 38,
-                timestamp: "2026-05-15T09:05:00Z".into(),
-            },
-        ],
+        pending_detections: vec![DetectionEvent {
+            id: "d1".into(),
+            sermon_id: "s1".into(),
+            raw_transcript: "John 3:16".into(),
+            pattern_result: Some(r#"{"book":"John"}"#.into()),
+            local_ai_result: None,
+            cloud_ai_result: None,
+            final_reference: Some("John 3:16".into()),
+            confidence: 0.97,
+            decision: "auto_accept".into(),
+            operator_action: None,
+            correct_reference: None,
+            processing_time_ms: 38,
+            timestamp: "2026-05-15T09:05:00Z".into(),
+        }],
         settings: HashMap::from([
             ("theme".into(), "dark".into()),
             ("font_size".into(), "18".into()),
         ]),
-        calibration: vec![
-            CalibrationThresholds {
-                id: "t1".into(),
-                church_id: "c1".into(),
-                stage: "pattern".into(),
-                accept_above: 0.9,
-                escalate_below: 0.5,
-                updated_at: "2026-05-15T00:00:00Z".into(),
-            },
-        ],
+        calibration: vec![CalibrationThresholds {
+            id: "t1".into(),
+            church_id: "c1".into(),
+            stage: "pattern".into(),
+            accept_above: 0.9,
+            escalate_below: 0.5,
+            updated_at: "2026-05-15T00:00:00Z".into(),
+        }],
     }
 }
 
@@ -3477,7 +3702,10 @@ fn persist_save_load_round_trips_full_app_state() {
     let original = make_full_app_state();
 
     s.save_state(&original).unwrap();
-    let loaded = s.load_state().unwrap().expect("state file must be readable");
+    let loaded = s
+        .load_state()
+        .unwrap()
+        .expect("state file must be readable");
 
     assert_eq!(loaded, original);
 }
@@ -3510,7 +3738,10 @@ fn persist_save_is_atomic_no_temp_file_after_success() {
 
     // The .tmp file must have been renamed away.
     let tmp = s.state_path().with_extension("tmp");
-    assert!(!tmp.exists(), "temp file must not remain after successful save");
+    assert!(
+        !tmp.exists(),
+        "temp file must not remain after successful save"
+    );
 }
 
 #[test]
@@ -3544,7 +3775,10 @@ fn persist_load_returns_none_for_invalid_json() {
     std::fs::write(s.state_path(), b"this is not json").unwrap();
 
     let result = s.load_state().unwrap();
-    assert!(result.is_none(), "invalid JSON must yield None, not an error");
+    assert!(
+        result.is_none(),
+        "invalid JSON must yield None, not an error"
+    );
 }
 
 #[test]
@@ -3595,7 +3829,10 @@ fn crash_marker_write_creates_file() {
 
     s.write_crash_marker().unwrap();
 
-    assert!(s.marker_path().exists(), "marker file must exist after write");
+    assert!(
+        s.marker_path().exists(),
+        "marker file must exist after write"
+    );
 }
 
 #[test]
@@ -3606,7 +3843,10 @@ fn crash_marker_delete_removes_file() {
     s.write_crash_marker().unwrap();
     s.delete_crash_marker().unwrap();
 
-    assert!(!s.marker_path().exists(), "marker file must not exist after delete");
+    assert!(
+        !s.marker_path().exists(),
+        "marker file must not exist after delete"
+    );
 }
 
 #[test]
@@ -3704,6 +3944,9 @@ fn persist_full_session_lifecycle() {
     assert!(!s.crash_marker_exists());
 
     // 5. Next launch — no crash, state loads correctly.
-    let loaded = s.load_state().unwrap().expect("state must survive clean shutdown");
+    let loaded = s
+        .load_state()
+        .unwrap()
+        .expect("state must survive clean shutdown");
     assert_eq!(loaded, state);
 }

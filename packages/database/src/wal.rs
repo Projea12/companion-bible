@@ -90,7 +90,9 @@ pub enum WalEntry {
     },
     /// Full state snapshot. Used as the starting point during `replay()`.
     /// Written every second during an active sermon.
-    Checkpoint { state: AppState },
+    Checkpoint {
+        state: Box<AppState>,
+    },
 }
 
 // ─── On-disk record ───────────────────────────────────────────────────────────
@@ -142,10 +144,7 @@ impl WriteAheadLog {
             0
         };
 
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
 
         Ok(Self {
             path,
@@ -184,7 +183,9 @@ impl WriteAheadLog {
     /// it to the log.  Call this every second during an active sermon so that
     /// `replay()` never needs to walk more than one second of entries.
     pub fn checkpoint(&self, state: AppState) -> Result<u64, WalError> {
-        self.write(WalEntry::Checkpoint { state })
+        self.write(WalEntry::Checkpoint {
+            state: Box::new(state),
+        })
     }
 
     /// Archive the current WAL file and start a fresh one.
@@ -212,10 +213,7 @@ impl WriteAheadLog {
         if tmp.exists() {
             std::fs::remove_file(&tmp)?;
         }
-        let new_file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&tmp)?;
+        let new_file = OpenOptions::new().create(true).append(true).open(&tmp)?;
 
         // Drop the old handle (closes the file) then rename.
         drop(std::mem::replace(&mut inner.file, new_file));
@@ -299,7 +297,7 @@ impl WriteAheadLog {
                 let WalEntry::Checkpoint { state } = &valid[pos].1 else {
                     unreachable!()
                 };
-                (state.clone(), pos + 1)
+                (*state.clone(), pos + 1)
             }
             None => (AppState::default(), 0),
         };
@@ -317,7 +315,11 @@ impl WriteAheadLog {
 
 fn apply_entry(state: &mut AppState, entry: &WalEntry) {
     match entry {
-        WalEntry::ChurchRegistered { church_id, name, region } => {
+        WalEntry::ChurchRegistered {
+            church_id,
+            name,
+            region,
+        } => {
             state.church = Some(Church {
                 id: church_id.clone(),
                 name: name.clone(),
@@ -326,7 +328,11 @@ fn apply_entry(state: &mut AppState, entry: &WalEntry) {
                 onboarding_complete: false,
             });
         }
-        WalEntry::SermonStarted { sermon_id, church_id, started_at } => {
+        WalEntry::SermonStarted {
+            sermon_id,
+            church_id,
+            started_at,
+        } => {
             let date = started_at.get(..10).unwrap_or("").to_string();
             state.active_sermon = Some(Sermon {
                 id: sermon_id.clone(),
@@ -340,7 +346,10 @@ fn apply_entry(state: &mut AppState, entry: &WalEntry) {
             });
             state.pending_detections.clear();
         }
-        WalEntry::SermonEnded { sermon_id, ended_at } => {
+        WalEntry::SermonEnded {
+            sermon_id,
+            ended_at,
+        } => {
             if let Some(ref mut sermon) = state.active_sermon {
                 if sermon.id == *sermon_id {
                     sermon.ended_at = Some(ended_at.clone());
@@ -374,9 +383,15 @@ fn apply_entry(state: &mut AppState, entry: &WalEntry) {
                 });
             }
         }
-        WalEntry::OperatorCorrected { event_id, action, correct_reference } => {
-            if let Some(det) =
-                state.pending_detections.iter_mut().find(|d| d.id == *event_id)
+        WalEntry::OperatorCorrected {
+            event_id,
+            action,
+            correct_reference,
+        } => {
+            if let Some(det) = state
+                .pending_detections
+                .iter_mut()
+                .find(|d| d.id == *event_id)
             {
                 det.operator_action = Some(action.clone());
                 det.correct_reference = correct_reference.clone();
@@ -385,7 +400,12 @@ fn apply_entry(state: &mut AppState, entry: &WalEntry) {
         WalEntry::SettingChanged { key, value } => {
             state.settings.insert(key.clone(), value.clone());
         }
-        WalEntry::CalibrationUpdated { church_id, stage, accept_above, escalate_below } => {
+        WalEntry::CalibrationUpdated {
+            church_id,
+            stage,
+            accept_above,
+            escalate_below,
+        } => {
             if let Some(ct) = state.calibration.iter_mut().find(|c| c.stage == *stage) {
                 ct.accept_above = *accept_above;
                 ct.escalate_below = *escalate_below;
@@ -418,7 +438,10 @@ fn archive_path_for(wal_path: &Path) -> PathBuf {
     if !base.exists() {
         return base;
     }
-    (1u32..).map(|n| parent.join(format!("{name}.{ts}.{n}"))).find(|p| !p.exists()).unwrap()
+    (1u32..)
+        .map(|n| parent.join(format!("{name}.{ts}.{n}")))
+        .find(|p| !p.exists())
+        .unwrap()
 }
 
 /// Delete archive files for `wal_path` that are older than `keep_days`.
@@ -470,6 +493,7 @@ fn unix_now() -> u64 {
 fn checksum(data: &str) -> u64 {
     const FNV_OFFSET: u64 = 14695981039346656037;
     const FNV_PRIME: u64 = 1099511628211;
-    data.bytes()
-        .fold(FNV_OFFSET, |hash, byte| (hash ^ byte as u64).wrapping_mul(FNV_PRIME))
+    data.bytes().fold(FNV_OFFSET, |hash, byte| {
+        (hash ^ byte as u64).wrapping_mul(FNV_PRIME)
+    })
 }

@@ -18,8 +18,8 @@ use std::time::{Duration, Instant};
 
 use companion_audio::SlidingWindow;
 use companion_transcription::{
-    TranscribeOptions, TranscriptionSegment, WhisperModel, WhisperTranscriber,
-    NEW_AUDIO_SECS, TRANSCRIBE_WINDOW_SECS,
+    TranscribeOptions, TranscriptionSegment, WhisperModel, WhisperTranscriber, NEW_AUDIO_SECS,
+    TRANSCRIBE_WINDOW_SECS,
 };
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -66,9 +66,12 @@ fn synthesize(text: &str, voice: &str) -> Vec<f32> {
         .args([
             aiff.to_str().unwrap(),
             wav.to_str().unwrap(),
-            "-f", "WAVE",
-            "-d", "LEF32@16000",
-            "-c", "1",
+            "-f",
+            "WAVE",
+            "-d",
+            "LEF32@16000",
+            "-c",
+            "1",
         ])
         .status()
         .expect("`afconvert` must be available (macOS only)");
@@ -103,7 +106,11 @@ fn pad_to_secs(samples: &[f32], target_secs: u64) -> Vec<f32> {
 
 /// Collect all segment texts from a batch, lowercased.
 fn batch_text(batch: &[TranscriptionSegment]) -> String {
-    batch.iter().map(|s| s.text.to_lowercase()).collect::<Vec<_>>().join(" ")
+    batch
+        .iter()
+        .map(|s| s.text.to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 // ─── Integration: verse references emitted through transcriber loop ───────────
@@ -129,7 +136,9 @@ fn verse_reference_john_3_16_reaches_channel() {
         WhisperTranscriber::new(Arc::clone(&window), TranscribeOptions::church());
     transcriber.start(model);
 
-    let batch = rx.recv_timeout(Duration::from_secs(90)).expect("expected a segment batch");
+    let batch = rx
+        .recv_timeout(Duration::from_secs(90))
+        .expect("expected a segment batch");
     let text = batch_text(&batch);
     println!("john_3_16 via loop: {text}");
 
@@ -228,7 +237,9 @@ fn no_duplicate_segments_on_repeated_audio() {
     transcriber.start(model);
 
     // First batch — should contain the verse text.
-    let first = rx.recv_timeout(Duration::from_secs(90)).expect("first batch");
+    let first = rx
+        .recv_timeout(Duration::from_secs(90))
+        .expect("first batch");
     let first_texts: std::collections::HashSet<String> =
         first.iter().map(|s| s.text.to_lowercase()).collect();
     println!("First batch ({} segs): {:?}", first.len(), first_texts);
@@ -241,8 +252,7 @@ fn no_duplicate_segments_on_repeated_audio() {
     // channel will stay empty until the timeout — that is the desired outcome.
     match rx.recv_timeout(Duration::from_secs(30)) {
         Some(second) => {
-            let second_texts: Vec<String> =
-                second.iter().map(|s| s.text.to_lowercase()).collect();
+            let second_texts: Vec<String> = second.iter().map(|s| s.text.to_lowercase()).collect();
             println!("Second batch ({} segs): {second_texts:?}", second.len());
 
             // Any text that appeared in the first batch must not reappear.
@@ -261,10 +271,7 @@ fn no_duplicate_segments_on_repeated_audio() {
                         .join(" ");
                     f_norm == norm
                 });
-                assert!(
-                    !is_dup,
-                    "duplicate segment leaked to channel: '{text}'"
-                );
+                assert!(!is_dup, "duplicate segment leaked to channel: '{text}'");
             }
         }
         None => {
@@ -292,7 +299,9 @@ fn different_audio_emits_new_segments_after_first_run() {
         WhisperTranscriber::new(Arc::clone(&window), TranscribeOptions::church());
     transcriber.start(model);
 
-    let first = rx.recv_timeout(Duration::from_secs(90)).expect("first batch");
+    let first = rx
+        .recv_timeout(Duration::from_secs(90))
+        .expect("first batch");
     println!("First ({} segs): {}", first.len(), batch_text(&first));
 
     // Second window: Romans 8:1 — completely different text.
@@ -302,7 +311,9 @@ fn different_audio_emits_new_segments_after_first_run() {
     );
     window.lock().unwrap().push(&pad_to_secs(&audio2, 15));
 
-    let second = rx.recv_timeout(Duration::from_secs(90)).expect("second batch");
+    let second = rx
+        .recv_timeout(Duration::from_secs(90))
+        .expect("second batch");
     let text2 = batch_text(&second);
     println!("Second ({} segs): {text2}", second.len());
 
@@ -338,14 +349,16 @@ fn transcriber_scheduling_overhead_under_400ms() {
     let t_inference = Instant::now();
     let _ = model.transcribe(&padded, &opts).expect("direct transcribe");
     let inference_elapsed = t_inference.elapsed();
-    println!("Direct Whisper inference: {} ms", inference_elapsed.as_millis());
+    println!(
+        "Direct Whisper inference: {} ms",
+        inference_elapsed.as_millis()
+    );
 
     // ── Step 2: run through WhisperTranscriber ────────────────────────────────
     let window = Arc::new(Mutex::new(SlidingWindow::new()));
     window.lock().unwrap().push(&padded);
 
-    let (mut transcriber, rx) =
-        WhisperTranscriber::new(Arc::clone(&window), opts);
+    let (mut transcriber, rx) = WhisperTranscriber::new(Arc::clone(&window), opts);
 
     let t_start = Instant::now();
     transcriber.start(model); // model ownership moves to background thread
@@ -441,7 +454,9 @@ fn timestamp_dedup_overlap_zone_not_re_emitted() {
         WhisperTranscriber::new(Arc::clone(&window), TranscribeOptions::church());
     transcriber.start(model);
 
-    let run1 = rx.recv_timeout(Duration::from_secs(120)).expect("run 1 batch");
+    let run1 = rx
+        .recv_timeout(Duration::from_secs(120))
+        .expect("run 1 batch");
     let run1_texts: Vec<String> = run1.iter().map(|s| s.text.to_lowercase()).collect();
     println!("Run 1 ({} segs): {:?}", run1.len(), run1_texts);
     assert!(!run1.is_empty(), "run 1 must produce segments");
@@ -453,7 +468,9 @@ fn timestamp_dedup_overlap_zone_not_re_emitted() {
     let padded2 = pad_to_secs(&audio2, NEW_AUDIO_SECS); // exactly 5 s
     window.lock().unwrap().push(&padded2);
 
-    let run2 = rx.recv_timeout(Duration::from_secs(120)).expect("run 2 batch");
+    let run2 = rx
+        .recv_timeout(Duration::from_secs(120))
+        .expect("run 2 batch");
     let run2_texts: Vec<String> = run2.iter().map(|s| s.text.to_lowercase()).collect();
     println!("Run 2 ({} segs): {:?}", run2.len(), run2_texts);
 
@@ -503,10 +520,16 @@ fn timestamp_dedup_partial_overlap_emitted_exactly_once() {
 
     // Collect run 1.
     let run1 = rx.recv_timeout(Duration::from_secs(120)).expect("run 1");
-    let run1_texts: std::collections::HashSet<String> =
-        run1.iter().map(|s| {
-            s.text.split_whitespace().map(|w| w.to_lowercase()).collect::<Vec<_>>().join(" ")
-        }).collect();
+    let run1_texts: std::collections::HashSet<String> = run1
+        .iter()
+        .map(|s| {
+            s.text
+                .split_whitespace()
+                .map(|w| w.to_lowercase())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect();
     println!("Run 1 ({} segs): {:?}", run1.len(), run1_texts);
 
     // Push silence to trigger run 2 without new meaningful audio.
@@ -516,10 +539,16 @@ fn timestamp_dedup_partial_overlap_emitted_exactly_once() {
     // Run 2 may or may not emit (Whisper might hallucinate on silence).
     // Whatever it emits must not duplicate run 1 text.
     if let Some(run2) = rx.recv_timeout(Duration::from_secs(120)) {
-        let run2_texts: Vec<String> =
-            run2.iter().map(|s| {
-                s.text.split_whitespace().map(|w| w.to_lowercase()).collect::<Vec<_>>().join(" ")
-            }).collect();
+        let run2_texts: Vec<String> = run2
+            .iter()
+            .map(|s| {
+                s.text
+                    .split_whitespace()
+                    .map(|w| w.to_lowercase())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect();
         println!("Run 2 ({} segs): {:?}", run2.len(), run2_texts);
 
         for text in &run2_texts {
@@ -563,7 +592,11 @@ fn book_context_set_before_run_produces_valid_batch() {
     println!(
         "book_context John: {} segs — {}",
         batch.len(),
-        batch.iter().map(|s| s.text.as_str()).collect::<Vec<_>>().join(" | ")
+        batch
+            .iter()
+            .map(|s| s.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ")
     );
     assert!(!batch.is_empty(), "must receive at least one segment");
 
@@ -590,7 +623,11 @@ fn book_context_updated_between_runs_both_emit() {
 
     transcriber.start(model);
     let run1 = rx.recv_timeout(Duration::from_secs(120)).expect("run 1");
-    println!("Run 1 (John context, {} segs): {}", run1.len(), batch_text(&run1));
+    println!(
+        "Run 1 (John context, {} segs): {}",
+        run1.len(),
+        batch_text(&run1)
+    );
     assert!(!run1.is_empty());
 
     // Switch context to "Romans" before run 2.
@@ -600,8 +637,15 @@ fn book_context_updated_between_runs_both_emit() {
     window.lock().unwrap().push(&pad_to_secs(&audio2, 15));
 
     let run2 = rx.recv_timeout(Duration::from_secs(120)).expect("run 2");
-    println!("Run 2 (Romans context, {} segs): {}", run2.len(), batch_text(&run2));
-    assert!(!run2.is_empty(), "run 2 must emit new segments after context switch");
+    println!(
+        "Run 2 (Romans context, {} segs): {}",
+        run2.len(),
+        batch_text(&run2)
+    );
+    assert!(
+        !run2.is_empty(),
+        "run 2 must emit new segments after context switch"
+    );
 
     transcriber.stop();
 }
@@ -635,9 +679,13 @@ fn book_context_cleared_mid_stream_continues_working() {
     let run2 = rx.recv_timeout(Duration::from_secs(120)).expect("run 2");
     println!(
         "run 2 (cleared context, {} segs): {}",
-        run2.len(), batch_text(&run2)
+        run2.len(),
+        batch_text(&run2)
     );
-    assert!(!run2.is_empty(), "must emit segments even after context cleared");
+    assert!(
+        !run2.is_empty(),
+        "must emit segments even after context cleared"
+    );
 
     transcriber.stop();
 }

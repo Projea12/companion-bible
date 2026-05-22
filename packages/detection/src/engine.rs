@@ -82,12 +82,12 @@ pub struct PatternResult {
 impl PatternResult {
     fn confidence_for(c: MatchCompleteness) -> f32 {
         match c {
-            MatchCompleteness::FullCanonical          => 1.00,
-            MatchCompleteness::BookChapterVerse       => 0.95,
+            MatchCompleteness::FullCanonical => 1.00,
+            MatchCompleteness::BookChapterVerse => 0.95,
             MatchCompleteness::BookChapterVerseSpaced => 0.90,
-            MatchCompleteness::BookChapter            => 0.70,
-            MatchCompleteness::ChapterVerse           => 0.60,
-            MatchCompleteness::VerseOnly              => 0.40,
+            MatchCompleteness::BookChapter => 0.70,
+            MatchCompleteness::ChapterVerse => 0.60,
+            MatchCompleteness::VerseOnly => 0.40,
         }
     }
 }
@@ -148,37 +148,46 @@ impl PatternEngine {
         // Lower confidence than colon/spoken forms (0.90) since it's ambiguous.
         // The \s+ between numbers must not cross a "verse" keyword — that case
         // is already consumed by spoken_re above via deduplication.
-        let space_re = Regex::new(&(
-            "(?i)".to_owned()
+        let space_re = Regex::new(
+            &("(?i)".to_owned()
                 + PREAMBLE
                 + r"(?P<book>"
                 + &book_alt
-                + r")\s+(?:chapter\s+)?(?P<chapter>[1-9]\d{0,2})\s+(?P<verse>[1-9]\d{0,2})\b"
-        )).expect("space_re");
+                + r")\s+(?:chapter\s+)?(?P<chapter>[1-9]\d{0,2})\s+(?P<verse>[1-9]\d{0,2})\b"),
+        )
+        .expect("space_re");
 
         // ── Pattern 3: "Book [chapter] N" only ───────────────────────────────
         // Colon-form and spoken-form overlaps are handled by deduplication.
         // Phone-number guard is applied in collect_book_chapter via post-filter.
-        let book_chapter_re = Regex::new(&(
-            "(?i)".to_owned()
+        let book_chapter_re = Regex::new(
+            &("(?i)".to_owned()
                 + PREAMBLE
                 + r"(?P<book>"
                 + &book_alt
-                + r")\s+(?:chapter\s+)?(?P<chapter>[1-9]\d{0,2})\b"
-        )).expect("book_chapter_re");
+                + r")\s+(?:chapter\s+)?(?P<chapter>[1-9]\d{0,2})\b"),
+        )
+        .expect("book_chapter_re");
 
         // ── Pattern 4: "chapter N verse N" (no book) ─────────────────────────
         // Allow optional comma — AssemblyAI emits "chapter 3, verse 16".
         let chapter_verse_re = Regex::new(
             r"(?i)\bchapter\s+(?P<chapter>[1-9]\d{0,2})\s*,?\s*verse\s+(?P<verse>[1-9]\d{0,2})\b",
-        ).expect("chapter_verse_re");
+        )
+        .expect("chapter_verse_re");
 
         // ── Pattern 5: "verse N" only ─────────────────────────────────────────
-        let verse_only_re = Regex::new(
-            r"(?i)\bverse\s+(?P<verse>[1-9]\d{0,2})\b",
-        ).expect("verse_only_re");
+        let verse_only_re =
+            Regex::new(r"(?i)\bverse\s+(?P<verse>[1-9]\d{0,2})\b").expect("verse_only_re");
 
-        Self { colon_re, spoken_re, space_re, book_chapter_re, chapter_verse_re, verse_only_re }
+        Self {
+            colon_re,
+            spoken_re,
+            space_re,
+            book_chapter_re,
+            chapter_verse_re,
+            verse_only_re,
+        }
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -214,7 +223,10 @@ impl PatternEngine {
         // already-kept higher-priority match.
         let mut kept: Vec<PatternResult> = Vec::new();
         for c in candidates {
-            if !kept.iter().any(|k| overlaps(k.start..k.end, c.start..c.end)) {
+            if !kept
+                .iter()
+                .any(|k| overlaps(k.start..k.end, c.start..c.end))
+            {
                 kept.push(c);
             }
         }
@@ -263,7 +275,9 @@ impl PatternEngine {
                 book: book_from_caps(&caps, "book"),
                 chapter: num_from_caps(&caps, "chapter"),
                 verse: num_from_caps(&caps, "verse"),
-                confidence: PatternResult::confidence_for(MatchCompleteness::BookChapterVerseSpaced),
+                confidence: PatternResult::confidence_for(
+                    MatchCompleteness::BookChapterVerseSpaced,
+                ),
                 completeness: MatchCompleteness::BookChapterVerseSpaced,
                 start: m.start(),
                 end: m.end(),
@@ -276,9 +290,8 @@ impl PatternEngine {
             let m = caps.get(0).unwrap();
             // Phone-number guard: skip "Book NNN-NNNN" patterns.
             let after = &text[m.end()..];
-            let after_trimmed = after.trim_start_matches(|c: char| c == ' ' || c == '\t');
-            if after_trimmed.starts_with('-') {
-                let rest = &after_trimmed[1..];
+            let after_trimmed = after.trim_start_matches([' ', '\t']);
+            if let Some(rest) = after_trimmed.strip_prefix('-') {
                 if rest.starts_with(|c: char| c.is_ascii_digit()) {
                     continue;
                 }
@@ -340,8 +353,7 @@ fn book_from_caps(caps: &regex::Captures, name: &str) -> Option<String> {
 }
 
 fn num_from_caps(caps: &regex::Captures, name: &str) -> Option<u8> {
-    caps.name(name)
-        .and_then(|m| m.as_str().parse::<u8>().ok())
+    caps.name(name).and_then(|m| m.as_str().parse::<u8>().ok())
 }
 
 fn overlaps(a: std::ops::Range<usize>, b: std::ops::Range<usize>) -> bool {
@@ -362,7 +374,11 @@ mod tests {
     // ── Helper ────────────────────────────────────────────────────────────────
 
     fn first(text: &str) -> PatternResult {
-        engine().find_all(text).into_iter().next().expect("expected a match")
+        engine()
+            .find_all(text)
+            .into_iter()
+            .next()
+            .expect("expected a match")
     }
 
     fn none(text: &str) {
@@ -375,11 +391,11 @@ mod tests {
     #[test]
     fn pattern_canonical_john_3_16() {
         let r = first("John 3:16");
-        assert_eq!(r.book.as_deref(),  Some("John"));
-        assert_eq!(r.chapter,          Some(3));
-        assert_eq!(r.verse,            Some(16));
-        assert_eq!(r.completeness,     MatchCompleteness::FullCanonical);
-        assert_eq!(r.confidence,       1.0);
+        assert_eq!(r.book.as_deref(), Some("John"));
+        assert_eq!(r.chapter, Some(3));
+        assert_eq!(r.verse, Some(16));
+        assert_eq!(r.completeness, MatchCompleteness::FullCanonical);
+        assert_eq!(r.confidence, 1.0);
     }
 
     #[test]
@@ -387,7 +403,7 @@ mod tests {
         let r = first("Genesis 1:1");
         assert_eq!(r.book.as_deref(), Some("Genesis"));
         assert_eq!(r.chapter, Some(1));
-        assert_eq!(r.verse,   Some(1));
+        assert_eq!(r.verse, Some(1));
         assert_eq!(r.completeness, MatchCompleteness::FullCanonical);
     }
 
@@ -396,7 +412,7 @@ mod tests {
         let r = first("Revelation 22:21");
         assert_eq!(r.book.as_deref(), Some("Revelation"));
         assert_eq!(r.chapter, Some(22));
-        assert_eq!(r.verse,   Some(21));
+        assert_eq!(r.verse, Some(21));
     }
 
     #[test]
@@ -404,7 +420,7 @@ mod tests {
         let r = first("1 Corinthians 13:13");
         assert_eq!(r.book.as_deref(), Some("1 Corinthians"));
         assert_eq!(r.chapter, Some(13));
-        assert_eq!(r.verse,   Some(13));
+        assert_eq!(r.verse, Some(13));
         assert_eq!(r.completeness, MatchCompleteness::FullCanonical);
     }
 
@@ -413,7 +429,7 @@ mod tests {
         let r = first("Psalms 23:1");
         assert_eq!(r.book.as_deref(), Some("Psalms"));
         assert_eq!(r.chapter, Some(23));
-        assert_eq!(r.verse,   Some(1));
+        assert_eq!(r.verse, Some(1));
     }
 
     #[test]
@@ -422,7 +438,7 @@ mod tests {
         let r = first("Romans 8 : 1");
         assert_eq!(r.book.as_deref(), Some("Romans"));
         assert_eq!(r.chapter, Some(8));
-        assert_eq!(r.verse,   Some(1));
+        assert_eq!(r.verse, Some(1));
     }
 
     // ── Pattern 1 variant: "and" as verse separator ───────────────────────────
@@ -432,7 +448,7 @@ mod tests {
         let r = first("Genesis 1 and 1");
         assert_eq!(r.book.as_deref(), Some("Genesis"));
         assert_eq!(r.chapter, Some(1));
-        assert_eq!(r.verse,   Some(1));
+        assert_eq!(r.verse, Some(1));
         assert_eq!(r.completeness, MatchCompleteness::FullCanonical);
     }
 
@@ -441,7 +457,7 @@ mod tests {
         let r = first("John 3 and 16");
         assert_eq!(r.book.as_deref(), Some("John"));
         assert_eq!(r.chapter, Some(3));
-        assert_eq!(r.verse,   Some(16));
+        assert_eq!(r.verse, Some(16));
         assert_eq!(r.confidence, 1.0);
     }
 
@@ -450,7 +466,7 @@ mod tests {
         let r = first("Romans chapter 8 and 28");
         assert_eq!(r.book.as_deref(), Some("Romans"));
         assert_eq!(r.chapter, Some(8));
-        assert_eq!(r.verse,   Some(28));
+        assert_eq!(r.verse, Some(28));
     }
 
     // ── Pattern 2: spoken form ────────────────────────────────────────────────
@@ -458,11 +474,11 @@ mod tests {
     #[test]
     fn pattern_spoken_john_chapter_3_verse_16() {
         let r = first("John chapter 3 verse 16");
-        assert_eq!(r.book.as_deref(),  Some("John"));
-        assert_eq!(r.chapter,          Some(3));
-        assert_eq!(r.verse,            Some(16));
-        assert_eq!(r.completeness,     MatchCompleteness::BookChapterVerse);
-        assert_eq!(r.confidence,       0.95);
+        assert_eq!(r.book.as_deref(), Some("John"));
+        assert_eq!(r.chapter, Some(3));
+        assert_eq!(r.verse, Some(16));
+        assert_eq!(r.completeness, MatchCompleteness::BookChapterVerse);
+        assert_eq!(r.confidence, 0.95);
     }
 
     #[test]
@@ -471,7 +487,7 @@ mod tests {
         let r = first("John 3 verse 16");
         assert_eq!(r.book.as_deref(), Some("John"));
         assert_eq!(r.chapter, Some(3));
-        assert_eq!(r.verse,   Some(16));
+        assert_eq!(r.verse, Some(16));
         assert_eq!(r.completeness, MatchCompleteness::BookChapterVerse);
     }
 
@@ -480,7 +496,7 @@ mod tests {
         let r = first("Romans chapter 8 verse 1");
         assert_eq!(r.book.as_deref(), Some("Romans"));
         assert_eq!(r.chapter, Some(8));
-        assert_eq!(r.verse,   Some(1));
+        assert_eq!(r.verse, Some(1));
     }
 
     #[test]
@@ -488,7 +504,7 @@ mod tests {
         let r = first("1 Thessalonians chapter 4 verse 16");
         assert_eq!(r.book.as_deref(), Some("1 Thessalonians"));
         assert_eq!(r.chapter, Some(4));
-        assert_eq!(r.verse,   Some(16));
+        assert_eq!(r.verse, Some(16));
     }
 
     // ── Pattern 2 variant: preamble forms ────────────────────────────────────
@@ -498,7 +514,7 @@ mod tests {
         let r = first("the book of John chapter 3 verse 16");
         assert_eq!(r.book.as_deref(), Some("John"));
         assert_eq!(r.chapter, Some(3));
-        assert_eq!(r.verse,   Some(16));
+        assert_eq!(r.verse, Some(16));
     }
 
     #[test]
@@ -506,7 +522,7 @@ mod tests {
         let r = first("turn to Romans 8:1");
         assert_eq!(r.book.as_deref(), Some("Romans"));
         assert_eq!(r.chapter, Some(8));
-        assert_eq!(r.verse,   Some(1));
+        assert_eq!(r.verse, Some(1));
         assert_eq!(r.completeness, MatchCompleteness::FullCanonical);
     }
 
@@ -514,7 +530,7 @@ mod tests {
     fn pattern_preamble_turn_to_spoken() {
         let r = first("Turn to John chapter 3 verse 16");
         assert_eq!(r.book.as_deref(), Some("John"));
-        assert_eq!(r.completeness,    MatchCompleteness::BookChapterVerse);
+        assert_eq!(r.completeness, MatchCompleteness::BookChapterVerse);
     }
 
     #[test]
@@ -522,7 +538,7 @@ mod tests {
         let r = first("open your Bibles to Ephesians chapter 1 verse 3");
         assert_eq!(r.book.as_deref(), Some("Ephesians"));
         assert_eq!(r.chapter, Some(1));
-        assert_eq!(r.verse,   Some(3));
+        assert_eq!(r.verse, Some(3));
     }
 
     // ── Pattern 2b: space-separated book chapter verse ────────────────────────
@@ -551,7 +567,10 @@ mod tests {
         // "Jude 1 5" should produce BookChapterVerseSpaced, not BookChapter.
         let results = engine().find_all("Jude 1 5");
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].completeness, MatchCompleteness::BookChapterVerseSpaced);
+        assert_eq!(
+            results[0].completeness,
+            MatchCompleteness::BookChapterVerseSpaced
+        );
     }
 
     #[test]
@@ -582,7 +601,7 @@ mod tests {
         let r = first("Romans 8");
         assert_eq!(r.book.as_deref(), Some("Romans"));
         assert_eq!(r.chapter, Some(8));
-        assert_eq!(r.verse,   None);
+        assert_eq!(r.verse, None);
         assert_eq!(r.completeness, MatchCompleteness::BookChapter);
         assert_eq!(r.confidence, 0.70);
     }
@@ -592,7 +611,7 @@ mod tests {
         let r = first("turn to Romans 8");
         assert_eq!(r.book.as_deref(), Some("Romans"));
         assert_eq!(r.chapter, Some(8));
-        assert_eq!(r.verse,   None);
+        assert_eq!(r.verse, None);
         assert_eq!(r.completeness, MatchCompleteness::BookChapter);
     }
 
@@ -601,7 +620,7 @@ mod tests {
         let r = first("John chapter 1");
         assert_eq!(r.book.as_deref(), Some("John"));
         assert_eq!(r.chapter, Some(1));
-        assert_eq!(r.verse,   None);
+        assert_eq!(r.verse, None);
         assert_eq!(r.completeness, MatchCompleteness::BookChapter);
     }
 
@@ -610,9 +629,9 @@ mod tests {
     #[test]
     fn pattern_chapter_verse_no_book() {
         let r = first("chapter 3 verse 16");
-        assert_eq!(r.book,    None);
+        assert_eq!(r.book, None);
         assert_eq!(r.chapter, Some(3));
-        assert_eq!(r.verse,   Some(16));
+        assert_eq!(r.verse, Some(16));
         assert_eq!(r.completeness, MatchCompleteness::ChapterVerse);
         assert_eq!(r.confidence, 0.60);
     }
@@ -621,7 +640,7 @@ mod tests {
     fn pattern_chapter_verse_in_sentence() {
         let r = first("We are looking at chapter 8 verse 1 today");
         assert_eq!(r.chapter, Some(8));
-        assert_eq!(r.verse,   Some(1));
+        assert_eq!(r.verse, Some(1));
         assert_eq!(r.completeness, MatchCompleteness::ChapterVerse);
     }
 
@@ -630,9 +649,9 @@ mod tests {
     #[test]
     fn pattern_verse_only() {
         let r = first("verse 16");
-        assert_eq!(r.book,    None);
+        assert_eq!(r.book, None);
         assert_eq!(r.chapter, None);
-        assert_eq!(r.verse,   Some(16));
+        assert_eq!(r.verse, Some(16));
         assert_eq!(r.completeness, MatchCompleteness::VerseOnly);
         assert_eq!(r.confidence, 0.40);
     }
@@ -704,15 +723,17 @@ mod tests {
             let text = format!("{canonical} 1:1");
             let results = engine.find_all(&text);
             assert_eq!(
-                results.len(), 1,
+                results.len(),
+                1,
                 "expected exactly 1 match for '{text}', got {results:?}"
             );
             assert_eq!(
-                results[0].book.as_deref(), Some(*canonical),
+                results[0].book.as_deref(),
+                Some(*canonical),
                 "wrong book for '{text}'"
             );
             assert_eq!(results[0].chapter, Some(1));
-            assert_eq!(results[0].verse,   Some(1));
+            assert_eq!(results[0].verse, Some(1));
             assert_eq!(results[0].completeness, MatchCompleteness::FullCanonical);
         }
     }
@@ -724,10 +745,10 @@ mod tests {
         for (canonical, _) in BOOK_DATA {
             let text = format!("{canonical} chapter 1 verse 1");
             let results = engine.find_all(&text);
-            assert!(!results.is_empty(),
-                "no match for '{text}'");
+            assert!(!results.is_empty(), "no match for '{text}'");
             assert_eq!(
-                results[0].book.as_deref(), Some(*canonical),
+                results[0].book.as_deref(),
+                Some(*canonical),
                 "wrong book for spoken form of '{canonical}'"
             );
         }
@@ -737,8 +758,7 @@ mod tests {
 
     #[test]
     fn multiple_references_in_one_text() {
-        let results = engine()
-            .find_all("From Genesis 1:1 to Revelation 22:21");
+        let results = engine().find_all("From Genesis 1:1 to Revelation 22:21");
         assert_eq!(results.len(), 2, "expected 2 matches, got: {results:?}");
         assert_eq!(results[0].book.as_deref(), Some("Genesis"));
         assert_eq!(results[1].book.as_deref(), Some("Revelation"));
@@ -746,8 +766,7 @@ mod tests {
 
     #[test]
     fn multiple_references_are_sorted_by_position() {
-        let results = engine()
-            .find_all("Romans 8:1 and then John 3:16");
+        let results = engine().find_all("Romans 8:1 and then John 3:16");
         assert_eq!(results.len(), 2);
         assert!(results[0].start < results[1].start);
         assert_eq!(results[0].book.as_deref(), Some("Romans"));
@@ -809,7 +828,10 @@ mod tests {
         let results = engine().find_all("John 333-4444");
         // The phone-number guard prevents "333-4444" from matching as chapter.
         assert!(
-            results.is_empty() || results.iter().all(|r| r.completeness != MatchCompleteness::BookChapter),
+            results.is_empty()
+                || results
+                    .iter()
+                    .all(|r| r.completeness != MatchCompleteness::BookChapter),
             "phone number incorrectly matched as book+chapter: {results:?}"
         );
     }
@@ -842,7 +864,9 @@ mod tests {
         // "John chapter 0" cannot match; "verse 16" may produce a VerseOnly hit — that's fine.
         let results = engine().find_all("John chapter 0 verse 16");
         assert!(
-            results.iter().all(|r| r.completeness == MatchCompleteness::VerseOnly),
+            results
+                .iter()
+                .all(|r| r.completeness == MatchCompleteness::VerseOnly),
             "expected only VerseOnly matches (no book-level match for chapter 0), got: {results:?}"
         );
     }
@@ -886,7 +910,7 @@ mod tests {
     fn case_insensitive_keywords() {
         let r = first("John CHAPTER 3 VERSE 16");
         assert_eq!(r.chapter, Some(3));
-        assert_eq!(r.verse,   Some(16));
+        assert_eq!(r.verse, Some(16));
     }
 
     // ── Start/end byte offsets ────────────────────────────────────────────────
@@ -896,7 +920,7 @@ mod tests {
         let text = "John 3:16";
         let r = first(text);
         assert_eq!(r.start, 0);
-        assert_eq!(r.end,   text.len());
+        assert_eq!(r.end, text.len());
     }
 
     #[test]

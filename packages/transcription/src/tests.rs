@@ -10,10 +10,8 @@ use crate::download::{download_if_needed, verify_sha1, DownloadConfig};
 use crate::error::TranscriptionError;
 use crate::manager::{ModelManager, SetupProgress};
 use crate::model::{rss_mb, WhisperModel, GGML_MEDIUM_SHA1, MEMORY_BUDGET_MB};
-use crate::transcript::{
-    TranscribeOptions, TranscriptionSegment, BIBLE_BOOKS, SERMON_PREAMBLE,
-};
 use crate::transcriber::{normalize, EmittedSet, WhisperTranscriber};
+use crate::transcript::{TranscribeOptions, TranscriptionSegment, BIBLE_BOOKS, SERMON_PREAMBLE};
 
 // ─── Checksum ─────────────────────────────────────────────────────────────────
 
@@ -118,7 +116,10 @@ fn rss_mb_returns_nonzero_on_supported_platforms() {
     let mb = rss_mb();
     // On macOS and Linux the call should return something; allow 0 elsewhere.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    assert!(mb > 0, "rss_mb() should return > 0 on macOS/Linux, got {mb}");
+    assert!(
+        mb > 0,
+        "rss_mb() should return > 0 on macOS/Linux, got {mb}"
+    );
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     let _ = mb; // tolerate 0 on other platforms
 }
@@ -128,10 +129,12 @@ fn rss_mb_returns_nonzero_on_supported_platforms() {
 #[test]
 fn memory_budget_is_within_8gb() {
     // The app has an 8 GB total RAM budget; the model alone must not exceed 4 GB.
-    assert!(
-        MEMORY_BUDGET_MB <= 8_192,
-        "MEMORY_BUDGET_MB {MEMORY_BUDGET_MB} exceeds the 8 GB app budget"
-    );
+    const {
+        assert!(
+            MEMORY_BUDGET_MB <= 8_192,
+            "MEMORY_BUDGET_MB exceeds the 8 GB app budget"
+        )
+    };
 }
 
 #[test]
@@ -153,7 +156,10 @@ fn ggml_medium_sha1_is_40_hex_chars() {
 fn model_manager_is_present_false_when_no_file() {
     let dir = tempfile::tempdir().unwrap();
     let mgr = ModelManager::new(dir.path());
-    assert!(!mgr.is_present(), "is_present() must be false before any download");
+    assert!(
+        !mgr.is_present(),
+        "is_present() must be false before any download"
+    );
 }
 
 #[test]
@@ -162,7 +168,10 @@ fn model_manager_is_present_true_when_file_exists() {
     let mgr = ModelManager::new(dir.path());
     std::fs::create_dir_all(mgr.model_path().parent().unwrap()).unwrap();
     std::fs::write(mgr.model_path(), b"placeholder").unwrap();
-    assert!(mgr.is_present(), "is_present() must be true when file is on disk");
+    assert!(
+        mgr.is_present(),
+        "is_present() must be true when file is on disk"
+    );
 }
 
 #[test]
@@ -177,10 +186,16 @@ fn setup_progress_labels_are_non_empty() {
     let cases = [
         SetupProgress::Checking,
         SetupProgress::AlreadyPresent,
-        SetupProgress::Downloading { bytes_done: 0, bytes_total: None },
+        SetupProgress::Downloading {
+            bytes_done: 0,
+            bytes_total: None,
+        },
         SetupProgress::Verifying,
         SetupProgress::Loading,
-        SetupProgress::Ready { load_time_ms: 0, memory_mb: 0 },
+        SetupProgress::Ready {
+            load_time_ms: 0,
+            memory_mb: 0,
+        },
     ];
     for p in &cases {
         assert!(!p.label().is_empty(), "label must not be empty for {p:?}");
@@ -189,10 +204,16 @@ fn setup_progress_labels_are_non_empty() {
 
 #[test]
 fn setup_progress_download_percent_correct() {
-    let p = SetupProgress::Downloading { bytes_done: 750, bytes_total: Some(1000) };
+    let p = SetupProgress::Downloading {
+        bytes_done: 750,
+        bytes_total: Some(1000),
+    };
     assert_eq!(p.download_percent(), Some(75));
 
-    let p2 = SetupProgress::Downloading { bytes_done: 500, bytes_total: None };
+    let p2 = SetupProgress::Downloading {
+        bytes_done: 500,
+        bytes_total: None,
+    };
     assert_eq!(p2.download_percent(), None);
 
     assert_eq!(SetupProgress::Checking.download_percent(), None);
@@ -270,12 +291,22 @@ fn default_options_are_english() {
 #[test]
 fn church_options_auto_detect_language() {
     let opts = TranscribeOptions::church();
-    assert!(opts.language.is_none(), "church preset must use auto-detect");
-    assert_eq!(opts.temperature, 0.0);
-    assert!(!opts.initial_prompt.is_empty(), "church preset must include a sermon prompt");
-    assert!(opts.initial_prompt.contains("Genesis"), "prompt must include book names");
     assert!(
-        opts.initial_prompt.contains("A preacher is delivering a sermon"),
+        opts.language.is_none(),
+        "church preset must use auto-detect"
+    );
+    assert_eq!(opts.temperature, 0.0);
+    assert!(
+        !opts.initial_prompt.is_empty(),
+        "church preset must include a sermon prompt"
+    );
+    assert!(
+        opts.initial_prompt.contains("Genesis"),
+        "prompt must include book names"
+    );
+    assert!(
+        opts.initial_prompt
+            .contains("A preacher is delivering a sermon"),
         "prompt must open with SERMON_PREAMBLE"
     );
 }
@@ -293,26 +324,45 @@ fn church_options_prompt_contains_nt_books() {
 #[test]
 fn build_prompt_none_contains_preamble_and_books() {
     let p = TranscribeOptions::build_prompt(None);
-    assert!(p.contains(SERMON_PREAMBLE), "generic prompt must contain SERMON_PREAMBLE");
-    assert!(p.contains(BIBLE_BOOKS.split_whitespace().next().unwrap()),
-        "generic prompt must contain Bible books");
-    assert!(!p.contains("The current passage"), "generic prompt must not name a book");
+    assert!(
+        p.contains(SERMON_PREAMBLE),
+        "generic prompt must contain SERMON_PREAMBLE"
+    );
+    assert!(
+        p.contains(BIBLE_BOOKS.split_whitespace().next().unwrap()),
+        "generic prompt must contain Bible books"
+    );
+    assert!(
+        !p.contains("The current passage"),
+        "generic prompt must not name a book"
+    );
 }
 
 #[test]
 fn build_prompt_with_book_names_current_book() {
     let p = TranscribeOptions::build_prompt(Some("Romans"));
-    assert!(p.contains("The current passage is from the book of Romans"),
-        "contextual prompt must call out the current book");
-    assert!(p.contains(SERMON_PREAMBLE), "contextual prompt must still contain preamble");
-    assert!(p.contains("Genesis"), "contextual prompt must still list all books");
+    assert!(
+        p.contains("The current passage is from the book of Romans"),
+        "contextual prompt must call out the current book"
+    );
+    assert!(
+        p.contains(SERMON_PREAMBLE),
+        "contextual prompt must still contain preamble"
+    );
+    assert!(
+        p.contains("Genesis"),
+        "contextual prompt must still list all books"
+    );
 }
 
 #[test]
 fn build_prompt_different_books_produce_different_prompts() {
     let p_romans = TranscribeOptions::build_prompt(Some("Romans"));
     let p_john = TranscribeOptions::build_prompt(Some("John"));
-    assert_ne!(p_romans, p_john, "different book contexts must produce different prompts");
+    assert_ne!(
+        p_romans, p_john,
+        "different book contexts must produce different prompts"
+    );
     assert!(p_romans.contains("Romans") && p_john.contains("John"));
 }
 
@@ -329,8 +379,10 @@ fn with_context_none_equals_church() {
 fn with_context_some_differs_from_church() {
     let church = TranscribeOptions::church();
     let ctx = TranscribeOptions::with_context(Some("Philippians"));
-    assert_ne!(church.initial_prompt, ctx.initial_prompt,
-        "contextual prompt must differ from generic church prompt");
+    assert_ne!(
+        church.initial_prompt, ctx.initial_prompt,
+        "contextual prompt must differ from generic church prompt"
+    );
     assert!(ctx.initial_prompt.contains("Philippians"));
 }
 
@@ -343,8 +395,17 @@ fn sermon_preamble_constant_is_non_empty() {
 
 #[test]
 fn bible_books_constant_contains_all_testaments() {
-    for book in ["Genesis", "Revelation", "Psalms", "Habakkuk", "Ecclesiastes"] {
-        assert!(BIBLE_BOOKS.contains(book), "BIBLE_BOOKS must contain '{book}'");
+    for book in [
+        "Genesis",
+        "Revelation",
+        "Psalms",
+        "Habakkuk",
+        "Ecclesiastes",
+    ] {
+        assert!(
+            BIBLE_BOOKS.contains(book),
+            "BIBLE_BOOKS must contain '{book}'"
+        );
     }
 }
 
@@ -356,13 +417,19 @@ fn transcriber_set_book_context_updates_handle() {
     let (t, _rx) = WhisperTranscriber::new(window, TranscribeOptions::church());
 
     let handle = t.book_context_handle();
-    assert!(handle.lock().unwrap().is_none(), "book context starts as None");
+    assert!(
+        handle.lock().unwrap().is_none(),
+        "book context starts as None"
+    );
 
     t.set_book_context(Some("Romans".into()));
     assert_eq!(handle.lock().unwrap().as_deref(), Some("Romans"));
 
     t.set_book_context(None);
-    assert!(handle.lock().unwrap().is_none(), "set_book_context(None) must clear");
+    assert!(
+        handle.lock().unwrap().is_none(),
+        "set_book_context(None) must clear"
+    );
 }
 
 #[test]
@@ -383,8 +450,10 @@ fn book_context_handle_is_shared() {
 
 fn model_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
-        .parent().unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
         .join("models/whisper/ggml-medium.bin")
 }
 
@@ -466,7 +535,11 @@ fn transcribe_30s_under_60s() {
         .expect("transcribe must not error");
     let elapsed = t0.elapsed();
 
-    println!("Transcribed 30 s in {:.1} s → {} segments", elapsed.as_secs_f64(), segs.len());
+    println!(
+        "Transcribed 30 s in {:.1} s → {} segments",
+        elapsed.as_secs_f64(),
+        segs.len()
+    );
     assert!(
         elapsed.as_secs() < 60,
         "transcription took {:.1} s, must be under 60 s",
@@ -504,18 +577,24 @@ fn model_first_launch_setup() {
     }
 
     let model = mgr
-        .setup(|progress| {
-            match &progress {
-                SetupProgress::Downloading { bytes_done, bytes_total } => {
-                    let pct = progress.download_percent().map(|p| format!("{p}%")).unwrap_or_else(|| "?".into());
-                    let mb = bytes_done / 1_048_576;
-                    let total_mb = bytes_total.map(|t| format!("{} MB", t / 1_048_576)).unwrap_or_else(|| "?".into());
-                    print!("\r  {pct}  {mb} MB / {total_mb}       ");
-                    use std::io::Write as _;
-                    let _ = std::io::stdout().flush();
-                }
-                other => println!("  {}", other.label()),
+        .setup(|progress| match &progress {
+            SetupProgress::Downloading {
+                bytes_done,
+                bytes_total,
+            } => {
+                let pct = progress
+                    .download_percent()
+                    .map(|p| format!("{p}%"))
+                    .unwrap_or_else(|| "?".into());
+                let mb = bytes_done / 1_048_576;
+                let total_mb = bytes_total
+                    .map(|t| format!("{} MB", t / 1_048_576))
+                    .unwrap_or_else(|| "?".into());
+                print!("\r  {pct}  {mb} MB / {total_mb}       ");
+                use std::io::Write as _;
+                let _ = std::io::stdout().flush();
             }
+            other => println!("  {}", other.label()),
         })
         .expect("setup must succeed");
 
@@ -543,7 +622,10 @@ fn emitted_set_contains_after_insert() {
     let mut set = EmittedSet::new(Duration::from_secs(30));
     set.insert("John 3:16".into());
     assert!(set.contains("John 3:16"), "exact match must be found");
-    assert!(set.contains("john 3:16"), "case-insensitive match must be found");
+    assert!(
+        set.contains("john 3:16"),
+        "case-insensitive match must be found"
+    );
     assert!(!set.contains("Romans 8:1"), "unrelated text must not match");
 }
 
@@ -562,7 +644,10 @@ fn emitted_set_prunes_expired_entries() {
     std::thread::sleep(Duration::from_millis(100));
     set.prune();
 
-    assert!(!set.contains("old text"), "expired entry must be removed after prune");
+    assert!(
+        !set.contains("old text"),
+        "expired entry must be removed after prune"
+    );
 }
 
 #[test]
@@ -582,7 +667,10 @@ fn emitted_set_insert_prunes_automatically() {
 fn transcriber_new_is_not_running() {
     let window = Arc::new(Mutex::new(SlidingWindow::new()));
     let (t, _rx) = WhisperTranscriber::new(window, TranscribeOptions::default());
-    assert!(!t.is_running(), "transcriber must not be running before start");
+    assert!(
+        !t.is_running(),
+        "transcriber must not be running before start"
+    );
 }
 
 #[test]
@@ -616,7 +704,10 @@ fn transcriber_is_running_after_start_and_false_after_stop() {
 #[ignore]
 fn transcriber_emits_segments_from_spoken_verse() {
     let path = model_path();
-    assert!(path.exists(), "model not found — run: bash scripts/download_whisper.sh");
+    assert!(
+        path.exists(),
+        "model not found — run: bash scripts/download_whisper.sh"
+    );
     let model = WhisperModel::load(&path, |_| {}).expect("model load");
 
     let window = Arc::new(Mutex::new(SlidingWindow::new()));
@@ -631,9 +722,11 @@ fn transcriber_emits_segments_from_spoken_verse() {
         let raw = dir.path().join("tts.raw");
         std::process::Command::new("say")
             .args([
-                "--voice", "Samantha",
+                "--voice",
+                "Samantha",
                 "--data-format=LEF32@16000",
-                "-o", raw.to_str().unwrap(),
+                "-o",
+                raw.to_str().unwrap(),
                 "For God so loved the world. John chapter 3 verse 16.",
             ])
             .status()
@@ -657,17 +750,28 @@ fn transcriber_emits_segments_from_spoken_verse() {
     }
 
     // Wait up to 90 s for a batch (Whisper medium ~1–2× real-time on CPU).
-    let batch = rx.recv_timeout(Duration::from_secs(90)).expect("expected a segment batch");
+    let batch = rx
+        .recv_timeout(Duration::from_secs(90))
+        .expect("expected a segment batch");
 
     println!("Received {} segments:", batch.len());
     for s in &batch {
-        println!("  [{}-{}ms] conf={:.3} {:?}", s.audio_start_ms, s.audio_end_ms, s.whisper_confidence, s.text);
+        println!(
+            "  [{}-{}ms] conf={:.3} {:?}",
+            s.audio_start_ms, s.audio_end_ms, s.whisper_confidence, s.text
+        );
     }
 
     assert!(!batch.is_empty(), "must receive at least one segment");
-    let text: String = batch.iter().map(|s| s.text.to_lowercase()).collect::<Vec<_>>().join(" ");
-    assert!(text.contains("john") || text.contains("3") || text.contains("16"),
-        "expected verse reference in: {text}");
+    let text: String = batch
+        .iter()
+        .map(|s| s.text.to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        text.contains("john") || text.contains("3") || text.contains("16"),
+        "expected verse reference in: {text}"
+    );
 
     transcriber.stop();
 }
@@ -698,7 +802,9 @@ fn transcriber_deduplicates_overlapping_windows() {
     window.lock().unwrap().push(&audio);
 
     // First batch: new segments.
-    let first = rx.recv_timeout(Duration::from_secs(90)).expect("first batch");
+    let first = rx
+        .recv_timeout(Duration::from_secs(90))
+        .expect("first batch");
     println!("First batch: {} segments", first.len());
 
     // Push identical audio again — same text should be deduplicated.
