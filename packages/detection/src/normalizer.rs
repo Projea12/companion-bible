@@ -116,23 +116,21 @@ fn lookup_ordinal(word: &str) -> Option<u32> {
 /// Handles:
 /// - ones/teens (1 token)
 /// - tens alone or tens+ones (1–2 tokens)
-/// - "one hundred" (2 tokens)
-/// - "one hundred and N" where N is any of the above (3–5 tokens)
-/// - "one hundred N" (without "and") is also accepted (3–5 tokens)
+/// - "N hundred [and] [tens [ones]]" for N in 1–9 (up to 999)
 fn try_parse_cardinal(tokens: &[&str], pos: usize) -> Option<(u32, usize)> {
     let tok = tokens.get(pos)?.to_lowercase();
     let tok = tok.as_str();
 
-    // ── Hundreds: "one hundred [and] [tens [ones]]" ───────────────────────────
-    if tok == "one" {
+    // ── Hundreds: "N hundred [and] [tens [ones]]" ─────────────────────────────
+    if let Some(hundreds_val) = lookup_ones(tok) {
         let next_is_hundred = tokens
             .get(pos + 1)
             .map(|t| t.to_lowercase() == "hundred")
             .unwrap_or(false);
 
         if next_is_hundred {
-            let mut val = 100u32;
-            let mut consumed = 2usize; // "one" + "hundred"
+            let mut val = hundreds_val * 100;
+            let mut consumed = 2usize; // "N" + "hundred"
 
             // Optional "and" connector
             let and_pos = pos + consumed;
@@ -147,7 +145,7 @@ fn try_parse_cardinal(tokens: &[&str], pos: usize) -> Option<(u32, usize)> {
                 let rem = rem.as_str();
 
                 if let Some(tens_val) = lookup_tens(rem) {
-                    // "one hundred [and] tens [ones]"
+                    // "N hundred [and] tens [ones]"
                     consumed = rem_pos + 1 - pos;
                     val += tens_val;
                     // Optional ones after tens
@@ -161,17 +159,17 @@ fn try_parse_cardinal(tokens: &[&str], pos: usize) -> Option<(u32, usize)> {
                 }
 
                 if let Some(ones_val) = lookup_ones(rem) {
-                    // "one hundred [and] ones"
+                    // "N hundred [and] ones"
                     consumed = rem_pos + 1 - pos;
                     val += ones_val;
                     return Some((val, consumed));
                 }
             }
 
-            // Just "one hundred" — do NOT consume a trailing "and" with no follower.
-            return Some((100, 2));
+            // Just "N hundred"
+            return Some((hundreds_val * 100, 2));
         }
-        // "one" not followed by "hundred" → fall through to ones/teens check.
+        // Not followed by "hundred" → fall through to ones/teens check.
     }
 
     // ── Tens + optional ones: "twenty [one]" ─────────────────────────────────

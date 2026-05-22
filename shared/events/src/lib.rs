@@ -202,6 +202,25 @@ pub enum AppEvent {
         reference: String,
     },
 
+    // ── Hymns ────────────────────────────────────────────────────────────────
+    /// A hymn number was detected in transcription — load and show stanza 1.
+    HymnDetected {
+        number: u16,
+        title: String,
+    },
+    /// The current section advanced (auto via last-line match or manual).
+    HymnSectionAdvanced {
+        number: u16,
+        /// 0-based index into the playback sequence.
+        section_index: usize,
+        is_chorus: bool,
+        lines: Vec<String>,
+    },
+    /// All sections have been displayed — hymn is complete.
+    HymnCompleted {
+        number: u16,
+    },
+
     // ── Model setup ──────────────────────────────────────────────────────────
     /// First launch: model weights are not present — setup is required.
     ModelSetupRequired,
