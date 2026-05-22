@@ -1104,3 +1104,54 @@ kbd.key-hint {
 .status-screens[data-dual='true'] {
   color: var(--color-success);
 }
+
+/* ── hymn panel ──────────────────────────────────────────────────────────────*/
+
+.mode-toggle-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
+.mode-toggle-btn {
+  font-weight: 600;
+  min-width: 110px;
+}
+
+.mode-toggle-btn--active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.op-panel-hymn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hymn-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin: 0;
+}
+
+.hymn-section-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hymn-section-line {
+  font-size: 13px;
+  color: var(--color-text);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.hymn-next-btn {
+  align-self: flex-start;
+  margin-top: 4px;
+}

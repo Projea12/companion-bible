@@ -48,6 +48,15 @@ export function App() {
   // display
   const [displayedVerse, setDisplayedVerse] = useState<DisplayedVerse | null>(null);
 
+  // hymn
+  const [displayMode, setDisplayMode] = useState<'bible' | 'hymn'>('bible');
+  const [activeHymn, setActiveHymn] = useState<{ number: number; title: string } | null>(null);
+  const [hymnSection, setHymnSection] = useState<{
+    sectionIndex: number;
+    isChorus: boolean;
+    lines: string[];
+  } | null>(null);
+
   // transcription
   const [assemblyaiKey, setAssemblyaiKey] = useState('');
   const [deepgramKey, setDeepgramKey] = useState('');
@@ -232,6 +241,23 @@ export function App() {
           if (payload.component === 'ai') setAi('pattern-only');
           if (payload.component === 'audio') setAudio('lost');
           break;
+
+        case 'HYMN_DETECTED':
+          setActiveHymn({ number: payload.number, title: payload.title });
+          setDisplayMode('hymn');
+          break;
+
+        case 'HYMN_SECTION_ADVANCED':
+          setHymnSection({
+            sectionIndex: payload.section_index,
+            isChorus: payload.is_chorus,
+            lines: payload.lines,
+          });
+          break;
+
+        case 'HYMN_COMPLETED':
+          setHymnSection(null);
+          break;
       }
     });
 
@@ -356,6 +382,15 @@ export function App() {
     void invoke('add_sub_point', { text }).then(() => {
       setSubPoints((prev) => [...prev, text]);
     });
+  }, []);
+
+  const handleToggleDisplayMode = useCallback(() => {
+    const next = displayMode === 'bible' ? 'hymn' : 'bible';
+    void invoke('set_display_mode', { mode: next }).then(() => setDisplayMode(next));
+  }, [displayMode]);
+
+  const handleNextStanza = useCallback(() => {
+    void invoke('next_hymn_stanza');
   }, []);
 
   const handleNextSubPoint = useCallback(() => {
@@ -624,6 +659,43 @@ export function App() {
             Discard
             <kbd className="key-hint">Space</kbd>
           </button>
+
+          {/* ── Mode toggle ── */}
+          <div className="mode-toggle-row">
+            <button
+              className={`btn btn-secondary mode-toggle-btn${displayMode === 'bible' ? ' mode-toggle-btn--active' : ''}`}
+              onClick={handleToggleDisplayMode}
+              title="Switch between Bible verse and GHS hymn mode"
+            >
+              {displayMode === 'bible' ? 'Bible Mode' : 'GHS Mode'}
+            </button>
+          </div>
+
+          {/* ── Active hymn panel ── */}
+          {displayMode === 'hymn' && activeHymn && (
+            <section className="op-panel op-panel-hymn">
+              <h2 className="op-panel-heading">
+                GHS {activeHymn.number} — {activeHymn.title}
+              </h2>
+              {hymnSection && (
+                <>
+                  <p className="hymn-section-label">
+                    {hymnSection.isChorus ? 'Chorus' : `Stanza ${hymnSection.sectionIndex + 1}`}
+                  </p>
+                  <div className="hymn-section-lines">
+                    {hymnSection.lines.map((line, i) => (
+                      <p key={i} className="hymn-section-line">
+                        {line}
+                      </p>
+                    ))}
+                  </div>
+                </>
+              )}
+              <button className="btn btn-primary hymn-next-btn" onClick={handleNextStanza}>
+                Next Stanza →
+              </button>
+            </section>
+          )}
 
           <ManualOverride onSubmit={handleManualOverride} />
 

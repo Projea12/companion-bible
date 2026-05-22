@@ -75,7 +75,18 @@ export type AppEvent =
   | { type: 'CONFIG_UPDATED'; key: string }
 
   // ── Operator ───────────────────────────────────────────────────────────
-  | { type: 'OPERATOR_MANUAL_OVERRIDE'; reference: string };
+  | { type: 'OPERATOR_MANUAL_OVERRIDE'; reference: string }
+
+  // ── Hymns ──────────────────────────────────────────────────────────────
+  | { type: 'HYMN_DETECTED'; number: number; title: string }
+  | {
+      type: 'HYMN_SECTION_ADVANCED';
+      number: number;
+      section_index: number;
+      is_chorus: boolean;
+      lines: string[];
+    }
+  | { type: 'HYMN_COMPLETED'; number: number };
 
 export type AppEventType = AppEvent['type'];
 
@@ -84,7 +95,7 @@ export interface ScreenInfo {
   hasSecondaryScreen: boolean;
 }
 
-export type DisplayMode = 'idle' | 'blank' | 'verse' | 'title' | 'subpoint';
+export type DisplayMode = 'idle' | 'blank' | 'verse' | 'title' | 'subpoint' | 'hymn';
 
 export interface AppState {
   displayMode: DisplayMode;

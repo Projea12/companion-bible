@@ -214,6 +214,60 @@ html {
   text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
 }
 
+/* ── hymn card ────────────────────────────────────────────────────────────── */
+.hymn-card {
+  max-width: min(1200px, 88vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(12px, 1.8vw, 28px);
+  padding: clamp(24px, 4vw, 64px);
+}
+
+.hymn-eyebrow {
+  font-family: var(--cb-sans);
+  font-size: var(--size-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+}
+
+.hymn-eyebrow-sep {
+  opacity: 0.5;
+}
+
+.hymn-title {
+  font-family: var(--cb-serif);
+  font-size: clamp(18px, 2.4vw, 36px);
+  font-weight: 400;
+  color: var(--cb-text-dim);
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+
+.hymn-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(6px, 0.8vw, 14px);
+  margin-top: clamp(8px, 1.2vw, 20px);
+}
+
+.hymn-line {
+  font-family: var(--cb-serif);
+  font-size: clamp(26px, 4vw, 64px);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--cb-text);
+  text-align: center;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
+  margin: 0;
+}
+
 /* ── blank — blackout matching body so the transition is invisible ────────── */
 .congregation-blank {
   background: var(--cb-bg);

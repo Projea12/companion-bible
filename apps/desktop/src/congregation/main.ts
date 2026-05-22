@@ -15,6 +15,11 @@ const verseText = document.getElementById('verse-text') as HTMLElement;
 const verseTranslation = document.getElementById('verse-translation') as HTMLElement;
 const titleText = document.getElementById('title-text') as HTMLElement;
 const subpointText = document.getElementById('subpoint-text') as HTMLElement;
+const stateHymn = document.getElementById('state-hymn') as HTMLDivElement;
+const hymnNumberLabel = document.getElementById('hymn-number-label') as HTMLElement;
+const hymnSectionLabel = document.getElementById('hymn-section-label') as HTMLElement;
+const hymnTitle = document.getElementById('hymn-title') as HTMLElement;
+const hymnLines = document.getElementById('hymn-lines') as HTMLElement;
 
 // ─── state machine ────────────────────────────────────────────────────────────
 
@@ -24,6 +29,7 @@ const { showState } = createStateMachine({
   verse: stateVerse,
   title: stateTitle,
   subpoint: stateSubpoint,
+  hymn: stateHymn,
 });
 
 // ─── display helpers ──────────────────────────────────────────────────────────
@@ -45,6 +51,28 @@ function showSermonTitle(title: string): void {
 function showSubPoint(text: string): void {
   showState('subpoint', () => {
     subpointText.textContent = text;
+  });
+}
+
+let activeHymnTitle = '';
+
+function showHymnSection(
+  number: number,
+  sectionIndex: number,
+  isChorus: boolean,
+  lines: string[],
+): void {
+  showState('hymn', () => {
+    hymnNumberLabel.textContent = `GHS ${String(number)}`;
+    hymnSectionLabel.textContent = isChorus ? 'Chorus' : `Stanza ${String(sectionIndex + 1)}`;
+    hymnTitle.textContent = activeHymnTitle;
+    hymnLines.innerHTML = '';
+    for (const line of lines) {
+      const p = document.createElement('p');
+      p.className = 'hymn-line';
+      p.textContent = line;
+      hymnLines.appendChild(p);
+    }
   });
 }
 
@@ -72,6 +100,18 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       break;
 
     case 'DISPLAY_CLEARED':
+      showState('idle');
+      break;
+
+    case 'HYMN_DETECTED':
+      activeHymnTitle = payload.title;
+      break;
+
+    case 'HYMN_SECTION_ADVANCED':
+      showHymnSection(payload.number, payload.section_index, payload.is_chorus, payload.lines);
+      break;
+
+    case 'HYMN_COMPLETED':
       showState('idle');
       break;
   }

@@ -16,6 +16,7 @@ function makePanels(): StatePanels {
     verse: makePanel(),
     title: makePanel(),
     subpoint: makePanel(),
+    hymn: makePanel(),
   };
 }
 
