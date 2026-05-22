@@ -7,6 +7,6 @@ mod quotation;
 mod worker;
 
 pub use decision::{DetectionDecision, ValidationOutcome};
-pub use engine::{DetectionEngine, EngineConfig};
+pub use engine::{DetectionEngine, DisplayMode, EngineConfig};
 pub use hymn_session::{HymnSession, HymnSessionEvent};
 pub use worker::LocalAiHandle;

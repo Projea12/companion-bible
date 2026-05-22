@@ -13,13 +13,24 @@ use companion_database::{
     CalibrationRepository, ChurchRepository, DetectionEvent, DetectionEventRepository,
     VerseRepository,
 };
+use companion_detection::detect_hymn_number;
 use companion_events::{AppEvent, BibleReference as EventBibleReference};
 use companion_transcription::TranscriptionSegment;
 
 use crate::decision::{DetectionDecision, ValidationOutcome};
+use crate::hymn_session::{HymnSession, HymnSessionEvent};
 use crate::layers;
 use crate::quotation;
 use crate::worker::{collect_local_ai, LocalAiHandle};
+
+// ─── DisplayMode ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum DisplayMode {
+    #[default]
+    Bible,
+    Hymn,
+}
 
 // ─── timing constants ────────────────────────────────────────────────────────
 
@@ -67,6 +78,10 @@ pub struct DetectionEngine {
     verse_repo: Option<VerseRepository>,
     sermon_id: String,
     event_tx: Option<std::sync::mpsc::Sender<AppEvent>>,
+
+    // ── hymn state ────────────────────────────────────────────────────────────
+    pub display_mode: DisplayMode,
+    hymn_session: Option<HymnSession>,
 }
 
 impl DetectionEngine {
@@ -110,6 +125,8 @@ impl DetectionEngine {
             verse_repo: Some(verse_repo),
             sermon_id: config.sermon_id,
             event_tx: None,
+            display_mode: DisplayMode::Bible,
+            hymn_session: None,
         })
     }
 
@@ -127,6 +144,26 @@ impl DetectionEngine {
     /// Current calibrated thresholds (auto_display / show_with_warning).
     pub fn thresholds(&self) -> &companion_calibration::CalibrationThresholds {
         self.calibrator.thresholds()
+    }
+
+    /// Switch the operator display between Bible verse mode and GHS hymn mode.
+    pub fn set_display_mode(&mut self, mode: DisplayMode) {
+        self.display_mode = mode;
+    }
+
+    /// Manually advance the active hymn to the next section (operator button).
+    /// Returns `false` if no hymn session is active or it is already completed.
+    pub fn advance_hymn(&mut self) -> bool {
+        let session = match self.hymn_session.as_mut() {
+            Some(s) => s,
+            None => return false,
+        };
+        if let Some(event) = session.advance() {
+            self.emit_event(hymn_session_to_app_event(event));
+            true
+        } else {
+            false
+        }
     }
 
     // ── process ───────────────────────────────────────────────────────────────
@@ -150,6 +187,9 @@ impl DetectionEngine {
             .anchor_scripture
             .as_ref()
             .map(|r| r.to_string());
+
+        // ── 1b. Hymn detection — runs regardless of display mode ──────────
+        self.process_hymn_segment(&text);
 
         // ── 2. Pattern layer (sync, embedded in enrichment) ───────────────
         let segment_pattern = layers::pattern_layer(&enriched);
@@ -381,6 +421,52 @@ impl DetectionEngine {
         quotation::best_quotation_match(&candidates, transcript)
     }
 
+    fn process_hymn_segment(&mut self, text: &str) {
+        // Check for a new hymn number in speech first.
+        if let Some(number) = detect_hymn_number(text) {
+            let already_at_start = self
+                .hymn_session
+                .as_ref()
+                .map(|s| s.position == 0 && !s.completed)
+                .unwrap_or(false);
+
+            if !already_at_start {
+                if let Some(session) = HymnSession::load(number) {
+                    // Emit detection event (carries title).
+                    if let Some(HymnSessionEvent::Loaded {
+                        number: n,
+                        ref title,
+                        section_index,
+                        is_chorus,
+                        ref lines,
+                    }) = session.start_event()
+                    {
+                        self.emit_event(AppEvent::HymnDetected {
+                            number: n,
+                            title: title.clone(),
+                        });
+                        self.emit_event(AppEvent::HymnSectionAdvanced {
+                            number: n,
+                            section_index,
+                            is_chorus,
+                            lines: lines.clone(),
+                        });
+                    }
+                    self.hymn_session = Some(session);
+                    self.display_mode = DisplayMode::Hymn;
+                    return;
+                }
+            }
+        }
+
+        // Check last-line match against the active section.
+        if let Some(session) = self.hymn_session.as_mut() {
+            if let Some(event) = session.check_advance(text) {
+                self.emit_event(hymn_session_to_app_event(event));
+            }
+        }
+    }
+
     fn emit_event(&self, event: AppEvent) {
         if let Some(tx) = &self.event_tx {
             let _ = tx.send(event);
@@ -518,6 +604,35 @@ fn has_scripture_intent(text: &str) -> bool {
         regex::Regex::new(&format!("(?i)\\b(?:{})\\b", build_book_alternation())).expect("book_re")
     });
     re.is_match(text)
+}
+
+fn hymn_session_to_app_event(ev: HymnSessionEvent) -> AppEvent {
+    match ev {
+        HymnSessionEvent::Loaded {
+            number,
+            title: _,
+            section_index,
+            is_chorus,
+            lines,
+        } => AppEvent::HymnSectionAdvanced {
+            number,
+            section_index,
+            is_chorus,
+            lines,
+        },
+        HymnSessionEvent::Advanced {
+            number,
+            section_index,
+            is_chorus,
+            lines,
+        } => AppEvent::HymnSectionAdvanced {
+            number,
+            section_index,
+            is_chorus,
+            lines,
+        },
+        HymnSessionEvent::Completed { number } => AppEvent::HymnCompleted { number },
+    }
 }
 
 fn chrono_now() -> String {
