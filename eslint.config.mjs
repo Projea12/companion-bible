@@ -49,6 +49,7 @@ export default [
         KeyboardEvent: 'readonly',
         MouseEvent: 'readonly',
         TransitionEvent: 'readonly',
+        requestAnimationFrame: 'readonly',
       },
     },
   },

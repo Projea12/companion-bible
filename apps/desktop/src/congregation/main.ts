@@ -56,6 +56,27 @@ function showSubPoint(text: string): void {
 
 let activeHymnTitle = '';
 
+const HYMN_FS_MAX = 64;
+const HYMN_FS_MIN = 18;
+const HYMN_FS_STEP = 2;
+
+function fitHymnText(): void {
+  stateHymn.style.removeProperty('--hymn-fs');
+  requestAnimationFrame(() => {
+    const card = stateHymn.querySelector('.hymn-card');
+    if (!card) return;
+    let size = Math.min(HYMN_FS_MAX, Math.round(window.innerHeight * 0.055));
+    stateHymn.style.setProperty('--hymn-fs', `${String(size)}px`);
+    requestAnimationFrame(function shrink() {
+      if (card.scrollHeight > stateHymn.clientHeight && size > HYMN_FS_MIN) {
+        size = Math.max(HYMN_FS_MIN, size - HYMN_FS_STEP);
+        stateHymn.style.setProperty('--hymn-fs', `${String(size)}px`);
+        requestAnimationFrame(shrink);
+      }
+    });
+  });
+}
+
 function showHymnSection(
   number: number,
   stanzaNumber: number | null,
@@ -74,6 +95,7 @@ function showHymnSection(
       hymnLines.appendChild(p);
     }
   });
+  fitHymnText();
 }
 
 // ─── backend event listeners ──────────────────────────────────────────────────

@@ -259,7 +259,7 @@ html {
 
 .hymn-line {
   font-family: var(--cb-serif);
-  font-size: clamp(26px, 4vw, 64px);
+  font-size: var(--hymn-fs, clamp(26px, 4vw, 64px));
   font-weight: 400;
   line-height: 1.5;
   color: var(--cb-text);
