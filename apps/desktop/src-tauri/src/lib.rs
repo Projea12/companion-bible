@@ -6,7 +6,9 @@ use companion_database::{
     CalibrationRepository, ChurchRepository, DetectionEventRepository, PoolConfig, VerseRepository,
 };
 use companion_display::{DisplayMonitor, MonitorLayout};
-use companion_engine::{DetectionEngine, EngineConfig, LocalAiHandle};
+use companion_engine::{
+    DetectionEngine, DisplayMode as EngineDisplayMode, EngineConfig, LocalAiHandle,
+};
 use companion_events::AppEvent;
 use companion_transcription::{
     AssemblyAiTranscriber, DeepgramTranscriber, ModelManager, SetupProgress, TranscribeOptions,
@@ -31,6 +33,7 @@ enum DisplayMode {
     Verse,
     Title,
     Subpoint,
+    Hymn,
 }
 
 // ─── pipeline ─────────────────────────────────────────────────────────────────
@@ -948,6 +951,36 @@ fn next_sub_point(app: AppHandle, state: State<ManagedState>) {
     }
 }
 
+// ─── hymn commands ────────────────────────────────────────────────────────────
+
+/// Switch the operator display between "bible" and "hymn" mode.
+#[tauri::command]
+async fn set_display_mode(state: State<'_, ManagedState>, mode: String) -> Result<(), String> {
+    let engine_mode = match mode.as_str() {
+        "hymn" => EngineDisplayMode::Hymn,
+        _ => EngineDisplayMode::Bible,
+    };
+    let local_mode = match mode.as_str() {
+        "hymn" => DisplayMode::Hymn,
+        _ => DisplayMode::Idle,
+    };
+    if let Some(eng) = state.engine.lock().await.as_mut() {
+        eng.set_display_mode(engine_mode);
+    }
+    state.inner.lock().unwrap().display_mode = local_mode;
+    Ok(())
+}
+
+/// Manually advance the active hymn to the next section (operator button).
+#[tauri::command]
+async fn next_hymn_stanza(state: State<'_, ManagedState>) -> Result<bool, String> {
+    let advanced = match state.engine.lock().await.as_mut() {
+        Some(eng) => eng.advance_hymn(),
+        None => false,
+    };
+    Ok(advanced)
+}
+
 // ─── operator action commands ─────────────────────────────────────────────────
 
 /// Confirm a detected reference — looks up verse text and displays it.
@@ -1154,6 +1187,8 @@ pub fn run() {
             next_sub_point,
             approve_detection,
             reject_detection,
+            set_display_mode,
+            next_hymn_stanza,
             next_verse,
             previous_verse,
             set_assemblyai_key,
@@ -1300,6 +1335,7 @@ mod tests {
             (DisplayMode::Verse, "\"verse\""),
             (DisplayMode::Title, "\"title\""),
             (DisplayMode::Subpoint, "\"subpoint\""),
+            (DisplayMode::Hymn, "\"hymn\""),
         ];
         for (mode, expected) in cases {
             assert_eq!(serde_json::to_string(&mode).unwrap(), expected);
@@ -1425,6 +1461,7 @@ mod tests {
             DisplayMode::Title,
             DisplayMode::Subpoint,
             DisplayMode::Blank,
+            DisplayMode::Hymn,
             DisplayMode::Idle,
         ] {
             ms.inner.lock().unwrap().display_mode = mode.clone();
