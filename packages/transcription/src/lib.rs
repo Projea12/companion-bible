@@ -22,18 +22,18 @@ pub use channel::{
 };
 pub use correction::{correct_batch, correct_segment, correct_text, CORRECTIONS};
 pub use deepgram::DeepgramTranscriber;
-pub use download::{download_if_needed, verify_sha1, DownloadConfig};
+pub use download::{
+    download_if_needed, verify_sha1, DownloadConfig, GGML_MEDIUM_SHA1, GGML_MEDIUM_URL,
+};
 pub use error::TranscriptionError;
 pub use transcript::{TranscribeOptions, TranscriptionSegment, BIBLE_BOOKS, SERMON_PREAMBLE};
 
 #[cfg(not(target_os = "windows"))]
 pub use manager::{ModelManager, SetupProgress};
 #[cfg(not(target_os = "windows"))]
-pub use model::{
-    rss_mb, HealthReport, WhisperModel, GGML_MEDIUM_SHA1, GGML_MEDIUM_URL, MEMORY_BUDGET_MB,
-};
+pub use model::{rss_mb, HealthReport, WhisperModel, MEMORY_BUDGET_MB};
 #[cfg(not(target_os = "windows"))]
 pub use transcriber::{WhisperTranscriber, NEW_AUDIO_SECS, TRANSCRIBE_WINDOW_SECS};
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "windows")))]
 mod tests;

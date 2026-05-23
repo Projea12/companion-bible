@@ -8,13 +8,6 @@ use crate::transcript::{TranscribeOptions, TranscriptionSegment};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/// SHA-1 of `ggml-small.bin` as published by the whisper.cpp project.
-pub const GGML_MEDIUM_SHA1: &str = "55356645c2b361a969dfd0ef2c5a50d530afd8d5";
-
-/// HuggingFace download URL for the GGML small model weights.
-pub const GGML_MEDIUM_URL: &str =
-    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin";
-
 /// Whisper small occupies ~500 MB of resident memory.
 pub const MEMORY_BUDGET_MB: u64 = 2_048;
 

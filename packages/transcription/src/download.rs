@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 use sha1::{Digest, Sha1};
 
 use crate::error::TranscriptionError;
-use crate::model::{GGML_MEDIUM_SHA1, GGML_MEDIUM_URL};
+
+pub const GGML_MEDIUM_SHA1: &str = "55356645c2b361a969dfd0ef2c5a50d530afd8d5";
+pub const GGML_MEDIUM_URL: &str =
+    "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin";
 
 // ─── DownloadConfig ───────────────────────────────────────────────────────────
 

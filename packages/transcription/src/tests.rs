@@ -6,10 +6,11 @@ use sha1::{Digest, Sha1};
 
 use companion_audio::SlidingWindow;
 
+use crate::download::GGML_MEDIUM_SHA1;
 use crate::download::{download_if_needed, verify_sha1, DownloadConfig};
 use crate::error::TranscriptionError;
 use crate::manager::{ModelManager, SetupProgress};
-use crate::model::{rss_mb, WhisperModel, GGML_MEDIUM_SHA1, MEMORY_BUDGET_MB};
+use crate::model::{rss_mb, WhisperModel, MEMORY_BUDGET_MB};
 use crate::transcriber::{normalize, EmittedSet, WhisperTranscriber};
 use crate::transcript::{TranscribeOptions, TranscriptionSegment, BIBLE_BOOKS, SERMON_PREAMBLE};
 
@@ -106,7 +107,7 @@ fn download_fails_when_file_exists_with_wrong_hash() {
 fn download_config_whisper_medium_path() {
     let cfg = DownloadConfig::whisper_medium(std::path::Path::new("models/whisper"));
     assert_eq!(cfg.dest.file_name().unwrap(), "ggml-medium.bin");
-    assert_eq!(cfg.sha1, crate::model::GGML_MEDIUM_SHA1);
+    assert_eq!(cfg.sha1, crate::download::GGML_MEDIUM_SHA1);
 }
 
 // ─── Memory helpers ───────────────────────────────────────────────────────────
