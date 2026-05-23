@@ -13,13 +13,18 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures-util = "0.3"
-whisper-rs = "0.11"
 sha1 = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"] }
+
+# whisper-rs uses whisper.cpp which cannot be compiled with MSVC on Windows
+# due to C++ ABI struct layout mismatches. Excluded on Windows; cloud STT
+# (AssemblyAI / Deepgram) is the only local fallback available there.
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+whisper-rs = "0.14"
 
 [dev-dependencies]
 tempfile = "3"
 
 [features]
-# Enable Metal GPU acceleration on macOS.  Build with `--features metal`.
+# Metal GPU acceleration (macOS only).
 metal = ["whisper-rs/metal"]

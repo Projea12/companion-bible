@@ -12,6 +12,7 @@ pub enum TranscriptionError {
     #[error("checksum mismatch — expected {expected}, got {actual}")]
     ChecksumMismatch { expected: String, actual: String },
 
+    #[cfg(not(target_os = "windows"))]
     #[error("whisper error: {0}")]
     Whisper(#[from] whisper_rs::WhisperError),
 

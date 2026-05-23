@@ -11,10 +11,9 @@ use companion_engine::{
 };
 use companion_events::AppEvent;
 use companion_hymns::HymnBook;
-use companion_transcription::{
-    AssemblyAiTranscriber, DeepgramTranscriber, ModelManager, SetupProgress, TranscribeOptions,
-    WhisperTranscriber,
-};
+use companion_transcription::{AssemblyAiTranscriber, DeepgramTranscriber, TranscribeOptions};
+#[cfg(not(target_os = "windows"))]
+use companion_transcription::{ModelManager, SetupProgress, WhisperTranscriber};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow};
 
@@ -40,6 +39,7 @@ enum DisplayMode {
 // ─── pipeline ─────────────────────────────────────────────────────────────────
 
 enum AnyTranscriber {
+    #[cfg(not(target_os = "windows"))]
     Whisper(WhisperTranscriber),
     Deepgram(DeepgramTranscriber),
     AssemblyAi(AssemblyAiTranscriber),
@@ -48,6 +48,7 @@ enum AnyTranscriber {
 impl AnyTranscriber {
     fn stop(&mut self) {
         match self {
+            #[cfg(not(target_os = "windows"))]
             Self::Whisper(t) => t.stop(),
             Self::Deepgram(t) => t.stop(),
             Self::AssemblyAi(t) => t.stop(),
@@ -56,6 +57,7 @@ impl AnyTranscriber {
 
     fn mode_label(&self) -> &'static str {
         match self {
+            #[cfg(not(target_os = "windows"))]
             Self::Whisper(_) => "whisper",
             Self::Deepgram(_) => "deepgram",
             Self::AssemblyAi(_) => "assemblyai",
@@ -448,7 +450,8 @@ fn clear_congregation_display(app: AppHandle, state: State<ManagedState>) {
 
 // ─── Transcription backend helper ────────────────────────────────────────────
 
-/// Try Deepgram (using raw window); fall back to Whisper (processed window).
+/// Try Deepgram; on macOS/Linux fall back to Whisper, on Windows error out.
+#[cfg(not(target_os = "windows"))]
 async fn try_deepgram_or_whisper(
     deepgram_key: Option<String>,
     raw_window: Arc<Mutex<companion_audio::SlidingWindow>>,
@@ -486,9 +489,47 @@ async fn try_deepgram_or_whisper(
     } else {
         eprintln!("[start_session] step 7a: no Deepgram key — using Whisper");
     }
-    // Whisper gets the pipeline-processed window (needs clean, normalised audio).
     let (t, rx) = WhisperTranscriber::new(processed_window, TranscribeOptions::default());
     (rx, AnyTranscriber::Whisper(t))
+}
+
+/// On Windows, Whisper is unavailable — Deepgram is the only local fallback.
+#[cfg(target_os = "windows")]
+async fn try_deepgram_or_whisper(
+    deepgram_key: Option<String>,
+    raw_window: Arc<Mutex<companion_audio::SlidingWindow>>,
+    _processed_window: Arc<Mutex<companion_audio::SlidingWindow>>,
+    app: &AppHandle,
+) -> (companion_transcription::SegmentReceiver, AnyTranscriber) {
+    if let Some(ref key) = deepgram_key {
+        match DeepgramTranscriber::try_connect(key).await {
+            Ok(_) => {
+                eprintln!("[start_session] step 7a: Deepgram OK");
+                let (mut dg, rx) = DeepgramTranscriber::new(key.clone(), raw_window);
+                dg.start();
+                let _ = app.emit(
+                    "app-event",
+                    serde_json::json!({
+                        "type": "TRANSCRIPTION_MODE_CHANGED", "mode": "deepgram",
+                    }),
+                );
+                return (rx, AnyTranscriber::Deepgram(dg));
+            }
+            Err(e) => {
+                eprintln!("[start_session] step 7a: Deepgram failed ({e}) — no Whisper fallback on Windows");
+            }
+        }
+    }
+    // No Deepgram key and no Whisper on Windows — return a channel that never sends.
+    // The user must configure AssemblyAI or Deepgram in the settings.
+    let (tx, rx) = companion_transcription::segment_channel();
+    drop(tx);
+    eprintln!(
+        "[start_session] Windows: no STT backend available — configure AssemblyAI or Deepgram"
+    );
+    let (mut dg, _) = DeepgramTranscriber::new(String::new(), raw_window);
+    dg.stop();
+    (rx, AnyTranscriber::Deepgram(dg))
 }
 
 /// Start the full audio → transcription → detection pipeline.
@@ -761,6 +802,7 @@ async fn start_session(app: AppHandle, state: State<'_, ManagedState>) -> Result
 
     // ── 10. Load Whisper model (only when using Whisper backend) ─────────────
     let mut transcriber = transcriber;
+    #[cfg(not(target_os = "windows"))]
     if matches!(transcriber, AnyTranscriber::Whisper(_)) {
         eprintln!("[start_session] step 10: loading Whisper model (may take a while)");
         let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
@@ -821,8 +863,10 @@ async fn start_session(app: AppHandle, state: State<'_, ManagedState>) -> Result
             wt.start(model);
         }
     } else {
-        eprintln!("[start_session] step 10: skipped (Deepgram active)");
+        eprintln!("[start_session] step 10: skipped (non-Whisper backend)");
     }
+    #[cfg(target_os = "windows")]
+    eprintln!("[start_session] step 10: skipped (Whisper not available on Windows)");
 
     // ── 11. Start audio capture ───────────────────────────────────────────────
     eprintln!("[start_session] step 11: starting audio capture");
