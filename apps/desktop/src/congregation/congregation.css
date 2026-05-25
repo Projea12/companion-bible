@@ -273,6 +273,57 @@ html {
   background: var(--cb-bg);
 }
 
+/* ── announcement ─────────────────────────────────────────────────────────── */
+
+#state-announcement {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow: hidden;
+  padding: 0;
+}
+
+.announcement-header {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4vh 4vw 3vh;
+  border-bottom: 1px solid rgba(201, 169, 110, 0.35);
+  background: rgba(8, 13, 26, 0.6);
+}
+
+.announcement-logo {
+  height: clamp(60px, 12vh, 160px);
+  width: auto;
+  object-fit: contain;
+}
+
+.announcement-church {
+  margin-top: 1.5vh;
+  font-family: var(--cb-sans);
+  font-size: clamp(20px, 2.8vw, 44px);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+}
+
+.announcement-body-wrap {
+  flex: 1;
+  overflow: hidden;
+  padding: 5vh 8vw 4vh;
+  position: relative;
+}
+
+.announcement-body {
+  font-family: var(--cb-serif);
+  font-size: clamp(28px, 4.5vw, 72px);
+  line-height: 1.5;
+  color: var(--cb-text);
+  white-space: pre-wrap;
+}
+
 /* ── reduced-motion — honour system accessibility preference ─────────────── */
 @media (prefers-reduced-motion: reduce) {
   .congregation-body {
