@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use sha1::{Digest, Sha1};
 
 use crate::error::TranscriptionError;
-use crate::model::{GGML_MEDIUM_SHA1, GGML_MEDIUM_URL};
+use crate::model::{GGML_SMALL_SHA1, GGML_SMALL_URL};
 
 // ─── DownloadConfig ───────────────────────────────────────────────────────────
 
@@ -19,11 +19,11 @@ pub struct DownloadConfig {
 }
 
 impl DownloadConfig {
-    /// Config for `ggml-medium.bin` placed in `models_dir`.
-    pub fn whisper_medium(models_dir: &Path) -> Self {
+    /// Config for `ggml-small.bin` placed in `models_dir`.
+    pub fn whisper_small(models_dir: &Path) -> Self {
         Self {
-            url: GGML_MEDIUM_URL.to_string(),
-            sha1: GGML_MEDIUM_SHA1.to_string(),
+            url: GGML_SMALL_URL.to_string(),
+            sha1: GGML_SMALL_SHA1.to_string(),
             dest: models_dir.join("ggml-small.bin"),
         }
     }
@@ -47,7 +47,7 @@ where
     F: FnMut(u64, Option<u64>),
 {
     if cfg.dest.exists() {
-        return Ok(());
+        return verify_sha1(&cfg.dest, &cfg.sha1);
     }
 
     if let Some(parent) = cfg.dest.parent() {

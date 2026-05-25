@@ -9,7 +9,7 @@ use companion_audio::SlidingWindow;
 use crate::download::{download_if_needed, verify_sha1, DownloadConfig};
 use crate::error::TranscriptionError;
 use crate::manager::{ModelManager, SetupProgress};
-use crate::model::{rss_mb, WhisperModel, GGML_MEDIUM_SHA1, MEMORY_BUDGET_MB};
+use crate::model::{rss_mb, WhisperModel, GGML_SMALL_SHA1, MEMORY_BUDGET_MB};
 use crate::transcriber::{normalize, EmittedSet, WhisperTranscriber};
 use crate::transcript::{TranscribeOptions, TranscriptionSegment, BIBLE_BOOKS, SERMON_PREAMBLE};
 
@@ -70,7 +70,7 @@ fn download_skipped_when_file_exists_and_hash_matches() {
     let data = b"fake model weights";
     let expected = format!("{:x}", Sha1::digest(data));
 
-    let dest = dir.path().join("ggml-medium.bin");
+    let dest = dir.path().join("ggml-small.bin");
     std::fs::write(&dest, data).unwrap();
 
     let cfg = DownloadConfig {
@@ -87,7 +87,7 @@ fn download_skipped_when_file_exists_and_hash_matches() {
 #[test]
 fn download_fails_when_file_exists_with_wrong_hash() {
     let dir = tempfile::tempdir().unwrap();
-    let dest = dir.path().join("ggml-medium.bin");
+    let dest = dir.path().join("ggml-small.bin");
     std::fs::write(&dest, b"corrupted data").unwrap();
 
     let cfg = DownloadConfig {
@@ -103,10 +103,10 @@ fn download_fails_when_file_exists_with_wrong_hash() {
 // ─── DownloadConfig ───────────────────────────────────────────────────────────
 
 #[test]
-fn download_config_whisper_medium_path() {
-    let cfg = DownloadConfig::whisper_medium(std::path::Path::new("models/whisper"));
-    assert_eq!(cfg.dest.file_name().unwrap(), "ggml-medium.bin");
-    assert_eq!(cfg.sha1, crate::model::GGML_MEDIUM_SHA1);
+fn download_config_whisper_small_path() {
+    let cfg = DownloadConfig::whisper_small(std::path::Path::new("models/whisper"));
+    assert_eq!(cfg.dest.file_name().unwrap(), "ggml-small.bin");
+    assert_eq!(cfg.sha1, crate::model::GGML_SMALL_SHA1);
 }
 
 // ─── Memory helpers ───────────────────────────────────────────────────────────
@@ -138,14 +138,14 @@ fn memory_budget_is_within_8gb() {
 }
 
 #[test]
-fn ggml_medium_sha1_is_40_hex_chars() {
+fn ggml_small_sha1_is_40_hex_chars() {
     assert_eq!(
-        GGML_MEDIUM_SHA1.len(),
+        GGML_SMALL_SHA1.len(),
         40,
         "SHA-1 digest must be 40 hex characters"
     );
     assert!(
-        GGML_MEDIUM_SHA1.chars().all(|c| c.is_ascii_hexdigit()),
+        GGML_SMALL_SHA1.chars().all(|c| c.is_ascii_hexdigit()),
         "SHA-1 digest must contain only hex characters"
     );
 }
@@ -175,10 +175,10 @@ fn model_manager_is_present_true_when_file_exists() {
 }
 
 #[test]
-fn model_manager_model_path_ends_with_ggml_medium() {
+fn model_manager_model_path_ends_with_ggml_small() {
     let dir = tempfile::tempdir().unwrap();
     let mgr = ModelManager::new(dir.path());
-    assert_eq!(mgr.model_path().file_name().unwrap(), "ggml-medium.bin");
+    assert_eq!(mgr.model_path().file_name().unwrap(), "ggml-small.bin");
 }
 
 #[test]
@@ -454,7 +454,7 @@ fn model_path() -> PathBuf {
         .unwrap()
         .parent()
         .unwrap()
-        .join("models/whisper/ggml-medium.bin")
+        .join("models/whisper/ggml-small.bin")
 }
 
 fn load_model() -> WhisperModel {
@@ -556,7 +556,7 @@ fn transcribe_30s_under_60s() {
 /// ```sh
 /// cargo test -p companion-transcription model_first_launch -- --ignored --nocapture
 /// ```
-/// The model is read from (or downloaded to) `models/whisper/ggml-medium.bin`
+/// The model is read from (or downloaded to) `models/whisper/ggml-small.bin`
 /// relative to the workspace root.
 #[test]
 #[ignore]

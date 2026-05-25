@@ -270,7 +270,7 @@ async fn stream_loop(
 
     // Audio sender: drain the SlidingWindow every 100 ms and send i16 PCM.
     let stop_audio = Arc::clone(&stop_flag);
-    let audio_handle = tokio::spawn(async move {
+    let mut audio_handle = tokio::spawn(async move {
         let tick = tokio::time::Duration::from_millis(100);
         loop {
             if stop_audio.load(Ordering::Acquire) {
@@ -368,6 +368,87 @@ async fn stream_loop(
         sender.send(vec![seg]);
     }
 
-    audio_handle.abort();
+    // Wait up to 2 s for the audio task to send its CloseStream frame before
+    // forcibly cancelling it. The task exits within one 100 ms tick after
+    // stop_flag is set; the timeout is only reached on unexpected server close.
+    match tokio::time::timeout(tokio::time::Duration::from_secs(2), &mut audio_handle).await {
+        Ok(_) => {}
+        Err(_) => audio_handle.abort(),
+    }
     Ok(())
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    use std::time::Duration;
+
+    // A task that finishes quickly must complete before the 2 s timeout fires,
+    // i.e. we never reach the abort() branch.
+    #[tokio::test]
+    async fn fast_audio_task_completes_without_abort() {
+        let mut handle = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        });
+        let result = tokio::time::timeout(Duration::from_secs(2), &mut handle).await;
+        assert!(
+            result.is_ok(),
+            "fast task should finish before the 2 s deadline"
+        );
+    }
+
+    // A task that never finishes must be aborted after the timeout, and the
+    // JoinHandle must reflect a cancellation error — not silently detach.
+    #[tokio::test]
+    async fn hung_audio_task_is_aborted_after_timeout() {
+        let mut handle = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_secs(100)).await;
+        });
+        match tokio::time::timeout(Duration::from_millis(50), &mut handle).await {
+            Ok(_) => panic!("should have timed out"),
+            Err(_) => handle.abort(),
+        }
+        let join_result = handle.await;
+        assert!(
+            join_result.is_err() && join_result.unwrap_err().is_cancelled(),
+            "aborted task must produce a cancellation JoinError"
+        );
+    }
+
+    // The audio loop checks stop_flag every 100 ms tick. After the flag is set
+    // the task must exit — and therefore allow a clean await — well within
+    // the 2 s timeout window used in stream_loop.
+    #[tokio::test]
+    async fn stop_flag_exits_audio_loop_within_timeout_window() {
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&stop_flag);
+
+        let mut handle = tokio::spawn(async move {
+            let tick = tokio::time::Duration::from_millis(100);
+            loop {
+                if flag.load(Ordering::Acquire) {
+                    break;
+                }
+                tokio::time::sleep(tick).await;
+            }
+            // Simulate the CloseStream send (fast I/O, ≤10 ms in practice).
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        });
+
+        // Set the flag mid-tick.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        stop_flag.store(true, Ordering::Release);
+
+        // Must complete long before the 2 s production timeout.
+        let result = tokio::time::timeout(Duration::from_secs(2), &mut handle).await;
+        assert!(
+            result.is_ok(),
+            "audio task must exit within 2 s after stop_flag is set"
+        );
+    }
 }

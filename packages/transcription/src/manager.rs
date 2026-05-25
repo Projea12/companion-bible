@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use crate::download::{download_if_needed, DownloadConfig};
+use crate::download::{download_if_needed, verify_sha1, DownloadConfig};
 use crate::error::TranscriptionError;
-use crate::model::WhisperModel;
+use crate::model::{WhisperModel, GGML_SMALL_SHA1};
 
 // ─── SetupProgress ────────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ impl ModelManager {
         } else {
             std::fs::create_dir_all(&self.models_dir)?;
 
-            let cfg = DownloadConfig::whisper_medium(&self.models_dir);
+            let cfg = DownloadConfig::whisper_small(&self.models_dir);
 
             download_if_needed(&cfg, |bytes_done, bytes_total| {
                 on_progress(SetupProgress::Downloading {
@@ -127,8 +127,12 @@ impl ModelManager {
             })?;
         }
 
-        // Load the model; the progress callback receives fractions — we translate
-        // them into our own Loading variant.
+        // Verify checksum for both freshly-downloaded and pre-existing files so
+        // a corrupt or truncated file produces ChecksumMismatch before whisper.cpp
+        // attempts to load it.
+        on_progress(SetupProgress::Verifying);
+        verify_sha1(&path, GGML_SMALL_SHA1)?;
+
         on_progress(SetupProgress::Loading);
         let model = WhisperModel::load(&path, |_| {})?;
 
