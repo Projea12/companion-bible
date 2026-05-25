@@ -89,7 +89,21 @@ export type AppEvent =
       is_chorus: boolean;
       lines: string[];
     }
-  | { type: 'HYMN_COMPLETED'; number: number };
+  | { type: 'HYMN_COMPLETED'; number: number }
+
+  // ── Announcements ──────────────────────────────────────────────────────
+  | {
+      type: 'ANNOUNCEMENT_SHOWN';
+      id: number;
+      body: string;
+      index: number;
+      total: number;
+      duration_secs: number;
+    }
+  | { type: 'ANNOUNCEMENTS_STOPPED' }
+
+  // ── Congregation scroll ─────────────────────────────────────────────────
+  | { type: 'CONGREGATION_SCROLL'; amount: number };
 
 export type AppEventType = AppEvent['type'];
 

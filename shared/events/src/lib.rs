@@ -223,6 +223,25 @@ pub enum AppEvent {
         number: u16,
     },
 
+    // ── Announcements ────────────────────────────────────────────────────────
+    /// A slide in the pre-service announcement loop became active.
+    AnnouncementShown {
+        id: u32,
+        body: String,
+        /// 0-based position in the list.
+        index: u32,
+        total: u32,
+        duration_secs: u32,
+    },
+    /// Announcement playback was stopped by the operator.
+    AnnouncementsStopped,
+
+    // ── Congregation scroll ───────────────────────────────────────────────────
+    /// Operator requested a scroll on the active congregation panel.
+    CongregationScroll {
+        amount: i32,
+    },
+
     // ── Model setup ──────────────────────────────────────────────────────────
     /// First launch: model weights are not present — setup is required.
     ModelSetupRequired,

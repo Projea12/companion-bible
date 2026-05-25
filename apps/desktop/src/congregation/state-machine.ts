@@ -1,4 +1,11 @@
-export type DisplayState = 'idle' | 'blank' | 'verse' | 'title' | 'subpoint' | 'hymn';
+export type DisplayState =
+  | 'idle'
+  | 'blank'
+  | 'verse'
+  | 'title'
+  | 'subpoint'
+  | 'hymn'
+  | 'announcement';
 
 export interface StatePanels {
   idle: HTMLElement;
@@ -7,6 +14,7 @@ export interface StatePanels {
   title: HTMLElement;
   subpoint: HTMLElement;
   hymn: HTMLElement;
+  announcement: HTMLElement;
 }
 
 export interface StateMachine {
