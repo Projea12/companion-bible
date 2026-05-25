@@ -27,11 +27,12 @@ export default [
       'no-console': ['warn', { allow: ['warn', 'error'] }],
     },
   },
-  // Browser globals for Tauri frontend source files
+  // Browser globals for web and desktop frontend source files
   {
-    files: ['apps/desktop/src/**/*.{ts,tsx}'],
+    files: ['apps/desktop/src/**/*.{ts,tsx}', 'apps/web/**/*.{ts,tsx}'],
     languageOptions: {
       globals: {
+        React: 'readonly',
         document: 'readonly',
         window: 'readonly',
         setInterval: 'readonly',
