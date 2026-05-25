@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { AppEvent, AppState } from '@companion-bible/types';
@@ -12,6 +12,8 @@ import { StatusBar } from './StatusBar';
 import type { AudioStatus, InternetStatus, AiStatus, StorageStatus } from './StatusBar';
 import { useTranscript } from './useTranscript';
 import { useVerseQueue } from './useVerseQueue';
+import { CongregationPreview } from './CongregationPreview';
+import type { CongregationDisplayState } from './CongregationPreview';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -48,6 +50,8 @@ export function App() {
 
   // display
   const [displayedVerse, setDisplayedVerse] = useState<DisplayedVerse | null>(null);
+  const [congregationDisplayState, setCongregationDisplayState] =
+    useState<CongregationDisplayState>('idle');
 
   // hymn
   const [displayMode, setDisplayMode] = useState<'bible' | 'hymn'>('bible');
@@ -68,6 +72,7 @@ export function App() {
 
   // settings panel
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const versePreviewRef = useRef<HTMLDivElement>(null);
 
   // undo (5-second window enforced on the frontend)
   const [undoExpiresAt, setUndoExpiresAt] = useState<number | null>(null);
@@ -149,19 +154,28 @@ export function App() {
             text: payload.text,
             translation: payload.translation,
           });
+          setCongregationDisplayState('verse');
+          if (versePreviewRef.current) versePreviewRef.current.scrollTop = 0;
           break;
 
         case 'DISPLAY_CLEARED':
+          setDisplayedVerse(null);
+          setCongregationDisplayState('idle');
+          break;
+
         case 'DISPLAY_BLANKED':
           setDisplayedVerse(null);
+          setCongregationDisplayState('blank');
           break;
 
         case 'SERMON_TITLE_SHOWN':
           setSermonTitle(payload.title);
+          setCongregationDisplayState('title');
           break;
 
         case 'SUB_POINT_SHOWN':
           setCurrentSubPoint(payload.text);
+          setCongregationDisplayState('subpoint');
           break;
 
         case 'SERMON_STARTED':
@@ -254,10 +268,12 @@ export function App() {
             isChorus: payload.is_chorus,
             lines: payload.lines,
           });
+          setCongregationDisplayState('hymn');
           break;
 
         case 'HYMN_COMPLETED':
           setHymnSection(null);
+          setCongregationDisplayState('idle');
           break;
       }
     });
@@ -593,8 +609,18 @@ export function App() {
 
       {/* ── Main ── */}
       <main className="op-main">
-        {/* ── Left: transcript + queue ── */}
+        {/* ── Left: preview + transcript + queue ── */}
         <div className="op-col op-col-left">
+          <CongregationPreview
+            displayState={congregationDisplayState}
+            verse={displayedVerse}
+            sermonTitle={sermonTitle}
+            subPoint={currentSubPoint}
+            hymn={activeHymn}
+            hymnSection={hymnSection}
+            contentRef={versePreviewRef}
+          />
+
           <section className="op-panel op-panel-transcript">
             <h2 className="op-panel-heading">Live Transcript</h2>
             <TranscriptPanel lines={transcript.lines} sessionActive={sessionActive} />
@@ -620,21 +646,6 @@ export function App() {
             onNextSubPoint={handleNextSubPoint}
           />
 
-          <section className="op-panel op-panel-verse">
-            <h2 className="op-panel-heading">Currently Displayed</h2>
-            {displayedVerse ? (
-              <div className="verse-display">
-                <div className="verse-display-ref">{displayedVerse.reference}</div>
-                <p className="verse-display-text">
-                  {displayedVerse.text || '(text not yet loaded)'}
-                </p>
-                <span className="verse-display-trans">{displayedVerse.translation}</span>
-              </div>
-            ) : (
-              <p className="verse-display-empty">Nothing on screen</p>
-            )}
-          </section>
-
           <div className="verse-nav-row">
             <button
               className="btn btn-secondary"
@@ -652,6 +663,31 @@ export function App() {
               title="Next verse — Keyboard: →"
             >
               Next →<kbd className="key-hint">→</kbd>
+            </button>
+          </div>
+
+          <div className="verse-nav-row">
+            <button
+              className="btn btn-secondary"
+              disabled={congregationDisplayState === 'idle' || congregationDisplayState === 'blank'}
+              onClick={() => {
+                void invoke('scroll_congregation', { direction: 'up' });
+                versePreviewRef.current?.scrollBy({ top: -200, behavior: 'smooth' });
+              }}
+              title="Scroll congregation screen up"
+            >
+              ▲ Scroll Up
+            </button>
+            <button
+              className="btn btn-secondary"
+              disabled={congregationDisplayState === 'idle' || congregationDisplayState === 'blank'}
+              onClick={() => {
+                void invoke('scroll_congregation', { direction: 'down' });
+                versePreviewRef.current?.scrollBy({ top: 200, behavior: 'smooth' });
+              }}
+              title="Scroll congregation screen down"
+            >
+              ▼ Scroll Down
             </button>
           </div>
 

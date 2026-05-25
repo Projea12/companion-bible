@@ -32,6 +32,7 @@ export type AppEvent =
 
   // ── Display ────────────────────────────────────────────────────────────
   | { type: 'VERSE_DISPLAYED'; reference: BibleReference }
+  | { type: 'CONGREGATION_SCROLL'; amount: number }
   | { type: 'DISPLAY_CLEARED' }
   | { type: 'SERMON_TITLE_SHOWN'; title: string }
   | { type: 'SUB_POINT_SHOWN'; text: string }

@@ -23,7 +23,7 @@ const hymnLines = document.getElementById('hymn-lines') as HTMLElement;
 
 // ─── state machine ────────────────────────────────────────────────────────────
 
-const { showState } = createStateMachine({
+const { showState, current: currentState } = createStateMachine({
   idle: stateIdle,
   blank: stateBlank,
   verse: stateVerse,
@@ -56,8 +56,8 @@ function showSubPoint(text: string): void {
 
 let activeHymnTitle = '';
 
-const HYMN_FS_MAX = 64;
-const HYMN_FS_MIN = 18;
+const HYMN_FS_MAX = 144;
+const HYMN_FS_MIN = 40;
 const HYMN_FS_STEP = 2;
 
 function fitHymnText(): void {
@@ -105,6 +105,7 @@ void listen<AppEvent>('app-event', ({ payload }) => {
     case 'VERSE_LOADED': {
       const ref = payload.reference;
       const label = `${ref.book} ${ref.chapter}${ref.verse != null ? ':' + String(ref.verse) : ''}`;
+      stateVerse.scrollTop = 0;
       showVerse(label, payload.text, payload.translation);
       break;
     }
@@ -132,6 +133,18 @@ void listen<AppEvent>('app-event', ({ payload }) => {
     case 'HYMN_SECTION_ADVANCED':
       showHymnSection(payload.number, payload.stanza_number, payload.is_chorus, payload.lines);
       break;
+
+    case 'CONGREGATION_SCROLL': {
+      const panels: Record<string, HTMLElement> = {
+        verse: stateVerse,
+        title: stateTitle,
+        subpoint: stateSubpoint,
+        hymn: stateHymn,
+      };
+      const active = panels[currentState()];
+      if (active) active.scrollBy({ top: payload.amount, behavior: 'smooth' });
+      break;
+    }
 
     case 'HYMN_COMPLETED':
       showState('idle');

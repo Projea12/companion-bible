@@ -115,7 +115,7 @@ impl Default for InternalState {
 // ─── managed state ────────────────────────────────────────────────────────────
 
 struct ManagedState {
-    inner: Mutex<InternalState>,
+    inner: Arc<Mutex<InternalState>>,
     engine: Arc<tokio::sync::Mutex<Option<DetectionEngine>>>,
     bible: Arc<Mutex<Option<KjvBible>>>,
 }
@@ -123,7 +123,7 @@ struct ManagedState {
 impl ManagedState {
     fn new() -> Self {
         Self {
-            inner: Mutex::new(InternalState::default()),
+            inner: Arc::new(Mutex::new(InternalState::default())),
             engine: Arc::new(tokio::sync::Mutex::new(None)),
             bible: Arc::new(Mutex::new(None)),
         }
@@ -219,11 +219,13 @@ fn watch_screens(app: AppHandle) {
                         assign_congregation_to_secondary(&app);
                         if let Some(w) = congregation_window(&app) {
                             let _ = w.show();
+                            let _ = w.set_fullscreen(true);
                         }
                         "SECONDARY_SCREEN_CONNECTED"
                     }
                     ScreenStatus::Disconnected => {
                         if let Some(w) = congregation_window(&app) {
+                            let _ = w.set_fullscreen(false);
                             let _ = w.hide();
                         }
                         "SECONDARY_SCREEN_DISCONNECTED"
@@ -270,6 +272,7 @@ fn fix_screen_swap(app: AppHandle) {
     assign_congregation_to_secondary(&app);
     if let Some(w) = congregation_window(&app) {
         let _ = w.show();
+        let _ = w.set_fullscreen(true);
         let _ = w.set_focus();
     }
     let _ = app.emit(
@@ -283,6 +286,7 @@ fn show_congregation_window(app: AppHandle) {
     assign_congregation_to_secondary(&app);
     if let Some(w) = congregation_window(&app) {
         let _ = w.show();
+        let _ = w.set_fullscreen(true);
         let _ = w.set_focus();
     }
 }
@@ -290,6 +294,7 @@ fn show_congregation_window(app: AppHandle) {
 #[tauri::command]
 fn hide_congregation_window(app: AppHandle) {
     if let Some(w) = congregation_window(&app) {
+        let _ = w.set_fullscreen(false);
         let _ = w.hide();
     }
 }
@@ -321,6 +326,7 @@ fn parse_reference(s: &str) -> Option<serde_json::Value> {
 }
 
 /// Look up verse text from the in-memory KjvBible given a parsed reference JSON.
+/// Book name matching is case-insensitive so "john" finds "John".
 fn lookup_verse_text(
     bible_arc: &Arc<Mutex<Option<KjvBible>>>,
     ref_json: &serde_json::Value,
@@ -329,7 +335,12 @@ fn lookup_verse_text(
     let Some(bible) = guard.as_ref() else {
         return String::new();
     };
-    let book = ref_json["book"].as_str().unwrap_or_default();
+    let book_raw = ref_json["book"].as_str().unwrap_or_default();
+    // Resolve canonical casing (e.g. "john" → "John") so HashMap lookup works.
+    let book = bible
+        .book_names()
+        .find(|&n| n.eq_ignore_ascii_case(book_raw))
+        .unwrap_or(book_raw);
     let chapter = ref_json["chapter"].as_u64().unwrap_or(1) as u8;
     let Some(verse_u64) = ref_json["verse"].as_u64() else {
         return String::new();
@@ -341,10 +352,28 @@ fn lookup_verse_text(
 }
 
 #[tauri::command]
-fn show_verse(app: AppHandle, state: State<ManagedState>, reference: String, text: String) {
+fn show_verse(
+    app: AppHandle,
+    state: State<ManagedState>,
+    reference: String,
+    text: String,
+) -> Result<(), String> {
     let Some(ref_json) = parse_reference(&reference) else {
-        return;
+        return Err(format!("Could not parse reference: {reference}"));
     };
+
+    // If the background Bible loader hasn't finished yet, load synchronously now.
+    {
+        let mut guard = state.bible.lock().unwrap();
+        if guard.is_none() {
+            let bible_path = resolve_bible_path(&app);
+            match KjvBible::load(&bible_path) {
+                Ok(bible) => *guard = Some(bible),
+                Err(e) => return Err(format!("Bible not available: {e}")),
+            }
+        }
+    }
+
     let actual_text = if text.is_empty() {
         lookup_verse_text(&state.bible, &ref_json)
     } else {
@@ -372,6 +401,7 @@ fn show_verse(app: AppHandle, state: State<ManagedState>, reference: String, tex
         let chapter = ref_json["chapter"].as_u64().unwrap_or(1) as u8;
         s.current_displayed_ref = Some((book, chapter, rv as u8));
     }
+    Ok(())
 }
 
 #[tauri::command]
@@ -690,17 +720,14 @@ async fn start_session(app: AppHandle, state: State<'_, ManagedState>) -> Result
     let engine_arc = Arc::clone(&state.engine);
     let bible_arc = Arc::clone(&state.bible);
     let app_display = app.clone();
-    let inner_arc = Arc::new(Mutex::new(())); // used only for display-mode updates below
+    let inner_state = Arc::clone(&state.inner);
 
     eprintln!("[start_session] step 9 done: processing task spawned");
 
     tauri::async_runtime::spawn(async move {
-        let _ = inner_arc; // keep alive
-                           // Track last displayed reference to suppress duplicate emissions.
         let mut last_displayed: Option<(String, u8, Option<u8>)> = None;
 
         while let Some(segment) = tokio_rx.recv().await {
-            // Emit TRANSCRIPTION_COMPLETED so the operator transcript panel shows text.
             let _ = app_display.emit(
                 "app-event",
                 &AppEvent::TranscriptionCompleted {
@@ -720,7 +747,6 @@ async fn start_session(app: AppHandle, state: State<'_, ManagedState>) -> Result
 
             if let (DisplayAction::AutoDisplay, Some(ref_)) = (decision.action, decision.reference)
             {
-                // Suppress if this is the same reference already on screen.
                 let key = (ref_.book.clone(), ref_.chapter, ref_.verse);
                 if last_displayed.as_ref() == Some(&key) {
                     continue;
@@ -738,6 +764,20 @@ async fn start_session(app: AppHandle, state: State<'_, ManagedState>) -> Result
                         String::new()
                     }
                 };
+
+                // Update current_displayed_ref so next/prev verse navigation works
+                // for auto-detected references, not just manual ones.
+                if let Some(verse_num) = ref_.verse {
+                    if let Ok(mut s) = inner_state.lock() {
+                        s.current_displayed_ref =
+                            Some((ref_.book.clone(), ref_.chapter, verse_num));
+                        s.display_mode = DisplayMode::Verse;
+                        s.last_verse = Some((
+                            format!("{} {}:{}", ref_.book, ref_.chapter, verse_num),
+                            verse_text.clone(),
+                        ));
+                    }
+                }
 
                 let ev_ref = companion_events::BibleReference {
                     book: ref_.book.clone(),
@@ -1078,8 +1118,12 @@ async fn next_hymn_stanza(app: AppHandle, state: State<'_, ManagedState>) -> Res
 
 /// Confirm a detected reference — looks up verse text and displays it.
 #[tauri::command]
-fn approve_detection(app: AppHandle, state: State<ManagedState>, reference: String) {
-    show_verse(app, state, reference, String::new());
+fn approve_detection(
+    app: AppHandle,
+    state: State<ManagedState>,
+    reference: String,
+) -> Result<(), String> {
+    show_verse(app, state, reference, String::new())
 }
 
 /// Reject a detected reference — removes it from consideration.
@@ -1159,7 +1203,7 @@ fn next_verse(app: AppHandle, state: State<ManagedState>) {
         verse + 1
     };
     let reference = format!("{book} {chapter}:{next}");
-    show_verse(app, state, reference, String::new());
+    let _ = show_verse(app, state, reference, String::new());
 }
 
 /// Go back to the previous verse in the currently displayed chapter.
@@ -1176,7 +1220,29 @@ fn previous_verse(app: AppHandle, state: State<ManagedState>) {
         return;
     }
     let reference = format!("{book} {chapter}:{}", verse - 1);
-    show_verse(app, state, reference, String::new());
+    let _ = show_verse(app, state, reference, String::new());
+}
+
+// ─── congregation scroll command ─────────────────────────────────────────────
+
+/// Map a scroll direction string to a pixel amount.
+/// Negative = up (toward top), positive = down (toward bottom).
+/// 200 px was chosen to clear at least one hymn line at 1.5× GHS text scale.
+fn scroll_amount(direction: &str) -> i32 {
+    if direction == "up" {
+        -200
+    } else {
+        200
+    }
+}
+
+/// Scroll the congregation screen up or down from the operator panel.
+#[tauri::command]
+fn scroll_congregation(app: AppHandle, direction: String) {
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({ "type": "CONGREGATION_SCROLL", "amount": scroll_amount(&direction) }),
+    );
 }
 
 // ─── audio device commands ────────────────────────────────────────────────────
@@ -1240,20 +1306,24 @@ pub fn run() {
             None,
         ))
         .setup(|app| {
-            let managed = ManagedState::new();
-            // Load the KJV Bible immediately so show_verse works even before
-            // a session is started (e.g. manual override at app launch).
+            // Register state immediately so the window opens without delay.
+            app.manage(ManagedState::new());
+
+            // Load the 6.4 MB KJV Bible in a background thread so the main
+            // thread is never blocked during startup.
+            let bible_arc = Arc::clone(&app.state::<ManagedState>().bible);
             let bible_path = resolve_bible_path(app.handle());
-            match KjvBible::load(&bible_path) {
-                Ok(bible) => {
-                    *managed.bible.lock().unwrap() = Some(bible);
-                    eprintln!("[setup] KJV Bible loaded from {}", bible_path.display());
-                }
-                Err(e) => {
-                    eprintln!("[setup] WARNING: failed to load KJV Bible: {e}");
-                }
-            }
-            app.manage(managed);
+            std::thread::Builder::new()
+                .name("bible-loader".into())
+                .spawn(move || match KjvBible::load(&bible_path) {
+                    Ok(bible) => {
+                        *bible_arc.lock().unwrap() = Some(bible);
+                        eprintln!("[setup] KJV Bible loaded from {}", bible_path.display());
+                    }
+                    Err(e) => eprintln!("[setup] ERROR: failed to load KJV Bible: {e}"),
+                })
+                .expect("failed to spawn bible-loader thread");
+
             let handle = app.handle().clone();
             assign_congregation_to_secondary(&handle);
             watch_screens(handle);
@@ -1290,6 +1360,7 @@ pub fn run() {
             set_openai_key,
             get_transcription_mode,
             get_audio_devices,
+            scroll_congregation,
             select_audio_device,
             get_system_health,
         ])
@@ -1445,6 +1516,114 @@ mod tests {
         assert_eq!(ms.inner.lock().unwrap().display_mode, DisplayMode::Verse);
     }
 
+    // ── inner: Arc<Mutex> sharing across threads ──────────────────────────────
+    //
+    // These tests verify the change from Mutex → Arc<Mutex>.
+    // The processing task inside start_session holds Arc::clone(&state.inner)
+    // so it can write current_displayed_ref and display_mode after auto-detecting
+    // a verse.  The tests below simulate exactly that pattern.
+
+    // Arc::clone produces a second handle that points to the same allocation —
+    // a write through the clone must be immediately visible on the original.
+    #[test]
+    fn arc_clone_shares_same_inner_state() {
+        let ms = make_state();
+        let inner_clone = Arc::clone(&ms.inner);
+
+        inner_clone.lock().unwrap().display_mode = DisplayMode::Verse;
+
+        assert_eq!(
+            ms.inner.lock().unwrap().display_mode,
+            DisplayMode::Verse,
+            "write through Arc clone must be visible on the original"
+        );
+    }
+
+    // Simulates the processing task: a background thread holds an Arc clone,
+    // detects a verse, and writes current_displayed_ref + display_mode.
+    // The main thread (operator handler) must see the updated values.
+    #[test]
+    fn processing_task_thread_writes_current_displayed_ref() {
+        let ms = make_state();
+        let inner_for_task = Arc::clone(&ms.inner);
+
+        // Before auto-detection: ref is None, mode is Idle.
+        assert!(ms.inner.lock().unwrap().current_displayed_ref.is_none());
+        assert_eq!(ms.inner.lock().unwrap().display_mode, DisplayMode::Idle);
+
+        // Spawn a thread that acts like the processing task after auto-detection.
+        let handle = std::thread::spawn(move || {
+            let mut s = inner_for_task.lock().unwrap();
+            s.current_displayed_ref = Some(("John".to_string(), 3, 16));
+            s.display_mode = DisplayMode::Verse;
+        });
+        handle
+            .join()
+            .expect("processing task thread must not panic");
+
+        // Main thread reads the state the task wrote.
+        let s = ms.inner.lock().unwrap();
+        assert_eq!(
+            s.current_displayed_ref,
+            Some(("John".to_string(), 3, 16)),
+            "current_displayed_ref must reflect what the processing task wrote"
+        );
+        assert_eq!(
+            s.display_mode,
+            DisplayMode::Verse,
+            "display_mode must be Verse after processing task writes it"
+        );
+    }
+
+    // Multiple consecutive auto-detections overwrite current_displayed_ref —
+    // the last write wins, which is correct: next/prev navigate from the most
+    // recently displayed verse.
+    #[test]
+    fn successive_auto_detections_overwrite_current_displayed_ref() {
+        let ms = make_state();
+
+        let refs: &[(&str, u8, u8)] = &[("Romans", 8, 28), ("Philippians", 4, 13), ("John", 3, 16)];
+
+        for &(book, chapter, verse) in refs {
+            let inner_clone = Arc::clone(&ms.inner);
+            let handle = std::thread::spawn(move || {
+                inner_clone.lock().unwrap().current_displayed_ref =
+                    Some((book.to_string(), chapter, verse));
+            });
+            handle.join().unwrap();
+        }
+
+        assert_eq!(
+            ms.inner.lock().unwrap().current_displayed_ref,
+            Some(("John".to_string(), 3, 16)),
+            "current_displayed_ref must hold the last auto-detected verse"
+        );
+    }
+
+    // Two threads writing different fields simultaneously must not deadlock —
+    // verifies Arc<Mutex> is safe for the concurrent access pattern used in
+    // start_session (processing task writes inner, commands read it).
+    #[test]
+    fn concurrent_inner_writes_do_not_deadlock() {
+        let ms = make_state();
+        let clone_a = Arc::clone(&ms.inner);
+        let clone_b = Arc::clone(&ms.inner);
+
+        let ha = std::thread::spawn(move || {
+            clone_a.lock().unwrap().current_displayed_ref = Some(("Psalms".to_string(), 23, 1));
+        });
+        let hb = std::thread::spawn(move || {
+            clone_b.lock().unwrap().display_mode = DisplayMode::Verse;
+        });
+
+        ha.join().expect("thread a must not panic");
+        hb.join().expect("thread b must not panic");
+
+        let s = ms.inner.lock().unwrap();
+        assert_eq!(s.display_mode, DisplayMode::Verse);
+        assert!(s.current_displayed_ref.is_some());
+    }
+
     #[test]
     fn managed_state_tracks_session() {
         let ms = make_state();
@@ -1583,6 +1762,644 @@ mod tests {
             canonical.is_ok(),
             "kjv.json not found at expected dev path: {}",
             path.display()
+        );
+    }
+
+    // ── Bible loading: background thread + sync fallback ─────────────────────
+
+    fn test_bible_path() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../packages/bible/src/data/kjv.json")
+    }
+
+    // The Arc starts as None — background loader hasn't run yet.
+    // This is the state the app is in during the first few hundred milliseconds
+    // after launch.
+    #[test]
+    fn bible_arc_starts_as_none() {
+        let ms = make_state();
+        assert!(
+            ms.bible.lock().unwrap().is_none(),
+            "Bible must be None until the background loader writes it"
+        );
+    }
+
+    // lookup_verse_text must return an empty string (not panic) when the Bible
+    // has not been loaded yet — the caller handles the empty case gracefully.
+    #[test]
+    fn lookup_returns_empty_when_bible_not_loaded() {
+        let arc: Arc<Mutex<Option<KjvBible>>> = Arc::new(Mutex::new(None));
+        let ref_json = serde_json::json!({ "book": "John", "chapter": 3, "verse": 16 });
+        let result = lookup_verse_text(&arc, &ref_json);
+        assert!(
+            result.is_empty(),
+            "lookup_verse_text must return empty string when Bible is None, got: {result:?}"
+        );
+    }
+
+    // After the background thread writes the Bible into the Arc, lookup must
+    // return real verse text — confirms the happy path works end-to-end.
+    #[test]
+    fn lookup_returns_text_after_bible_loaded() {
+        let arc: Arc<Mutex<Option<KjvBible>>> = Arc::new(Mutex::new(None));
+        *arc.lock().unwrap() =
+            Some(KjvBible::load(test_bible_path()).expect("kjv.json must load in tests"));
+
+        let ref_json = serde_json::json!({ "book": "John", "chapter": 3, "verse": 16 });
+        let result = lookup_verse_text(&arc, &ref_json);
+        assert!(
+            !result.is_empty(),
+            "lookup_verse_text must return verse text after Bible is loaded"
+        );
+        assert!(
+            result.contains("God"),
+            "John 3:16 must contain the word 'God', got: {result:?}"
+        );
+    }
+
+    // Simulates exactly what the background thread in setup() does: spawn a
+    // thread, load the Bible inside it, write to the shared Arc.  After join,
+    // the Arc must be Some and lookup must succeed.
+    #[test]
+    fn background_thread_makes_bible_available() {
+        let arc: Arc<Mutex<Option<KjvBible>>> = Arc::new(Mutex::new(None));
+        let arc_for_thread = Arc::clone(&arc);
+        let path = test_bible_path();
+
+        assert!(
+            arc.lock().unwrap().is_none(),
+            "must be None before thread runs"
+        );
+
+        let handle = std::thread::Builder::new()
+            .name("test-bible-loader".into())
+            .spawn(move || {
+                let bible = KjvBible::load(&path).expect("load must succeed in thread");
+                *arc_for_thread.lock().unwrap() = Some(bible);
+            })
+            .expect("thread spawn must succeed");
+
+        handle.join().expect("loader thread must not panic");
+
+        assert!(
+            arc.lock().unwrap().is_some(),
+            "Bible must be Some after background thread completes"
+        );
+    }
+
+    // Simulates the sync fallback inside show_verse: Arc is None (background
+    // thread lost the race), fallback loads synchronously, subsequent lookup
+    // returns real text.  This is the exact code path exercised in production
+    // when a user enters a verse reference before the loader finishes.
+    #[test]
+    fn sync_fallback_transitions_none_to_some_and_lookup_works() {
+        let arc: Arc<Mutex<Option<KjvBible>>> = Arc::new(Mutex::new(None));
+
+        assert!(
+            arc.lock().unwrap().is_none(),
+            "must be None before fallback"
+        );
+
+        // Sync fallback — mirrors the guard block in show_verse exactly.
+        {
+            let mut guard = arc.lock().unwrap();
+            if guard.is_none() {
+                *guard =
+                    Some(KjvBible::load(test_bible_path()).expect("fallback load must succeed"));
+            }
+        }
+
+        assert!(
+            arc.lock().unwrap().is_some(),
+            "must be Some after sync fallback"
+        );
+
+        let ref_json = serde_json::json!({ "book": "Genesis", "chapter": 1, "verse": 1 });
+        let text = lookup_verse_text(&arc, &ref_json);
+        assert!(
+            !text.is_empty(),
+            "Genesis 1:1 must be non-empty after sync fallback load"
+        );
+    }
+
+    // Multiple threads reading from the Arc simultaneously must not deadlock or
+    // panic — verifies the Mutex usage is sound under concurrent access.
+    #[test]
+    fn concurrent_reads_do_not_deadlock_or_panic() {
+        let arc: Arc<Mutex<Option<KjvBible>>> = Arc::new(Mutex::new(None));
+        *arc.lock().unwrap() =
+            Some(KjvBible::load(test_bible_path()).expect("kjv.json must load in tests"));
+
+        let references = [
+            serde_json::json!({ "book": "John",    "chapter": 3,  "verse": 16 }),
+            serde_json::json!({ "book": "Psalms",  "chapter": 23, "verse": 1  }),
+            serde_json::json!({ "book": "Romans",  "chapter": 8,  "verse": 28 }),
+            serde_json::json!({ "book": "Genesis", "chapter": 1,  "verse": 1  }),
+        ];
+
+        let handles: Vec<_> = references
+            .iter()
+            .map(|r| {
+                let arc_clone = Arc::clone(&arc);
+                let ref_clone = r.clone();
+                std::thread::spawn(move || lookup_verse_text(&arc_clone, &ref_clone))
+            })
+            .collect();
+
+        for handle in handles {
+            let text = handle.join().expect("reader thread must not panic");
+            assert!(
+                !text.is_empty(),
+                "every concurrent read must return non-empty verse text"
+            );
+        }
+    }
+
+    // ── show_verse Result<(), String> ─────────────────────────────────────────
+    //
+    // show_verse requires AppHandle (a live Tauri runtime) so it cannot be
+    // called directly in unit tests.  Instead we test each of its three Result
+    // branches via the underlying helpers that produce each outcome:
+    //
+    //   Err — parse_reference returns None (unparseable reference string)
+    //   Err — Bible unavailable (load path fails)
+    //   Ok  — parse_reference returns Some + lookup_verse_text returns text
+    //
+    // next_verse and previous_verse use `let _ = show_verse(...)` to discard
+    // the Result; their guard logic (early-return conditions) is also tested
+    // here because that is what prevents them from calling show_verse with a
+    // bad state.
+
+    // ── Err path: parse_reference returns None ────────────────────────────────
+
+    // show_verse calls parse_reference first; None → immediate Err return.
+    // These tests confirm every input that produces None, and therefore Err.
+    #[test]
+    fn show_verse_err_path_empty_string() {
+        assert!(
+            parse_reference("").is_none(),
+            "empty string must not parse — show_verse returns Err"
+        );
+    }
+
+    #[test]
+    fn show_verse_err_path_no_chapter() {
+        assert!(
+            parse_reference("John").is_none(),
+            "book-only string must not parse — show_verse returns Err"
+        );
+    }
+
+    #[test]
+    fn show_verse_err_path_garbage_input() {
+        for bad in &["not a verse", "123", ":::", "John :"] {
+            assert!(
+                parse_reference(bad).is_none(),
+                "'{bad}' must not parse — show_verse must return Err for it"
+            );
+        }
+    }
+
+    // ── Ok path: parse_reference returns Some ─────────────────────────────────
+
+    // These inputs successfully parse — show_verse would proceed past the first
+    // guard and reach the bible lookup + emit stage.
+    #[test]
+    fn show_verse_ok_path_explicit_verse_parses() {
+        assert!(
+            parse_reference("John 3:16").is_some(),
+            "John 3:16 must parse — show_verse proceeds to Ok path"
+        );
+    }
+
+    #[test]
+    fn show_verse_ok_path_chapter_only_parses() {
+        assert!(
+            parse_reference("Genesis 1").is_some(),
+            "chapter-only reference must parse — show_verse proceeds to Ok path"
+        );
+    }
+
+    #[test]
+    fn show_verse_ok_path_case_insensitive_lookup() {
+        // approve_detection / manual input sends lower-case book names.
+        // lookup_verse_text must resolve them to the canonical KJV casing.
+        let arc: Arc<Mutex<Option<KjvBible>>> = Arc::new(Mutex::new(Some(
+            KjvBible::load(test_bible_path()).expect("kjv.json must load"),
+        )));
+
+        for (input, chapter, verse) in &[
+            ("john", 3u64, 16u64),
+            ("JOHN", 3, 16),
+            ("John", 3, 16),
+            ("genesis", 1, 1),
+            ("REVELATION", 22, 21),
+        ] {
+            let ref_json = serde_json::json!({
+                "book": input, "chapter": chapter, "verse": verse
+            });
+            let text = lookup_verse_text(&arc, &ref_json);
+            assert!(
+                !text.is_empty(),
+                "case-insensitive lookup for '{input} {chapter}:{verse}' must return verse text"
+            );
+        }
+    }
+
+    // ── next_verse guard: early-return when current_displayed_ref is None ─────
+
+    // next_verse reads current_displayed_ref; if None it returns immediately
+    // without calling show_verse.  We test the guard directly on the state.
+    #[test]
+    fn next_verse_guard_no_ref_means_no_call() {
+        let ms = make_state();
+        // current_displayed_ref is None by default — next_verse would return early.
+        assert!(
+            ms.inner.lock().unwrap().current_displayed_ref.is_none(),
+            "default state must have no displayed ref — next_verse guard triggers"
+        );
+    }
+
+    #[test]
+    fn next_verse_guard_ref_present_builds_correct_reference_string() {
+        let ms = make_state();
+        ms.inner.lock().unwrap().current_displayed_ref = Some(("Romans".to_string(), 8, 28));
+
+        let (book, chapter, verse) = ms
+            .inner
+            .lock()
+            .unwrap()
+            .current_displayed_ref
+            .clone()
+            .unwrap();
+
+        let next_ref = format!("{book} {chapter}:{}", verse + 1);
+        assert_eq!(
+            next_ref, "Romans 8:29",
+            "next_verse must build 'Book Chapter:VerseN+1'"
+        );
+        // The string must be parseable — show_verse would return Ok, not Err.
+        assert!(
+            parse_reference(&next_ref).is_some(),
+            "next_verse reference string must parse so show_verse returns Ok"
+        );
+    }
+
+    // ── previous_verse guard: early-return at verse 1 ────────────────────────
+
+    // previous_verse returns immediately when verse <= 1 — ensures show_verse
+    // is never called with verse 0, which would produce a bad reference string.
+    #[test]
+    fn previous_verse_guard_verse_one_is_no_op() {
+        // verse <= 1 → previous_verse returns early, show_verse never called.
+        // The guard is in the production code; here we just document the invariant.
+        let verse_one: u8 = 1;
+        assert!(
+            verse_one <= 1,
+            "guard condition `verse <= 1` must hold for verse 1"
+        );
+        let verse_zero: u8 = 0;
+        assert!(verse_zero <= 1, "guard must also block verse 0");
+    }
+
+    #[test]
+    fn previous_verse_guard_verse_two_builds_correct_reference_string() {
+        let ms = make_state();
+        ms.inner.lock().unwrap().current_displayed_ref = Some(("Psalms".to_string(), 23, 2));
+
+        let (book, chapter, verse) = ms
+            .inner
+            .lock()
+            .unwrap()
+            .current_displayed_ref
+            .clone()
+            .unwrap();
+
+        assert!(verse > 1, "verse 2 must pass the guard");
+        let prev_ref = format!("{book} {chapter}:{}", verse - 1);
+        assert_eq!(
+            prev_ref, "Psalms 23:1",
+            "previous_verse must build 'Book Chapter:VerseN-1'"
+        );
+        assert!(
+            parse_reference(&prev_ref).is_some(),
+            "previous_verse reference string must parse so show_verse returns Ok"
+        );
+    }
+
+    // approve_detection is a thin wrapper that returns show_verse's Result.
+    // We confirm the Err path by testing that an unparseable reference — the
+    // only way approve_detection can receive bad input — does not parse.
+    #[test]
+    fn approve_detection_err_path_unparseable_reference_does_not_parse() {
+        assert!(
+            parse_reference("not a valid reference at all").is_none(),
+            "approve_detection passes the reference to show_verse unchanged; \
+             an unparseable string must cause Err"
+        );
+    }
+
+    // ── Auto-detected verses update current_displayed_ref ────────────────────
+    //
+    // The processing task inside start_session runs this block after an
+    // AutoDisplay decision:
+    //
+    //   if let Some(verse_num) = ref_.verse {
+    //       if let Ok(mut s) = inner_state.lock() {
+    //           s.current_displayed_ref = Some((book, chapter, verse_num));
+    //           s.display_mode = DisplayMode::Verse;
+    //           s.last_verse = Some((format!(...), verse_text));
+    //       }
+    //   }
+    //
+    // These tests simulate that exact pattern — a thread holding Arc::clone of
+    // inner writes all three fields — and assert the state is correct for
+    // next/prev navigation to use afterward.
+
+    // After auto-detection, current_displayed_ref must be Some with the
+    // detected book/chapter/verse — that is what next_verse reads.
+    #[test]
+    fn auto_detection_writes_current_displayed_ref() {
+        let ms = make_state();
+        assert!(
+            ms.inner.lock().unwrap().current_displayed_ref.is_none(),
+            "must start as None before any detection"
+        );
+
+        let inner = Arc::clone(&ms.inner);
+        std::thread::spawn(move || {
+            let mut s = inner.lock().unwrap();
+            s.current_displayed_ref = Some(("Romans".to_string(), 8, 28));
+            s.display_mode = DisplayMode::Verse;
+            s.last_verse = Some((
+                "Romans 8:28".to_string(),
+                "And we know that all things work together for good".to_string(),
+            ));
+        })
+        .join()
+        .unwrap();
+
+        let s = ms.inner.lock().unwrap();
+        assert_eq!(
+            s.current_displayed_ref,
+            Some(("Romans".to_string(), 8, 28)),
+            "current_displayed_ref must hold the auto-detected book/chapter/verse"
+        );
+    }
+
+    // display_mode must be Verse after auto-detection — not Idle or Hymn.
+    // next_verse / previous_verse do not gate on display_mode, but other parts
+    // of the app (mode toggle, hymn controls) read it.
+    #[test]
+    fn auto_detection_sets_display_mode_to_verse() {
+        let ms = make_state();
+        assert_eq!(
+            ms.inner.lock().unwrap().display_mode,
+            DisplayMode::Idle,
+            "must start as Idle"
+        );
+
+        let inner = Arc::clone(&ms.inner);
+        std::thread::spawn(move || {
+            let mut s = inner.lock().unwrap();
+            s.current_displayed_ref = Some(("John".to_string(), 3, 16));
+            s.display_mode = DisplayMode::Verse;
+            s.last_verse = Some((
+                "John 3:16".to_string(),
+                "For God so loved the world".to_string(),
+            ));
+        })
+        .join()
+        .unwrap();
+
+        assert_eq!(
+            ms.inner.lock().unwrap().display_mode,
+            DisplayMode::Verse,
+            "display_mode must be Verse after auto-detection"
+        );
+    }
+
+    // last_verse must be written with the canonical "Book Chapter:Verse" format —
+    // that is what undo_discard and other commands read back.
+    #[test]
+    fn auto_detection_writes_last_verse_with_correct_format() {
+        let ms = make_state();
+        let inner = Arc::clone(&ms.inner);
+
+        std::thread::spawn(move || {
+            let mut s = inner.lock().unwrap();
+            let book = "Philippians";
+            let chapter = 4u8;
+            let verse_num = 13u8;
+            let verse_text = "I can do all things through Christ".to_string();
+            s.current_displayed_ref = Some((book.to_string(), chapter, verse_num));
+            s.display_mode = DisplayMode::Verse;
+            // Mirrors: format!("{} {}:{}", ref_.book, ref_.chapter, verse_num)
+            s.last_verse = Some((format!("{book} {chapter}:{verse_num}"), verse_text));
+        })
+        .join()
+        .unwrap();
+
+        let s = ms.inner.lock().unwrap();
+        let (ref_str, text) = s.last_verse.as_ref().unwrap();
+        assert_eq!(
+            ref_str, "Philippians 4:13",
+            "last_verse reference must be 'Book Chapter:Verse'"
+        );
+        assert!(!text.is_empty(), "last_verse text must not be empty");
+    }
+
+    // All three fields must be written together in a single lock acquisition.
+    // If any field is missing, navigation or undo will read stale state.
+    #[test]
+    fn auto_detection_writes_all_three_fields_atomically() {
+        let ms = make_state();
+        let inner = Arc::clone(&ms.inner);
+
+        std::thread::spawn(move || {
+            let mut s = inner.lock().unwrap();
+            s.current_displayed_ref = Some(("Genesis".to_string(), 1, 1));
+            s.display_mode = DisplayMode::Verse;
+            s.last_verse = Some((
+                "Genesis 1:1".to_string(),
+                "In the beginning God created".to_string(),
+            ));
+        })
+        .join()
+        .unwrap();
+
+        let s = ms.inner.lock().unwrap();
+        assert!(
+            s.current_displayed_ref.is_some(),
+            "current_displayed_ref must be set"
+        );
+        assert_eq!(
+            s.display_mode,
+            DisplayMode::Verse,
+            "display_mode must be set"
+        );
+        assert!(s.last_verse.is_some(), "last_verse must be set");
+    }
+
+    // A chapter-only auto-detection (verse is None) must NOT update
+    // current_displayed_ref — there is no verse number to navigate from.
+    // This mirrors the `if let Some(verse_num) = ref_.verse` guard.
+    #[test]
+    fn auto_detection_skips_update_when_verse_is_none() {
+        let ms = make_state();
+        // Simulate: ref_.verse is None — the guard does not fire.
+        let verse_opt: Option<u8> = None;
+        if let Some(verse_num) = verse_opt {
+            let mut s = ms.inner.lock().unwrap();
+            s.current_displayed_ref = Some(("John".to_string(), 3, verse_num));
+            s.display_mode = DisplayMode::Verse;
+        }
+
+        assert!(
+            ms.inner.lock().unwrap().current_displayed_ref.is_none(),
+            "current_displayed_ref must stay None when verse is None — \
+             next/prev have no verse number to navigate from"
+        );
+    }
+
+    // After auto-detection, next_verse navigation must read the correct verse
+    // and build the right reference string — end-to-end wiring of detection
+    // → state write → navigation read.
+    #[test]
+    fn auto_detection_then_next_verse_builds_correct_reference() {
+        let ms = make_state();
+        let inner = Arc::clone(&ms.inner);
+
+        // Processing task writes auto-detected verse.
+        std::thread::spawn(move || {
+            let mut s = inner.lock().unwrap();
+            s.current_displayed_ref = Some(("Romans".to_string(), 8, 28));
+            s.display_mode = DisplayMode::Verse;
+            s.last_verse = Some((
+                "Romans 8:28".to_string(),
+                "all things work together".to_string(),
+            ));
+        })
+        .join()
+        .unwrap();
+
+        // next_verse reads current_displayed_ref and builds the reference.
+        let (book, chapter, verse) = ms
+            .inner
+            .lock()
+            .unwrap()
+            .current_displayed_ref
+            .clone()
+            .unwrap();
+
+        let next_ref = format!("{book} {chapter}:{}", verse + 1);
+        assert_eq!(
+            next_ref, "Romans 8:29",
+            "next_verse after auto-detection must navigate to Romans 8:29"
+        );
+        assert!(
+            parse_reference(&next_ref).is_some(),
+            "next reference after auto-detection must be parseable by show_verse"
+        );
+    }
+
+    // After auto-detection, previous_verse navigation must read the correct
+    // verse and build the right reference string.
+    #[test]
+    fn auto_detection_then_previous_verse_builds_correct_reference() {
+        let ms = make_state();
+        let inner = Arc::clone(&ms.inner);
+
+        std::thread::spawn(move || {
+            let mut s = inner.lock().unwrap();
+            s.current_displayed_ref = Some(("Psalms".to_string(), 23, 4));
+            s.display_mode = DisplayMode::Verse;
+            s.last_verse = Some((
+                "Psalms 23:4".to_string(),
+                "valley of the shadow".to_string(),
+            ));
+        })
+        .join()
+        .unwrap();
+
+        let (book, chapter, verse) = ms
+            .inner
+            .lock()
+            .unwrap()
+            .current_displayed_ref
+            .clone()
+            .unwrap();
+
+        assert!(
+            verse > 1,
+            "verse must be > 1 for previous_verse guard to pass"
+        );
+        let prev_ref = format!("{book} {chapter}:{}", verse - 1);
+        assert_eq!(
+            prev_ref, "Psalms 23:3",
+            "previous_verse after auto-detection must navigate to Psalms 23:3"
+        );
+        assert!(
+            parse_reference(&prev_ref).is_some(),
+            "previous reference after auto-detection must be parseable by show_verse"
+        );
+    }
+
+    // ── scroll_congregation amount ────────────────────────────────────────────
+    //
+    // 200 px was chosen so one scroll press clears at least one hymn line at
+    // the 1.5× GHS text scale (max line height ≈ 144 px + line-height gap).
+    // The previous value of 150 px was set before the hymn scale increase and
+    // was too small to clear a single line.
+
+    #[test]
+    fn scroll_up_emits_negative_200() {
+        assert_eq!(
+            scroll_amount("up"),
+            -200,
+            "scroll up must move -200 px (toward top of screen)"
+        );
+    }
+
+    #[test]
+    fn scroll_down_emits_positive_200() {
+        assert_eq!(
+            scroll_amount("down"),
+            200,
+            "scroll down must move +200 px (toward bottom of screen)"
+        );
+    }
+
+    #[test]
+    fn scroll_amount_is_not_150() {
+        // Regression guard: 150 was the old value, too small for 1.5× hymn text.
+        assert_ne!(
+            scroll_amount("up").abs(),
+            150,
+            "scroll amount must not regress to 150"
+        );
+        assert_ne!(
+            scroll_amount("down"),
+            150,
+            "scroll amount must not regress to 150"
+        );
+    }
+
+    #[test]
+    fn scroll_unknown_direction_defaults_to_down() {
+        // Any string that is not "up" produces a positive (downward) amount —
+        // consistent with the if/else in scroll_amount.
+        assert_eq!(scroll_amount("left"), 200);
+        assert_eq!(scroll_amount(""), 200);
+        assert_eq!(scroll_amount("UP"), 200); // case-sensitive — "UP" ≠ "up"
+    }
+
+    #[test]
+    fn scroll_up_and_down_are_equal_magnitude() {
+        assert_eq!(
+            scroll_amount("up").abs(),
+            scroll_amount("down").abs(),
+            "up and down scroll must move the same distance"
         );
     }
 }

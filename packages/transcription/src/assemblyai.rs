@@ -219,10 +219,46 @@ impl AssemblyAiTranscriber {
         let sender = self.sender.clone();
 
         self.handle = Some(tokio::spawn(async move {
-            match stream_loop(api_key, window, stop_flag, sender).await {
-                Ok(()) => eprintln!("[assemblyai] stream closed"),
-                Err(e) => eprintln!("[assemblyai] stream error: {e}"),
+            let mut backoff_secs = 1u64;
+            loop {
+                if stop_flag.load(Ordering::Acquire) {
+                    break;
+                }
+
+                let connected_at = tokio::time::Instant::now();
+                match stream_loop(
+                    api_key.clone(),
+                    Arc::clone(&window),
+                    Arc::clone(&stop_flag),
+                    sender.clone(),
+                )
+                .await
+                {
+                    Ok(()) => {
+                        if stop_flag.load(Ordering::Acquire) {
+                            break; // deliberate stop — do not reconnect
+                        }
+                        eprintln!("[assemblyai] stream closed — reconnecting");
+                    }
+                    Err(e) => {
+                        if stop_flag.load(Ordering::Acquire) {
+                            break;
+                        }
+                        eprintln!(
+                            "[assemblyai] stream error: {e} — reconnecting in {backoff_secs}s"
+                        );
+                    }
+                }
+
+                // Reset backoff if the session lasted more than 10 s (healthy run).
+                if connected_at.elapsed().as_secs() > 10 {
+                    backoff_secs = 1;
+                }
+
+                tokio::time::sleep(tokio::time::Duration::from_secs(backoff_secs)).await;
+                backoff_secs = (backoff_secs * 2).min(30);
             }
+            eprintln!("[assemblyai] supervisor stopped");
         }));
     }
 

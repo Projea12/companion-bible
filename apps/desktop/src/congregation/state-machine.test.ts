@@ -108,7 +108,7 @@ describe('no partial text rendering', () => {
       let updateFiredWhileHidden = false;
 
       sm.showState(state, () => {
-        updateFiredWhileHidden = panels[state].hidden;
+        updateFiredWhileHidden = !!panels[state].hidden;
       });
 
       expect(updateFiredWhileHidden).toBe(true);
