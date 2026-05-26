@@ -23,6 +23,7 @@
       <!-- Verse — scripture text with reference below -->
       <div id="state-verse" class="congregation-state" hidden>
         <div class="verse-card">
+          <img src="/deeper_life_logo.png" class="verse-card-logo" aria-hidden="true" />
           <div class="verse-text" id="verse-text">
             For God so loved the world, that he gave his only begotten Son,
             that whosoever believeth in him should not perish,
@@ -64,7 +65,7 @@
 
       <!-- Announcement — pre-service slides with church branding -->
       <div id="state-announcement" class="congregation-state" hidden>
-        <div class="announcement-header">
+        <div class="announcement-logo-area">
           <img src="/deeper_life_logo.png" class="announcement-logo" alt="Deeper Life Bible Church" />
           <div class="announcement-church">Blessed Group&nbsp;&nbsp;Poka</div>
         </div>
@@ -75,6 +76,12 @@
 
       <!-- Blank — complete blackout, no content -->
       <div id="state-blank" class="congregation-state congregation-blank" hidden></div>
+
+      <!-- Order of service label — persistent bottom-left overlay, always visible -->
+      <div id="service-label" aria-live="polite">
+        <span class="service-label-dot" aria-hidden="true"></span>
+        <span class="service-label-text" id="service-label-text"></span>
+      </div>
 
     </div>
     <script type="module" src="/src/congregation/main.ts"></script>

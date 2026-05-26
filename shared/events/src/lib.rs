@@ -242,6 +242,12 @@ pub enum AppEvent {
         amount: i32,
     },
 
+    // ── Order of service ─────────────────────────────────────────────────────
+    /// The current order-of-service item changed. None means cleared.
+    ServiceItemChanged {
+        label: Option<String>,
+    },
+
     // ── Model setup ──────────────────────────────────────────────────────────
     /// First launch: model weights are not present — setup is required.
     ModelSetupRequired,

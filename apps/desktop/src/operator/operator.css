@@ -268,7 +268,7 @@
 
 .op-main {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 1fr 360px;
   gap: 1px;
   background: var(--color-border);
   overflow: hidden;
@@ -1154,4 +1154,632 @@ kbd.key-hint {
 .hymn-next-btn {
   align-self: flex-start;
   margin-top: 4px;
+}
+
+/* ── order of service panel ──────────────────────────────────────────────── */
+
+.op-panel-service {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.service-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.service-now-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-success);
+  background: rgba(62, 207, 114, 0.12);
+  border: 1px solid rgba(62, 207, 114, 0.25);
+  border-radius: 20px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.service-add-row {
+  display: flex;
+  gap: 6px;
+}
+
+.service-add-input {
+  flex: 1;
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 12px;
+  padding: 6px 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.service-add-input::placeholder {
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.5;
+}
+
+.service-add-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.service-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.service-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition:
+    background 150ms,
+    border-color 150ms;
+}
+
+.service-item:hover {
+  background: var(--color-surface-hover);
+}
+
+.service-item--active {
+  background: rgba(201, 169, 110, 0.1);
+  border-color: rgba(201, 169, 110, 0.3);
+}
+
+.service-item-dot {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  width: 12px;
+}
+
+.service-item--active .service-item-dot {
+  color: #c9a96e;
+}
+
+.service-item-label {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text);
+}
+
+.service-item--active .service-item-label {
+  color: #c9a96e;
+}
+
+.service-item-remove {
+  opacity: 0;
+  transition: opacity 150ms;
+  flex-shrink: 0;
+}
+
+.service-item:hover .service-item-remove {
+  opacity: 1;
+}
+
+.service-controls {
+  display: flex;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+/* ── announcement panel ──────────────────────────────────────────────────── */
+
+.op-panel-announcement {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.announcement-add-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.announcement-body-input {
+  width: 100%;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  resize: vertical;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.announcement-body-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.announcement-add-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.announcement-duration-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-dim);
+}
+
+.announcement-duration-input {
+  width: 64px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  color: var(--color-text);
+  font-size: 13px;
+  padding: 4px 8px;
+  text-align: center;
+}
+
+.announcement-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.announcement-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  transition: border-color 150ms ease;
+}
+
+.announcement-item--active {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface-2));
+}
+
+.announcement-item-body {
+  flex: 1;
+  font-size: 12px;
+  color: var(--color-text);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.announcement-item-dur {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  white-space: nowrap;
+  padding-top: 1px;
+}
+
+.announcement-controls {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── congregation preview ──────────────────────────────────────────────────── */
+/*
+ * Font sizes inside the preview use cqw/cqh (container query units).
+ * The congregation screen uses vw/vh. Since cqw = 1% of container width and
+ * vw = 1% of viewport width, the substitution is exact — a 4.8vw font at
+ * 1920px = 92px; the same 4.8cqw at a 320px preview = 15px = 92px × (320/1920).
+ * Every value below therefore matches the congregation CSS exactly.
+ */
+
+.cong-preview-wrap {
+  background: var(--color-bg);
+  padding: 14px 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* 16:9 box — container-type: size enables cqw + cqh inside */
+.cong-preview-box {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #080d1a;
+  border-radius: 5px;
+  overflow: hidden;
+  container-type: size;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* centered wrapper used by all states except announcement */
+.cpv-centered {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── idle ── */
+.cpv-idle-mark {
+  font-size: 7cqw;
+  color: #2a2f45;
+}
+
+/* ── verse ── */
+
+/* scrollable container — mirrors #state-verse overflow-y:auto on the real screen */
+.cpv-verse-scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+
+  background:
+    radial-gradient(ellipse 80% 60% at 10% 5%, rgba(139, 92, 246, 0.32) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 80% at 90% 95%, rgba(59, 130, 246, 0.28) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 50% at 75% 10%, rgba(236, 72, 153, 0.18) 0%, transparent 50%),
+    radial-gradient(ellipse 70% 40% at 20% 90%, rgba(16, 185, 129, 0.14) 0%, transparent 50%),
+    radial-gradient(ellipse 45% 55% at 50% 50%, rgba(99, 102, 241, 0.1) 0%, transparent 65%),
+    linear-gradient(160deg, #07060f 0%, #0a0918 40%, #080d1a 100%);
+}
+
+.cpv-verse-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.cpv-verse-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 84%;
+  gap: 1.2cqh;
+  padding: 4cqw;
+  position: relative;
+  z-index: 1;
+  background: rgba(12, 8, 30, 0.82);
+  border-radius: 1.5cqw;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+}
+
+.cpv-verse-card-logo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 58cqw;
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.cpv-verse-text {
+  font-size: 7.2cqw; /* matches --size-verse: 7.2vw (1.5× original) */
+  font-weight: 400;
+  line-height: 1.5;
+  color: #f5f0e8;
+  margin: 0;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+}
+
+.cpv-verse-rule {
+  width: 6cqw;
+  height: 1px;
+  background: #c9a96e;
+  opacity: 0.55;
+  border: none;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.cpv-verse-ref {
+  font-size: 2.2cqw; /* matches --size-ref: 2.2vw */
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #c9a96e;
+  margin: 0;
+}
+
+.cpv-verse-trans {
+  font-size: 1.1cqw; /* matches --size-trans: 1.1vw */
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #8a8fa8;
+  margin: 0;
+}
+
+/* ── sermon title ── */
+.cpv-title-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 84%;
+  gap: 1cqh;
+  padding: 4cqw;
+}
+
+.cpv-title-eyebrow {
+  font-size: 1.2cqw; /* matches --size-eyebrow: 1.2vw */
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: #c9a96e;
+  margin: 0;
+}
+
+.cpv-title-text {
+  font-size: 6.5cqw; /* matches --size-title: 6.5vw */
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.12;
+  color: #f5f0e8;
+  margin: 0;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+}
+
+/* ── subpoint ── */
+.cpv-subpoint-card {
+  max-width: 84%;
+  border-left: 0.3cqw solid #c9a96e;
+  padding-left: 6.5cqw; /* matches 6.5vw */
+}
+
+.cpv-subpoint-text {
+  font-size: 4cqw; /* matches --size-subpoint: 4vw */
+  font-weight: 500;
+  line-height: 1.45;
+  color: #f5f0e8;
+  margin: 0;
+}
+
+/* ── hymn ── */
+.cpv-hymn-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 88%;
+  gap: 0.8cqh;
+  padding: 4cqw;
+}
+
+.cpv-hymn-eyebrow {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+  font-size: 1.2cqw; /* matches --size-eyebrow: 1.2vw */
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #c9a96e;
+  margin: 0;
+}
+
+.cpv-hymn-sep {
+  opacity: 0.5;
+}
+
+.cpv-hymn-title {
+  font-size: 2.4cqw; /* matches hymn-title: 2.4vw */
+  font-weight: 400;
+  color: #8a8fa8;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+.cpv-hymn-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4cqh;
+}
+
+.cpv-hymn-line {
+  font-size: 4cqw; /* matches hymn line: ~4vw */
+  font-weight: 400;
+  line-height: 1.5;
+  color: #f5f0e8;
+  margin: 0;
+}
+
+/* ── announcement ── */
+/*
+ * Replicates the 70 / 30 split from the congregation screen:
+ *   .announcement-logo-area { flex: 0 0 70vh } → flex: 0 0 70cqh
+ *   .announcement-body-wrap { flex: 1 }
+ */
+.cpv-announcement {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background:
+    radial-gradient(ellipse 70% 55% at 8% 12%, rgba(201, 169, 110, 0.18) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 65% at 92% 88%, rgba(50, 90, 200, 0.2) 0%, transparent 55%),
+    radial-gradient(ellipse 90% 40% at 50% 0%, rgba(25, 40, 100, 0.5) 0%, transparent 60%),
+    linear-gradient(175deg, #0b1330 0%, #060c1e 45%, #080d1a 100%);
+}
+
+/* logo zone — 70% of the preview height */
+.cpv-ann-logo-area {
+  flex: 0 0 70cqh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 3cqh 6cqw 1cqh;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.cpv-ann-logo-area::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 10%;
+  width: 80%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(201, 169, 110, 0.5), transparent);
+}
+
+.cpv-ann-logo {
+  max-height: 52cqh; /* matches announcement-logo: 52vh */
+  max-width: 80cqw; /* matches 80vw */
+  object-fit: contain;
+  filter: drop-shadow(0 1px 8px rgba(201, 169, 110, 0.25));
+}
+
+.cpv-ann-church {
+  margin-top: 1.5cqh; /* matches 1.5vh */
+  font-size: 2.6cqw; /* matches 2.6vw */
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #c9a96e;
+  text-shadow: 0 1px 8px rgba(201, 169, 110, 0.4);
+  margin-bottom: 0;
+}
+
+/* body zone — remaining 30% */
+.cpv-ann-body-wrap {
+  flex: 1;
+  overflow: hidden;
+  width: 100%;
+  padding: 1cqh 10cqw 2cqh;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.cpv-ann-body {
+  font-size: 3.2cqw; /* matches announcement-body: 3.2vw */
+  font-weight: 500;
+  line-height: 1.55;
+  color: #f5f0e8;
+  text-align: center;
+  white-space: pre-wrap;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
+  margin: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+/* ── status row ── */
+.cong-preview-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cong-preview-live {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.cong-preview-live--on {
+  color: var(--color-success, #3ecf72);
+}
+.cong-preview-live--off {
+  color: var(--color-text-muted);
+}
+
+.cong-preview-mode-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* ── now hearing strip ── */
+.cong-now-hearing {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 7px 12px;
+  min-height: 42px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cong-now-hearing-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.cong-now-hearing-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cong-now-hearing-text--muted {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.cong-now-hearing-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(74, 158, 255, 0.15);
+  color: #4a9eff;
+  border: 1px solid rgba(74, 158, 255, 0.3);
+  border-radius: 4px;
+  padding: 1px 5px;
+  vertical-align: middle;
 }

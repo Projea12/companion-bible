@@ -103,7 +103,10 @@ export type AppEvent =
   | { type: 'ANNOUNCEMENTS_STOPPED' }
 
   // ── Congregation scroll ─────────────────────────────────────────────────
-  | { type: 'CONGREGATION_SCROLL'; amount: number };
+  | { type: 'CONGREGATION_SCROLL'; amount: number }
+
+  // ── Order of service ────────────────────────────────────────────────────
+  | { type: 'SERVICE_ITEM_CHANGED'; label: string | null };
 
 export type AppEventType = AppEvent['type'];
 

@@ -17,6 +17,7 @@ function makePanels(): StatePanels {
     title: makePanel(),
     subpoint: makePanel(),
     hymn: makePanel(),
+    announcement: makePanel(),
   };
 }
 

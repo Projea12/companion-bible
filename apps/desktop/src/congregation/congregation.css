@@ -20,7 +20,7 @@
   --cb-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* type scale — clamp keeps everything legible at 10 m */
-  --size-verse: clamp(30px, 4.8vw, 76px);
+  --size-verse: clamp(45px, 7.2vw, 110px); /* 1.5× original, capped at safe max */
   --size-ref: clamp(17px, 2.2vw, 30px);
   --size-trans: clamp(11px, 1.1vw, 16px);
   --size-title: clamp(38px, 6.5vw, 100px);
@@ -116,6 +116,55 @@ html {
   }
 }
 
+/* ── verse state panel — scrollable so enlarged text always fits ─────────── */
+#state-verse {
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-items: flex-start; /* allow card to grow taller than viewport */
+  scrollbar-width: none;
+
+  /* Gen-Z abstract background: layered aurora on deep near-black */
+  background:
+    radial-gradient(ellipse 80% 60% at 10% 5%, rgba(139, 92, 246, 0.32) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 80% at 90% 95%, rgba(59, 130, 246, 0.28) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 50% at 75% 10%, rgba(236, 72, 153, 0.18) 0%, transparent 50%),
+    radial-gradient(ellipse 70% 40% at 20% 90%, rgba(16, 185, 129, 0.14) 0%, transparent 50%),
+    radial-gradient(ellipse 45% 55% at 50% 50%, rgba(99, 102, 241, 0.1) 0%, transparent 65%),
+    linear-gradient(160deg, #07060f 0%, #0a0918 40%, #080d1a 100%);
+
+  animation: verse-aurora 12s ease-in-out infinite alternate;
+}
+
+@keyframes verse-aurora {
+  0% {
+    filter: brightness(1) saturate(1);
+  }
+  50% {
+    filter: brightness(1.05) saturate(1.1);
+  }
+  100% {
+    filter: brightness(0.97) saturate(1.05);
+  }
+}
+
+#state-verse::-webkit-scrollbar {
+  display: none;
+}
+
+/* Deeper Life watermark — centered inside the card, behind the text */
+.verse-card-logo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: clamp(260px, 58vw, 820px);
+  opacity: 0.12;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  z-index: 0;
+}
+
 /* ── verse card ───────────────────────────────────────────────────────────── */
 .verse-card {
   display: flex;
@@ -124,6 +173,17 @@ html {
   text-align: center;
   max-width: min(1300px, 84vw);
   padding: clamp(40px, 6vw, 100px) clamp(32px, 5vw, 80px);
+  margin: auto; /* keeps card centred when content is shorter than viewport */
+  position: relative;
+  z-index: 1;
+
+  background: rgba(12, 8, 30, 0.82);
+  border-radius: clamp(12px, 1.5vw, 24px);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+    0 8px 60px rgba(0, 0, 0, 0.8),
+    0 0 0 4px rgba(139, 92, 246, 0.08);
 }
 
 .verse-text {
@@ -135,6 +195,15 @@ html {
   color: var(--cb-text);
   text-shadow: 0 2px 32px rgba(0, 0, 0, 0.9);
   margin-bottom: clamp(24px, 3vw, 48px);
+  position: relative;
+  z-index: 1;
+}
+
+.verse-rule,
+.verse-reference,
+.verse-translation {
+  position: relative;
+  z-index: 1;
 }
 
 /* thin gold rule separating verse body from reference */
@@ -275,53 +344,193 @@ html {
 
 /* ── announcement ─────────────────────────────────────────────────────────── */
 
+/*
+ * Abstract background: layered radial glows on a deep navy base.
+ * Three orbs — gold top-left, royal blue bottom-right, indigo centre-top —
+ * give depth without fighting the text.
+ */
 #state-announcement {
   flex-direction: column;
-  align-items: stretch;
+  align-items: center;
   justify-content: flex-start;
   overflow: hidden;
   padding: 0;
+
+  /* abstract layered background */
+  background:
+    radial-gradient(ellipse 70% 55% at 8% 12%, rgba(201, 169, 110, 0.18) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 65% at 92% 88%, rgba(50, 90, 200, 0.2) 0%, transparent 55%),
+    radial-gradient(ellipse 90% 40% at 50% 0%, rgba(25, 40, 100, 0.5) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 50% at 75% 20%, rgba(100, 60, 200, 0.12) 0%, transparent 50%),
+    linear-gradient(175deg, #0b1330 0%, #060c1e 45%, #080d1a 100%);
 }
 
-.announcement-header {
-  flex: 0 0 auto;
+/* slow ambient pulse on the whole panel — projects well on a big screen */
+@keyframes announcement-glow {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.06);
+  }
+}
+
+#state-announcement:not([hidden]) {
+  animation: announcement-glow 8s ease-in-out infinite;
+}
+
+/* logo occupies the top 70 % of the viewport */
+.announcement-logo-area {
+  flex: 0 0 70vh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 4vh 4vw 3vh;
-  border-bottom: 1px solid rgba(201, 169, 110, 0.35);
-  background: rgba(8, 13, 26, 0.6);
-}
-
-.announcement-logo {
-  height: clamp(60px, 12vh, 160px);
-  width: auto;
-  object-fit: contain;
-}
-
-.announcement-church {
-  margin-top: 1.5vh;
-  font-family: var(--cb-sans);
-  font-size: clamp(20px, 2.8vw, 44px);
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--cb-accent);
-}
-
-.announcement-body-wrap {
-  flex: 1;
-  overflow: hidden;
-  padding: 5vh 8vw 4vh;
+  justify-content: center;
+  width: 100%;
+  padding: 4vh 6vw 2vh;
+  box-sizing: border-box;
   position: relative;
 }
 
+/* subtle gold hairline separating logo zone from text zone */
+.announcement-logo-area::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 10%;
+  width: 80%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(201, 169, 110, 0.5), transparent);
+}
+
+.announcement-logo {
+  max-height: 52vh;
+  max-width: 80vw;
+  width: auto;
+  object-fit: contain;
+  /* soft drop-shadow so the logo pops on the gradient */
+  filter: drop-shadow(0 4px 40px rgba(201, 169, 110, 0.25))
+    drop-shadow(0 2px 12px rgba(0, 0, 0, 0.7));
+}
+
+.announcement-church {
+  margin-top: 2.5vh;
+  font-family: var(--cb-sans);
+  font-size: clamp(18px, 2.6vw, 42px);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  text-shadow:
+    0 2px 20px rgba(201, 169, 110, 0.4),
+    0 1px 4px rgba(0, 0, 0, 0.9);
+}
+
+/* text zone occupies the remaining 30 % — scrollable */
+.announcement-body-wrap {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  padding: 3vh 10vw 4vh;
+  box-sizing: border-box;
+  /* 3-D context for the page-flip animation */
+  perspective: 900px;
+  /* fade-out at the bottom so long text disappears cleanly */
+  -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  scrollbar-width: none;
+}
+
+.announcement-body-wrap::-webkit-scrollbar {
+  display: none;
+}
+
 .announcement-body {
-  font-family: var(--cb-serif);
-  font-size: clamp(28px, 4.5vw, 72px);
-  line-height: 1.5;
+  font-family: var(--cb-sans);
+  font-size: clamp(22px, 3.2vw, 54px);
+  font-weight: 500;
+  line-height: 1.55;
   color: var(--cb-text);
+  text-align: center;
   white-space: pre-wrap;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.85);
+  transform-origin: 50% 0%; /* flip from the top edge — like turning a book page */
+  will-change: transform, opacity;
+}
+
+/* page flips away upward */
+@keyframes ann-flip-out {
+  0% {
+    transform: rotateX(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: rotateX(-88deg);
+    opacity: 0;
+  }
+}
+
+/* new page arrives from below */
+@keyframes ann-flip-in {
+  0% {
+    transform: rotateX(88deg);
+    opacity: 0;
+  }
+  100% {
+    transform: rotateX(0deg);
+    opacity: 1;
+  }
+}
+
+.ann-flip-out {
+  animation: ann-flip-out 300ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+.ann-flip-in {
+  animation: ann-flip-in 350ms cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+/* ── order of service label — persistent bottom-left overlay ────────────── */
+#service-label {
+  position: fixed;
+  bottom: 3.5vh;
+  left: 3.5vw;
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  z-index: 20;
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 400ms var(--cb-ease),
+    transform 400ms var(--cb-ease);
+  pointer-events: none;
+}
+
+#service-label.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.service-label-dot {
+  width: clamp(7px, 0.7vw, 11px);
+  height: clamp(7px, 0.7vw, 11px);
+  border-radius: 50%;
+  background: var(--cb-accent);
+  box-shadow: 0 0 8px rgba(201, 169, 110, 0.7);
+  flex-shrink: 0;
+}
+
+.service-label-text {
+  font-family: var(--cb-sans);
+  font-size: clamp(13px, 1.5vw, 22px);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.9);
 }
 
 /* ── reduced-motion — honour system accessibility preference ─────────────── */
@@ -342,5 +551,22 @@ html {
   .idle-mark {
     animation: none;
     opacity: 0.35;
+  }
+
+  #state-verse {
+    animation: none;
+    filter: none !important;
+  }
+
+  #state-announcement:not([hidden]) {
+    animation: none;
+    filter: none;
+  }
+
+  .ann-flip-out,
+  .ann-flip-in {
+    animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
   }
 }

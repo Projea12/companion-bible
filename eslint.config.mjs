@@ -51,6 +51,8 @@ export default [
         MouseEvent: 'readonly',
         TransitionEvent: 'readonly',
         requestAnimationFrame: 'readonly',
+        cancelAnimationFrame: 'readonly',
+        performance: 'readonly',
       },
     },
   },

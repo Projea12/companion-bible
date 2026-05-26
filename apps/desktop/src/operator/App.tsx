@@ -12,6 +12,8 @@ import { StatusBar } from './StatusBar';
 import type { AudioStatus, InternetStatus, AiStatus, StorageStatus } from './StatusBar';
 import { useTranscript } from './useTranscript';
 import { useVerseQueue } from './useVerseQueue';
+import { CongregationPreview } from './CongregationPreview';
+import type { ScreenMode } from './CongregationPreview';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -66,6 +68,26 @@ export function App() {
     'whisper',
   );
 
+  // announcements
+  const [announcements, setAnnouncements] = useState<
+    { id: number; body: string; durationSecs: number }[]
+  >([]);
+  const [announcementRunning, setAnnouncementRunning] = useState(false);
+  const [announcementIndex, setAnnouncementIndex] = useState<number | null>(null);
+  const [newAnnouncementBody, setNewAnnouncementBody] = useState('');
+  const [newAnnouncementDuration, setNewAnnouncementDuration] = useState(30);
+
+  // screen mode
+  const [screenMode, setScreenMode] = useState<ScreenMode>('idle');
+  const [currentAnnouncementBody, setCurrentAnnouncementBody] = useState<string | null>(null);
+
+  // order of service
+  const [serviceItems, setServiceItems] = useState<
+    { id: number; label: string; isCurrent: boolean }[]
+  >([]);
+  const [newServiceItemLabel, setNewServiceItemLabel] = useState('');
+  const [currentServiceLabel, setCurrentServiceLabel] = useState<string | null>(null);
+
   // settings panel
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -89,6 +111,13 @@ export function App() {
       setHasSecondary(s.hasSecondaryScreen);
       if (s.sessionActive) setAudio('flowing');
     });
+    void invoke<{ id: number; label: string; is_current: boolean }[]>('get_service_items').then(
+      (items) => {
+        setServiceItems(items.map((i) => ({ id: i.id, label: i.label, isCurrent: i.is_current })));
+        const current = items.find((i) => i.is_current);
+        if (current) setCurrentServiceLabel(current.label);
+      },
+    );
   }, []);
 
   // ── undo countdown ─────────────────────────────────────────────────────────
@@ -149,19 +178,27 @@ export function App() {
             text: payload.text,
             translation: payload.translation,
           });
+          setScreenMode('verse');
+          break;
+
+        case 'DISPLAY_BLANKED':
+          setDisplayedVerse(null);
+          setScreenMode('blank');
           break;
 
         case 'DISPLAY_CLEARED':
-        case 'DISPLAY_BLANKED':
           setDisplayedVerse(null);
+          setScreenMode('idle');
           break;
 
         case 'SERMON_TITLE_SHOWN':
           setSermonTitle(payload.title);
+          setScreenMode('title');
           break;
 
         case 'SUB_POINT_SHOWN':
           setCurrentSubPoint(payload.text);
+          setScreenMode('subpoint');
           break;
 
         case 'SERMON_STARTED':
@@ -254,10 +291,36 @@ export function App() {
             isChorus: payload.is_chorus,
             lines: payload.lines,
           });
+          setScreenMode('hymn');
           break;
 
         case 'HYMN_COMPLETED':
           setHymnSection(null);
+          setScreenMode('idle');
+          break;
+
+        case 'ANNOUNCEMENT_SHOWN':
+          setAnnouncementIndex(payload.index);
+          setAnnouncementRunning(true);
+          setScreenMode('announcement');
+          setCurrentAnnouncementBody(payload.body);
+          break;
+
+        case 'ANNOUNCEMENTS_STOPPED':
+          setAnnouncementRunning(false);
+          setAnnouncementIndex(null);
+          setScreenMode('idle');
+          setCurrentAnnouncementBody(null);
+          break;
+
+        case 'SERVICE_ITEM_CHANGED':
+          setCurrentServiceLabel(payload.label);
+          setServiceItems((prev) =>
+            prev.map((i) => ({
+              ...i,
+              isCurrent: payload.label !== null && i.label === payload.label,
+            })),
+          );
           break;
       }
     });
@@ -398,6 +461,67 @@ export function App() {
     void invoke('next_hymn_stanza');
   }, []);
 
+  const handleAddAnnouncement = useCallback(() => {
+    const body = newAnnouncementBody.trim();
+    if (!body) return;
+    void invoke('add_announcement', { body, durationSecs: newAnnouncementDuration }).then((id) => {
+      setAnnouncements((prev) => [...prev, { id, body, durationSecs: newAnnouncementDuration }]);
+      setNewAnnouncementBody('');
+    });
+  }, [newAnnouncementBody, newAnnouncementDuration]);
+
+  const handleRemoveAnnouncement = useCallback((id: number) => {
+    void invoke('remove_announcement', { id }).then(() => {
+      setAnnouncements((prev) => prev.filter((a) => a.id !== id));
+    });
+  }, []);
+
+  const handleStartAnnouncements = useCallback(() => {
+    void invoke('start_announcements');
+  }, []);
+
+  const handleStopAnnouncements = useCallback(() => {
+    void invoke('stop_announcements');
+  }, []);
+
+  const handleNextAnnouncement = useCallback(() => {
+    void invoke('next_announcement');
+  }, []);
+
+  const handlePrevAnnouncement = useCallback(() => {
+    void invoke('prev_announcement');
+  }, []);
+
+  const handleAddServiceItem = useCallback(() => {
+    const label = newServiceItemLabel.trim().toUpperCase();
+    if (!label) return;
+    void invoke('add_service_item', { label }).then((id) => {
+      setServiceItems((prev) => [...prev, { id, label, isCurrent: false }]);
+      setNewServiceItemLabel('');
+    });
+  }, [newServiceItemLabel]);
+
+  const handleRemoveServiceItem = useCallback((id: number) => {
+    void invoke('remove_service_item', { id }).then(() => {
+      setServiceItems((prev) => prev.filter((i) => i.id !== id));
+    });
+  }, []);
+
+  const handleSetCurrentServiceItem = useCallback((id: number) => {
+    void invoke('set_current_service_item', { id });
+  }, []);
+
+  const handleNextServiceItem = useCallback(() => {
+    void invoke('next_service_item');
+  }, []);
+
+  const handleClearServiceItems = useCallback(() => {
+    void invoke('clear_service_items').then(() => {
+      setServiceItems([]);
+      setCurrentServiceLabel(null);
+    });
+  }, []);
+
   const handleNextSubPoint = useCallback(() => {
     void invoke('next_sub_point').then(() => {
       setSubPointIndex((i) => {
@@ -412,7 +536,8 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const inInput = (e.target as HTMLElement).tagName === 'INPUT';
+      const tag = (e.target as HTMLElement).tagName;
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA';
       if (e.code === 'Space' && !inInput) {
         e.preventDefault();
         handleDiscard();
@@ -593,12 +718,20 @@ export function App() {
 
       {/* ── Main ── */}
       <main className="op-main">
-        {/* ── Left: transcript + queue ── */}
+        {/* ── Left: preview + queue + transcript ── */}
         <div className="op-col op-col-left">
-          <section className="op-panel op-panel-transcript">
-            <h2 className="op-panel-heading">Live Transcript</h2>
-            <TranscriptPanel lines={transcript.lines} sessionActive={sessionActive} />
-          </section>
+          <CongregationPreview
+            screenMode={screenMode}
+            congregationVisible={congregationVisible}
+            verse={displayedVerse}
+            sermonTitle={sermonTitle}
+            subPoint={currentSubPoint}
+            hymn={activeHymn}
+            hymnSection={hymnSection}
+            announcementBody={currentAnnouncementBody}
+            transcriptLines={transcript.lines}
+            sessionActive={sessionActive}
+          />
 
           <VerseQueuePanel
             items={queue.items}
@@ -606,10 +739,89 @@ export function App() {
             onConfirm={handleConfirmVerse}
             onReject={handleRejectVerse}
           />
+
+          <section className="op-panel op-panel-transcript">
+            <h2 className="op-panel-heading">Live Transcript</h2>
+            <TranscriptPanel lines={transcript.lines} sessionActive={sessionActive} />
+          </section>
         </div>
 
-        {/* ── Right: sermon controls + verse + discard + override + undo ── */}
+        {/* ── Right: order of service + sermon controls + verse + discard + override + undo ── */}
         <div className="op-col op-col-right">
+          {/* ── Order of Service ── */}
+          <section className="op-panel op-panel-service">
+            <div className="service-panel-header">
+              <h2 className="op-panel-heading">Order of Service</h2>
+              {currentServiceLabel && (
+                <span className="service-now-badge">● {currentServiceLabel}</span>
+              )}
+            </div>
+
+            <div className="service-add-row">
+              <input
+                className="service-add-input"
+                placeholder="e.g. OPENING PRAYER"
+                value={newServiceItemLabel}
+                onChange={(e) => setNewServiceItemLabel(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAddServiceItem();
+                }}
+              />
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={!newServiceItemLabel.trim()}
+                onClick={handleAddServiceItem}
+              >
+                + Add
+              </button>
+            </div>
+
+            {serviceItems.length > 0 && (
+              <ol className="service-list">
+                {serviceItems.map((item) => (
+                  <li
+                    key={item.id}
+                    className={`service-item${item.isCurrent ? ' service-item--active' : ''}`}
+                    onClick={() => handleSetCurrentServiceItem(item.id)}
+                    title="Click to set as current"
+                  >
+                    <span className="service-item-dot" aria-hidden="true">
+                      {item.isCurrent ? '●' : '○'}
+                    </span>
+                    <span className="service-item-label">{item.label}</span>
+                    <button
+                      className="btn btn-sm btn-danger service-item-remove"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveServiceItem(item.id);
+                      }}
+                      title="Remove"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            <div className="service-controls">
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={serviceItems.length === 0}
+                onClick={handleNextServiceItem}
+              >
+                Next →
+              </button>
+              <button
+                className="btn btn-sm btn-danger"
+                disabled={serviceItems.length === 0}
+                onClick={handleClearServiceItems}
+              >
+                Clear All
+              </button>
+            </div>
+          </section>
+
           <SermonControls
             sermonActive={sermonActive}
             subPoints={subPoints}
@@ -701,6 +913,88 @@ export function App() {
               </button>
             </section>
           )}
+
+          {/* ── Announcement panel ── */}
+          <section className="op-panel op-panel-announcement">
+            <h2 className="op-panel-heading">Announcements</h2>
+
+            {/* Add new announcement */}
+            <div className="announcement-add-row">
+              <textarea
+                className="announcement-body-input"
+                placeholder="Announcement text…"
+                value={newAnnouncementBody}
+                onChange={(e) => setNewAnnouncementBody(e.target.value)}
+                rows={3}
+              />
+              <div className="announcement-add-controls">
+                <label className="announcement-duration-label">
+                  Duration (s)
+                  <input
+                    type="number"
+                    className="announcement-duration-input"
+                    min={5}
+                    max={300}
+                    value={newAnnouncementDuration}
+                    onChange={(e) => setNewAnnouncementDuration(Number(e.target.value))}
+                  />
+                </label>
+                <button
+                  className="btn btn-primary"
+                  disabled={!newAnnouncementBody.trim()}
+                  onClick={handleAddAnnouncement}
+                >
+                  + Add
+                </button>
+              </div>
+            </div>
+
+            {/* List */}
+            {announcements.length > 0 && (
+              <ol className="announcement-list">
+                {announcements.map((a, i) => (
+                  <li
+                    key={a.id}
+                    className={`announcement-item${announcementIndex === i ? ' announcement-item--active' : ''}`}
+                  >
+                    <span className="announcement-item-body">{a.body}</span>
+                    <span className="announcement-item-dur">{a.durationSecs}s</span>
+                    <button
+                      className="btn btn-sm btn-danger"
+                      onClick={() => handleRemoveAnnouncement(a.id)}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            )}
+
+            {/* Playback controls */}
+            <div className="announcement-controls">
+              {!announcementRunning ? (
+                <button
+                  className="btn btn-primary"
+                  disabled={announcements.length === 0}
+                  onClick={handleStartAnnouncements}
+                >
+                  ▶ Start
+                </button>
+              ) : (
+                <>
+                  <button className="btn btn-secondary" onClick={handlePrevAnnouncement}>
+                    ← Prev
+                  </button>
+                  <button className="btn btn-secondary" onClick={handleNextAnnouncement}>
+                    Next →
+                  </button>
+                  <button className="btn btn-danger" onClick={handleStopAnnouncements}>
+                    ■ Stop
+                  </button>
+                </>
+              )}
+            </div>
+          </section>
 
           <ManualOverride onSubmit={handleManualOverride} />
           <ManualHymnOverride onSubmit={handleLoadHymn} />

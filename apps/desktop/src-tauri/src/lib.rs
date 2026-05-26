@@ -35,6 +35,31 @@ enum DisplayMode {
     Title,
     Subpoint,
     Hymn,
+    Announcement,
+}
+
+// ─── announcement ─────────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+struct Announcement {
+    id: u32,
+    body: String,
+    duration_secs: u32,
+}
+
+// ─── order of service ─────────────────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+struct ServiceItem {
+    id: u32,
+    label: String,
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+struct ServiceItemView {
+    id: u32,
+    label: String,
+    is_current: bool,
 }
 
 // ─── pipeline ─────────────────────────────────────────────────────────────────
@@ -89,6 +114,13 @@ struct InternalState {
     pipeline: Option<Pipeline>,
     /// Hymn session used when no audio session is active (manual load).
     hymn_session: Option<HymnSession>,
+    announcements: Vec<Announcement>,
+    announcement_index: Option<usize>,
+    next_announcement_id: u32,
+    announcement_task: Option<tauri::async_runtime::JoinHandle<()>>,
+    service_items: Vec<ServiceItem>,
+    current_service_item_id: Option<u32>,
+    next_service_item_id: u32,
 }
 
 impl Default for InternalState {
@@ -108,6 +140,13 @@ impl Default for InternalState {
             openai_api_key: None,
             pipeline: None,
             hymn_session: None,
+            announcements: Vec::new(),
+            announcement_index: None,
+            next_announcement_id: 1,
+            announcement_task: None,
+            service_items: Vec::new(),
+            current_service_item_id: None,
+            next_service_item_id: 1,
         }
     }
 }
@@ -1198,6 +1237,303 @@ fn select_audio_device(state: State<ManagedState>, device_id: String) {
     state.inner.lock().unwrap().selected_device_id = Some(device_id);
 }
 
+// ─── announcement commands ────────────────────────────────────────────────────
+
+#[tauri::command]
+fn add_announcement(state: State<ManagedState>, body: String, duration_secs: u32) -> u32 {
+    let mut s = state.inner.lock().unwrap();
+    let id = s.next_announcement_id;
+    s.next_announcement_id += 1;
+    s.announcements.push(Announcement {
+        id,
+        body,
+        duration_secs,
+    });
+    id
+}
+
+#[tauri::command]
+fn remove_announcement(state: State<ManagedState>, id: u32) {
+    let mut s = state.inner.lock().unwrap();
+    s.announcements.retain(|a| a.id != id);
+    // Keep index valid after removal.
+    if let Some(idx) = s.announcement_index {
+        if s.announcements.is_empty() {
+            s.announcement_index = None;
+        } else if idx >= s.announcements.len() {
+            s.announcement_index = Some(s.announcements.len() - 1);
+        }
+    }
+}
+
+#[tauri::command]
+fn update_announcement(state: State<ManagedState>, id: u32, body: String, duration_secs: u32) {
+    let mut s = state.inner.lock().unwrap();
+    if let Some(a) = s.announcements.iter_mut().find(|a| a.id == id) {
+        a.body = body;
+        a.duration_secs = duration_secs;
+    }
+}
+
+#[tauri::command]
+fn reorder_announcements(state: State<ManagedState>, ids: Vec<u32>) {
+    let mut s = state.inner.lock().unwrap();
+    let current_id = s
+        .announcement_index
+        .and_then(|i| s.announcements.get(i))
+        .map(|a| a.id);
+    s.announcements
+        .sort_by_key(|a| ids.iter().position(|&id| id == a.id).unwrap_or(usize::MAX));
+    if let Some(cid) = current_id {
+        s.announcement_index = s.announcements.iter().position(|a| a.id == cid);
+    }
+}
+
+#[tauri::command]
+fn get_announcements(state: State<ManagedState>) -> Vec<Announcement> {
+    state.inner.lock().unwrap().announcements.clone()
+}
+
+fn emit_announcement(app: &AppHandle, ann: &Announcement, index: usize, total: usize) {
+    let _ = app.emit(
+        "app-event",
+        &AppEvent::AnnouncementShown {
+            id: ann.id,
+            body: ann.body.clone(),
+            index: index as u32,
+            total: total as u32,
+            duration_secs: ann.duration_secs,
+        },
+    );
+}
+
+#[tauri::command]
+fn start_announcements(app: AppHandle, state: State<ManagedState>) -> bool {
+    let (ann, index, total, duration) = {
+        let mut s = state.inner.lock().unwrap();
+        if s.announcements.is_empty() {
+            return false;
+        }
+        if let Some(h) = s.announcement_task.take() {
+            h.abort();
+        }
+        s.announcement_index = Some(0);
+        s.display_mode = DisplayMode::Announcement;
+        let total = s.announcements.len();
+        let ann = s.announcements[0].clone();
+        let dur = ann.duration_secs;
+        (ann, 0usize, total, dur)
+    };
+    emit_announcement(&app, &ann, index, total);
+    let app2 = app.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(u64::from(duration))).await;
+        advance_announcement_inner(&app2);
+    });
+    state.inner.lock().unwrap().announcement_task = Some(handle);
+    true
+}
+
+fn advance_announcement_inner(app: &AppHandle) {
+    let state = app.state::<ManagedState>();
+    let (ann, index, total, duration) = {
+        let mut s = state.inner.lock().unwrap();
+        let Some(idx) = s.announcement_index else {
+            return;
+        };
+        if s.announcements.is_empty() {
+            return;
+        }
+        let next = (idx + 1) % s.announcements.len();
+        s.announcement_index = Some(next);
+        let total = s.announcements.len();
+        let ann = s.announcements[next].clone();
+        let dur = ann.duration_secs;
+        (ann, next, total, dur)
+    };
+    emit_announcement(app, &ann, index, total);
+    let app2 = app.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(u64::from(duration))).await;
+        advance_announcement_inner(&app2);
+    });
+    state.inner.lock().unwrap().announcement_task = Some(handle);
+}
+
+#[tauri::command]
+fn stop_announcements(app: AppHandle, state: State<ManagedState>) {
+    let mut s = state.inner.lock().unwrap();
+    if let Some(h) = s.announcement_task.take() {
+        h.abort();
+    }
+    s.announcement_index = None;
+    s.display_mode = DisplayMode::Idle;
+    drop(s);
+    let _ = app.emit("app-event", &AppEvent::AnnouncementsStopped);
+}
+
+#[tauri::command]
+fn next_announcement(app: AppHandle, state: State<ManagedState>) {
+    let (ann, index, total, duration) = {
+        let mut s = state.inner.lock().unwrap();
+        if s.announcements.is_empty() {
+            return;
+        }
+        let Some(idx) = s.announcement_index else {
+            return;
+        };
+        // Cancel the current timer.
+        if let Some(h) = s.announcement_task.take() {
+            h.abort();
+        }
+        let next = (idx + 1) % s.announcements.len();
+        s.announcement_index = Some(next);
+        let total = s.announcements.len();
+        let ann = s.announcements[next].clone();
+        let dur = ann.duration_secs;
+        (ann, next, total, dur)
+    };
+    emit_announcement(&app, &ann, index, total);
+    let app2 = app.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(u64::from(duration))).await;
+        advance_announcement_inner(&app2);
+    });
+    state.inner.lock().unwrap().announcement_task = Some(handle);
+}
+
+#[tauri::command]
+fn prev_announcement(app: AppHandle, state: State<ManagedState>) {
+    let (ann, index, total, duration) = {
+        let mut s = state.inner.lock().unwrap();
+        if s.announcements.is_empty() {
+            return;
+        }
+        let Some(idx) = s.announcement_index else {
+            return;
+        };
+        if let Some(h) = s.announcement_task.take() {
+            h.abort();
+        }
+        let prev = if idx == 0 {
+            s.announcements.len() - 1
+        } else {
+            idx - 1
+        };
+        s.announcement_index = Some(prev);
+        let total = s.announcements.len();
+        let ann = s.announcements[prev].clone();
+        let dur = ann.duration_secs;
+        (ann, prev, total, dur)
+    };
+    emit_announcement(&app, &ann, index, total);
+    let app2 = app.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(u64::from(duration))).await;
+        advance_announcement_inner(&app2);
+    });
+    state.inner.lock().unwrap().announcement_task = Some(handle);
+}
+
+#[tauri::command]
+fn scroll_congregation(app: AppHandle, amount: i32) {
+    let _ = app.emit("app-event", &AppEvent::CongregationScroll { amount });
+}
+
+// ─── order of service commands ────────────────────────────────────────────────
+
+#[tauri::command]
+fn add_service_item(label: String, state: State<ManagedState>) -> u32 {
+    let mut s = state.inner.lock().unwrap();
+    let id = s.next_service_item_id;
+    s.next_service_item_id += 1;
+    s.service_items.push(ServiceItem { id, label });
+    id
+}
+
+#[tauri::command]
+fn remove_service_item(id: u32, state: State<ManagedState>, app: AppHandle) {
+    let mut s = state.inner.lock().unwrap();
+    s.service_items.retain(|i| i.id != id);
+    if s.current_service_item_id == Some(id) {
+        s.current_service_item_id = None;
+        let _ = app.emit("app-event", &AppEvent::ServiceItemChanged { label: None });
+    }
+}
+
+#[tauri::command]
+fn set_current_service_item(id: Option<u32>, state: State<ManagedState>, app: AppHandle) {
+    let mut s = state.inner.lock().unwrap();
+    s.current_service_item_id = id;
+    let label = id.and_then(|id| {
+        s.service_items
+            .iter()
+            .find(|i| i.id == id)
+            .map(|i| i.label.clone())
+    });
+    let _ = app.emit("app-event", &AppEvent::ServiceItemChanged { label });
+}
+
+#[tauri::command]
+fn next_service_item(state: State<ManagedState>, app: AppHandle) {
+    let mut s = state.inner.lock().unwrap();
+    if s.service_items.is_empty() {
+        return;
+    }
+    let next_idx = match s.current_service_item_id {
+        None => 0,
+        Some(cur_id) => {
+            let cur_pos = s
+                .service_items
+                .iter()
+                .position(|i| i.id == cur_id)
+                .unwrap_or(0);
+            (cur_pos + 1).min(s.service_items.len() - 1)
+        }
+    };
+    let item = &s.service_items[next_idx];
+    let id = item.id;
+    let label = item.label.clone();
+    s.current_service_item_id = Some(id);
+    let _ = app.emit(
+        "app-event",
+        &AppEvent::ServiceItemChanged { label: Some(label) },
+    );
+}
+
+#[tauri::command]
+fn reorder_service_items(ids: Vec<u32>, state: State<ManagedState>) {
+    let mut s = state.inner.lock().unwrap();
+    let mut reordered: Vec<ServiceItem> = Vec::with_capacity(ids.len());
+    for id in &ids {
+        if let Some(item) = s.service_items.iter().find(|i| i.id == *id) {
+            reordered.push(item.clone());
+        }
+    }
+    s.service_items = reordered;
+}
+
+#[tauri::command]
+fn clear_service_items(state: State<ManagedState>, app: AppHandle) {
+    let mut s = state.inner.lock().unwrap();
+    s.service_items.clear();
+    s.current_service_item_id = None;
+    let _ = app.emit("app-event", &AppEvent::ServiceItemChanged { label: None });
+}
+
+#[tauri::command]
+fn get_service_items(state: State<ManagedState>) -> Vec<ServiceItemView> {
+    let s = state.inner.lock().unwrap();
+    s.service_items
+        .iter()
+        .map(|i| ServiceItemView {
+            id: i.id,
+            label: i.label.clone(),
+            is_current: s.current_service_item_id == Some(i.id),
+        })
+        .collect()
+}
+
 // ─── health command ───────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -1292,6 +1628,23 @@ pub fn run() {
             get_audio_devices,
             select_audio_device,
             get_system_health,
+            add_announcement,
+            remove_announcement,
+            update_announcement,
+            reorder_announcements,
+            get_announcements,
+            start_announcements,
+            stop_announcements,
+            next_announcement,
+            prev_announcement,
+            scroll_congregation,
+            add_service_item,
+            remove_service_item,
+            set_current_service_item,
+            next_service_item,
+            reorder_service_items,
+            clear_service_items,
+            get_service_items,
         ])
         .run(tauri::generate_context!())
         .expect("error while running companion bible");
