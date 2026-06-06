@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import '../congregation/congregation.css';
 import type { TranscriptLine } from './useTranscript';
 
 export type ScreenMode =
@@ -37,127 +37,102 @@ export function CongregationPreview(props: CongregationPreviewProps) {
     sessionActive,
   } = props;
 
-  const verseScrollRef = useRef<HTMLDivElement>(null);
+  const hymnSectionLabel = hymnSection?.isChorus
+    ? 'Chorus'
+    : `Stanza ${hymnSection?.stanzaNumber ?? ''}`;
 
-  // ── preview inner content ────────────────────────────────────────────────
+  const liveClass = `cong-preview-live cong-preview-live--${congregationVisible ? 'on' : 'off'}`;
 
-  function renderInner() {
-    switch (screenMode) {
-      case 'blank':
-        return null;
+  const lastLine = transcriptLines.length > 0 ? transcriptLines[transcriptLines.length - 1] : null;
 
-      case 'verse':
-        return (
-          <div className="cpv-verse-scroll" ref={verseScrollRef}>
-            <div className="cpv-verse-card">
-              <img src="/deeper_life_logo.png" className="cpv-verse-card-logo" aria-hidden="true" />
-              <p className="cpv-verse-text">{verse?.text ?? ''}</p>
-              <hr className="cpv-verse-rule" />
-              <p className="cpv-verse-ref">{verse?.reference ?? ''}</p>
-              <p className="cpv-verse-trans">{verse?.translation ?? ''}</p>
+  return (
+    <div className="cong-preview-wrap">
+      {/*
+       * The inner .congregation-app uses the REAL congregation CSS classes.
+       * congregation.css uses cqw/cqh (container query units) so everything
+       * scales correctly relative to .cong-preview-box — zero duplication,
+       * changes to congregation.css auto-reflect here.
+       */}
+      <div className="cong-preview-box">
+        <div className="congregation-app">
+          {/* idle */}
+          <div className="congregation-state" hidden={screenMode !== 'idle'}>
+            <div className="idle-mark" aria-hidden="true">
+              ✦
             </div>
           </div>
-        );
 
-      case 'title':
-        return (
-          <div className="cpv-centered">
-            <div className="cpv-title-card">
-              <p className="cpv-title-eyebrow">Sermon</p>
-              <p className="cpv-title-text">{sermonTitle ?? ''}</p>
+          {/* verse */}
+          <div className="congregation-state state-verse" hidden={screenMode !== 'verse'}>
+            <div className="verse-card">
+              <img src="/deeper_life_logo.png" className="verse-card-logo" aria-hidden="true" />
+              <div className="verse-text">{verse?.text ?? ''}</div>
+              <div className="verse-rule" aria-hidden="true"></div>
+              <div className="verse-reference">{verse?.reference ?? ''}</div>
+              <div className="verse-translation">{verse?.translation ?? ''}</div>
             </div>
           </div>
-        );
 
-      case 'subpoint':
-        return (
-          <div className="cpv-centered">
-            <div className="cpv-subpoint-card">
-              <p className="cpv-subpoint-text">{subPoint ?? ''}</p>
+          {/* sermon title */}
+          <div className="congregation-state" hidden={screenMode !== 'title'}>
+            <div className="title-card">
+              <div className="title-eyebrow">Sermon</div>
+              <div className="title-text">{sermonTitle ?? ''}</div>
             </div>
           </div>
-        );
 
-      case 'hymn': {
-        const sectionLabel = hymnSection?.isChorus
-          ? 'Chorus'
-          : `Stanza ${hymnSection?.stanzaNumber ?? ''}`;
-        return (
-          <div className="cpv-centered">
-            <div className="cpv-hymn-card">
-              <div className="cpv-hymn-eyebrow">
+          {/* sub-point */}
+          <div className="congregation-state" hidden={screenMode !== 'subpoint'}>
+            <div className="subpoint-card">
+              <div className="subpoint-text">{subPoint ?? ''}</div>
+            </div>
+          </div>
+
+          {/* hymn */}
+          <div className="congregation-state" hidden={screenMode !== 'hymn'}>
+            <div className="hymn-card">
+              <div className="hymn-eyebrow">
                 <span>{hymn ? `GHS ${hymn.number}` : ''}</span>
-                <span className="cpv-hymn-sep">·</span>
-                <span>{sectionLabel}</span>
+                <span className="hymn-eyebrow-sep" aria-hidden="true">
+                  ·
+                </span>
+                <span>{hymnSectionLabel}</span>
               </div>
-              {hymn && <p className="cpv-hymn-title">{hymn.title}</p>}
-              <div className="cpv-hymn-lines">
+              {hymn && <div className="hymn-title">{hymn.title}</div>}
+              <div className="hymn-lines">
                 {hymnSection?.lines.map((line, i) => (
-                  <p key={i} className="cpv-hymn-line">
+                  <p key={i} className="hymn-line">
                     {line}
                   </p>
                 ))}
               </div>
             </div>
           </div>
-        );
-      }
 
-      case 'announcement':
-        return (
-          <div className="cpv-announcement">
-            <div className="cpv-ann-logo-area">
-              <img src="/deeper_life_logo.png" alt="Deeper Life" className="cpv-ann-logo" />
-              <p className="cpv-ann-church">Blessed Group&nbsp;&nbsp;Poka</p>
+          {/* announcement */}
+          <div
+            className="congregation-state state-announcement"
+            hidden={screenMode !== 'announcement'}
+          >
+            <div className="ann-top-bar">
+              <img src="/deeper_life_logo.png" className="ann-logo-bug" aria-hidden="true" />
             </div>
-            <div className="cpv-ann-body-wrap">
-              <p className="cpv-ann-body">{announcementBody ?? ''}</p>
+            <div className="ann-body-zone">
+              <img src="/deeper_life_logo.png" className="ann-watermark" aria-hidden="true" />
+              <div className="ann-text">{announcementBody ?? ''}</div>
+            </div>
+            <div className="ann-footer">
+              <div className="ann-church-name">Blessed Group&nbsp;&nbsp;Poka</div>
             </div>
           </div>
-        );
 
-      case 'idle':
-      default:
-        return (
-          <div className="cpv-centered">
-            <span className="cpv-idle-mark">✦</span>
-          </div>
-        );
-    }
-  }
-
-  // ── now hearing ──────────────────────────────────────────────────────────
-
-  const lastLine = transcriptLines.length > 0 ? transcriptLines[transcriptLines.length - 1] : null;
-
-  function renderNowHearing() {
-    if (!sessionActive) {
-      return (
-        <span className="cong-now-hearing-text cong-now-hearing-text--muted">Start a session</span>
-      );
-    }
-    if (!lastLine) {
-      return (
-        <span className="cong-now-hearing-text cong-now-hearing-text--muted">
-          Waiting for audio…
-        </span>
-      );
-    }
-    return (
-      <span className="cong-now-hearing-text">
-        {lastLine.text}
-        {lastLine.detectedRef && (
-          <span className="cong-now-hearing-badge">{lastLine.detectedRef}</span>
-        )}
-      </span>
-    );
-  }
-
-  const liveClass = `cong-preview-live cong-preview-live--${congregationVisible ? 'on' : 'off'}`;
-
-  return (
-    <div className="cong-preview-wrap">
-      <div className="cong-preview-box">{renderInner()}</div>
+          {/* blank */}
+          <div
+            className="congregation-state congregation-blank"
+            hidden={screenMode !== 'blank'}
+          ></div>
+        </div>
+      </div>
 
       <div className="cong-preview-status-row">
         <span className={liveClass}>
@@ -169,7 +144,24 @@ export function CongregationPreview(props: CongregationPreviewProps) {
 
       <div className="cong-now-hearing">
         <span className="cong-now-hearing-label">Now Hearing</span>
-        {renderNowHearing()}
+        {sessionActive ? (
+          lastLine ? (
+            <span className="cong-now-hearing-text">
+              {lastLine.text}
+              {lastLine.detectedRef && (
+                <span className="cong-now-hearing-badge">{lastLine.detectedRef}</span>
+              )}
+            </span>
+          ) : (
+            <span className="cong-now-hearing-text cong-now-hearing-text--muted">
+              Waiting for audio…
+            </span>
+          )
+        ) : (
+          <span className="cong-now-hearing-text cong-now-hearing-text--muted">
+            Start a session
+          </span>
+        )}
       </div>
     </div>
   );

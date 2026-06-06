@@ -19,13 +19,15 @@
   --cb-fade: 300ms;
   --cb-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* type scale — clamp keeps everything legible at 10 m */
-  --size-verse: clamp(45px, 7.2vw, 110px); /* 1.5× original, capped at safe max */
-  --size-ref: clamp(17px, 2.2vw, 30px);
-  --size-trans: clamp(11px, 1.1vw, 16px);
-  --size-title: clamp(38px, 6.5vw, 100px);
-  --size-eyebrow: clamp(11px, 1.2vw, 17px);
-  --size-subpoint: clamp(24px, 4vw, 62px);
+  /* type scale — clamp keeps everything legible at 10 m
+     cqw/cqh = container query units so these scale correctly
+     both on the real projector screen and in the operator preview */
+  --size-verse: clamp(45px, 7.2cqw, 110px);
+  --size-ref: clamp(17px, 2.2cqw, 30px);
+  --size-trans: clamp(11px, 1.1cqw, 16px);
+  --size-title: clamp(38px, 6.5cqw, 100px);
+  --size-eyebrow: clamp(11px, 1.2cqw, 17px);
+  --size-subpoint: clamp(24px, 4cqw, 62px);
 }
 
 /* ── FOUC guard — background set at html level so no white flash ever shows ─ */
@@ -54,11 +56,15 @@ html {
 
 .congregation-app {
   position: relative;
-  width: 100vw;
-  height: 100vh;
+  /* 100% fills viewport on the real screen; fills preview box in the operator */
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  /* container-type: size makes cqw/cqh resolve relative to THIS element,
+     so the same CSS works correctly at any size */
+  container-type: size;
 }
 
 /* ── state layers — every screen sits at absolute inset: 0 ───────────────── */
@@ -117,7 +123,7 @@ html {
 }
 
 /* ── verse state panel — scrollable so enlarged text always fits ─────────── */
-#state-verse {
+.state-verse {
   overflow-y: auto;
   overflow-x: hidden;
   align-items: flex-start; /* allow card to grow taller than viewport */
@@ -147,7 +153,7 @@ html {
   }
 }
 
-#state-verse::-webkit-scrollbar {
+.state-verse::-webkit-scrollbar {
   display: none;
 }
 
@@ -157,11 +163,12 @@ html {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: clamp(260px, 58vw, 820px);
-  opacity: 0.12;
+  width: clamp(200px, 42cqw, 620px);
+  opacity: 0.05;
   pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
+  filter: sepia(1) saturate(0.4) brightness(1.8);
   z-index: 0;
 }
 
@@ -171,14 +178,14 @@ html {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: min(1300px, 84vw);
-  padding: clamp(40px, 6vw, 100px) clamp(32px, 5vw, 80px);
+  max-width: min(1300px, 84cqw);
+  padding: clamp(40px, 6cqw, 100px) clamp(32px, 5cqw, 80px);
   margin: auto; /* keeps card centred when content is shorter than viewport */
   position: relative;
   z-index: 1;
 
   background: rgba(12, 8, 30, 0.82);
-  border-radius: clamp(12px, 1.5vw, 24px);
+  border-radius: clamp(12px, 1.5cqw, 24px);
   border: 1px solid rgba(139, 92, 246, 0.35);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.06) inset,
@@ -194,7 +201,7 @@ html {
   line-height: 1.5;
   color: var(--cb-text);
   text-shadow: 0 2px 32px rgba(0, 0, 0, 0.9);
-  margin-bottom: clamp(24px, 3vw, 48px);
+  margin-bottom: clamp(24px, 3cqw, 48px);
   position: relative;
   z-index: 1;
 }
@@ -208,11 +215,11 @@ html {
 
 /* thin gold rule separating verse body from reference */
 .verse-rule {
-  width: clamp(40px, 6vw, 80px);
+  width: clamp(40px, 6cqw, 80px);
   height: 1px;
   background: var(--cb-accent);
   opacity: 0.55;
-  margin-bottom: clamp(20px, 2.5vw, 40px);
+  margin-bottom: clamp(20px, 2.5cqw, 40px);
   border: none;
 }
 
@@ -224,7 +231,7 @@ html {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--cb-accent);
-  margin-bottom: clamp(6px, 0.8vw, 12px);
+  margin-bottom: clamp(6px, 0.8cqw, 12px);
 }
 
 .verse-translation {
@@ -242,9 +249,9 @@ html {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: min(1200px, 84vw);
-  padding: clamp(40px, 6vw, 100px) clamp(32px, 5vw, 80px);
-  gap: clamp(14px, 2vw, 28px);
+  max-width: min(1200px, 84cqw);
+  padding: clamp(40px, 6cqw, 100px) clamp(32px, 5cqw, 80px);
+  gap: clamp(14px, 2cqw, 28px);
 }
 
 .title-eyebrow {
@@ -268,9 +275,9 @@ html {
 
 /* ── sub-point card ───────────────────────────────────────────────────────── */
 .subpoint-card {
-  max-width: min(1100px, 84vw);
-  padding: clamp(32px, 5vw, 80px) clamp(32px, 5vw, 80px) clamp(32px, 5vw, 80px)
-    clamp(48px, 6.5vw, 96px);
+  max-width: min(1100px, 84cqw);
+  padding: clamp(32px, 5cqw, 80px) clamp(32px, 5cqw, 80px) clamp(32px, 5cqw, 80px)
+    clamp(48px, 6.5cqw, 96px);
   border-left: 3px solid var(--cb-accent);
 }
 
@@ -285,12 +292,12 @@ html {
 
 /* ── hymn card ────────────────────────────────────────────────────────────── */
 .hymn-card {
-  max-width: min(1200px, 88vw);
+  max-width: min(1200px, 88cqw);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(12px, 1.8vw, 28px);
-  padding: clamp(24px, 4vw, 64px);
+  gap: clamp(12px, 1.8cqw, 28px);
+  padding: clamp(24px, 4cqw, 64px);
 }
 
 .hymn-eyebrow {
@@ -311,7 +318,7 @@ html {
 
 .hymn-title {
   font-family: var(--cb-serif);
-  font-size: clamp(18px, 2.4vw, 36px);
+  font-size: clamp(18px, 2.4cqw, 36px);
   font-weight: 400;
   color: var(--cb-text-dim);
   text-align: center;
@@ -322,13 +329,13 @@ html {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(6px, 0.8vw, 14px);
-  margin-top: clamp(8px, 1.2vw, 20px);
+  gap: clamp(6px, 0.8cqw, 14px);
+  margin-top: clamp(8px, 1.2cqw, 20px);
 }
 
 .hymn-line {
   font-family: var(--cb-serif);
-  font-size: var(--hymn-fs, clamp(26px, 4vw, 64px));
+  font-size: var(--hymn-fs, clamp(26px, 4cqw, 64px));
   font-weight: 400;
   line-height: 1.5;
   color: var(--cb-text);
@@ -349,7 +356,7 @@ html {
  * The congregation reads the temperature shift before they read a single word:
  * this is community news, not scripture.
  */
-#state-announcement {
+.state-announcement {
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
@@ -375,7 +382,7 @@ html {
   }
 }
 
-#state-announcement:not([hidden]) {
+.state-announcement:not([hidden]) {
   animation: announcement-glow 8s ease-in-out infinite;
 }
 
@@ -383,15 +390,15 @@ html {
 
 .ann-top-bar {
   flex-shrink: 0;
-  height: 10vh;
+  height: 10cqh;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 0 4vw;
+  padding: 0 4cqw;
 }
 
 .ann-logo-bug {
-  height: clamp(28px, 4.5vh, 52px);
+  height: clamp(28px, 4.5cqh, 52px);
   width: auto;
   object-fit: contain;
   opacity: 0.42;
@@ -409,7 +416,7 @@ html {
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
-  padding: 2vh 15vw;
+  padding: 2cqh 15cqw;
   box-sizing: border-box;
   perspective: 900px;
 }
@@ -424,7 +431,7 @@ html {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: clamp(200px, 42vw, 620px);
+  width: clamp(200px, 42cqw, 620px);
   opacity: 0.05;
   pointer-events: none;
   user-select: none;
@@ -435,14 +442,14 @@ html {
 /* The announcement text — built for the back row */
 .ann-text {
   font-family: var(--cb-sans);
-  font-size: clamp(32px, 6.2vw, 100px);
+  font-size: clamp(32px, 6.2cqw, 100px);
   font-weight: 500;
   line-height: 1.6;
   color: var(--cb-text);
   text-align: center;
   white-space: pre-wrap;
   text-shadow: 0 2px 20px rgba(0, 0, 0, 0.85);
-  max-width: 70vw;
+  max-width: 70cqw;
   position: relative;
   z-index: 1;
   transform-origin: 50% 0%;
@@ -453,7 +460,7 @@ html {
 
 .ann-footer {
   flex-shrink: 0;
-  height: 14vh;
+  height: 14cqh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -463,7 +470,7 @@ html {
 
 .ann-church-name {
   font-family: var(--cb-sans);
-  font-size: clamp(11px, 1.5vw, 22px);
+  font-size: clamp(11px, 1.5cqw, 22px);
   font-weight: 700;
   letter-spacing: 0.28em;
   text-transform: uppercase;
@@ -511,8 +518,8 @@ html {
 /* ── order of service label — persistent bottom-left overlay ────────────── */
 #service-label {
   position: fixed;
-  bottom: 3.5vh;
-  left: 3.5vw;
+  bottom: 3.5cqh;
+  left: 3.5cqw;
   display: flex;
   align-items: center;
   gap: 0.7em;
@@ -531,8 +538,8 @@ html {
 }
 
 .service-label-dot {
-  width: clamp(7px, 0.7vw, 11px);
-  height: clamp(7px, 0.7vw, 11px);
+  width: clamp(7px, 0.7cqw, 11px);
+  height: clamp(7px, 0.7cqw, 11px);
   border-radius: 50%;
   background: var(--cb-accent);
   box-shadow: 0 0 8px rgba(201, 169, 110, 0.7);
@@ -541,7 +548,7 @@ html {
 
 .service-label-text {
   font-family: var(--cb-sans);
-  font-size: clamp(13px, 1.5vw, 22px);
+  font-size: clamp(13px, 1.5cqw, 22px);
   font-weight: 700;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -569,12 +576,12 @@ html {
     opacity: 0.35;
   }
 
-  #state-verse {
+  .state-verse {
     animation: none;
     filter: none !important;
   }
 
-  #state-announcement:not([hidden]) {
+  .state-announcement:not([hidden]) {
     animation: none;
     filter: none;
   }
