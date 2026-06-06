@@ -746,9 +746,106 @@ export function App() {
           </section>
         </div>
 
-        {/* ── Right: order of service + sermon controls + verse + discard + override + undo ── */}
+        {/* ── Right: now on screen → nav → clear → undo → mode → service → sermon → announcements → overrides ── */}
         <div className="op-col op-col-right">
-          {/* ── Order of Service ── */}
+          {/* ── 1. Now on Screen ── */}
+          <section className="op-panel op-panel-verse">
+            <div className="verse-live-header">
+              <span className="verse-live-label">
+                <span className={`verse-live-dot${displayedVerse ? ' verse-live-dot--on' : ''}`} />
+                Now on Screen
+              </span>
+            </div>
+            {displayedVerse ? (
+              <div className="verse-display">
+                <div className="verse-display-ref">{displayedVerse.reference}</div>
+                <p className="verse-display-text">{displayedVerse.text || '(text loading…)'}</p>
+                <span className="verse-display-trans">{displayedVerse.translation}</span>
+              </div>
+            ) : (
+              <p className="verse-display-empty">Nothing on congregation screen</p>
+            )}
+          </section>
+
+          {/* ── 2. Verse navigation ── */}
+          <div className="verse-nav-row">
+            <button
+              className="btn btn-secondary"
+              disabled={!displayedVerse}
+              onClick={handlePrevVerse}
+              title="Previous verse — Keyboard: ←"
+            >
+              ← Previous
+              <kbd className="key-hint">←</kbd>
+            </button>
+            <button
+              className="btn btn-secondary"
+              disabled={!displayedVerse}
+              onClick={handleNextVerse}
+              title="Next verse — Keyboard: →"
+            >
+              Next →<kbd className="key-hint">→</kbd>
+            </button>
+          </div>
+
+          {/* ── 3. Clear Screen ── */}
+          <button
+            className="btn-discard"
+            disabled={!displayedVerse}
+            onClick={handleDiscard}
+            title="Keyboard: Space"
+          >
+            Clear Screen
+            <kbd className="key-hint">Space</kbd>
+          </button>
+
+          {/* ── 4. Undo (5-second window) ── */}
+          {showUndo && (
+            <button className="btn-undo" onClick={handleUndo} title="Keyboard: Ctrl+Z">
+              ↩ Undo
+              <span className="undo-timer">{undoSecsLeft}s</span>
+              <kbd className="key-hint">Ctrl+Z</kbd>
+            </button>
+          )}
+
+          {/* ── 5. Mode toggle ── */}
+          <div className="mode-toggle-row">
+            <button
+              className={`btn btn-secondary mode-toggle-btn${displayMode === 'bible' ? ' mode-toggle-btn--active' : ''}`}
+              onClick={handleToggleDisplayMode}
+              title="Switch between Bible verse and GHS hymn mode"
+            >
+              {displayMode === 'bible' ? 'Bible Mode' : 'GHS Mode'}
+            </button>
+          </div>
+
+          {/* ── 6. Active hymn panel ── */}
+          {displayMode === 'hymn' && activeHymn && (
+            <section className="op-panel op-panel-hymn">
+              <h2 className="op-panel-heading">
+                GHS {activeHymn.number} — {activeHymn.title}
+              </h2>
+              {hymnSection && (
+                <>
+                  <p className="hymn-section-label">
+                    {hymnSection.isChorus ? 'Chorus' : `Stanza ${hymnSection.stanzaNumber ?? ''}`}
+                  </p>
+                  <div className="hymn-section-lines">
+                    {hymnSection.lines.map((line, i) => (
+                      <p key={i} className="hymn-section-line">
+                        {line}
+                      </p>
+                    ))}
+                  </div>
+                </>
+              )}
+              <button className="btn btn-primary hymn-next-btn" onClick={handleNextStanza}>
+                Next Stanza →
+              </button>
+            </section>
+          )}
+
+          {/* ── 7. Order of Service ── */}
           <section className="op-panel op-panel-service">
             <div className="service-panel-header">
               <h2 className="op-panel-heading">Order of Service</h2>
@@ -822,6 +919,7 @@ export function App() {
             </div>
           </section>
 
+          {/* ── 8. Sermon controls ── */}
           <SermonControls
             sermonActive={sermonActive}
             subPoints={subPoints}
@@ -832,93 +930,10 @@ export function App() {
             onNextSubPoint={handleNextSubPoint}
           />
 
-          <section className="op-panel op-panel-verse">
-            <h2 className="op-panel-heading">Currently Displayed</h2>
-            {displayedVerse ? (
-              <div className="verse-display">
-                <div className="verse-display-ref">{displayedVerse.reference}</div>
-                <p className="verse-display-text">
-                  {displayedVerse.text || '(text not yet loaded)'}
-                </p>
-                <span className="verse-display-trans">{displayedVerse.translation}</span>
-              </div>
-            ) : (
-              <p className="verse-display-empty">Nothing on screen</p>
-            )}
-          </section>
-
-          <div className="verse-nav-row">
-            <button
-              className="btn btn-secondary"
-              disabled={!displayedVerse}
-              onClick={handlePrevVerse}
-              title="Previous verse — Keyboard: ←"
-            >
-              ← Prev
-              <kbd className="key-hint">←</kbd>
-            </button>
-            <button
-              className="btn btn-secondary"
-              disabled={!displayedVerse}
-              onClick={handleNextVerse}
-              title="Next verse — Keyboard: →"
-            >
-              Next →<kbd className="key-hint">→</kbd>
-            </button>
-          </div>
-
-          <button
-            className="btn-discard"
-            disabled={!displayedVerse}
-            onClick={handleDiscard}
-            title="Keyboard: Space"
-          >
-            Discard
-            <kbd className="key-hint">Space</kbd>
-          </button>
-
-          {/* ── Mode toggle ── */}
-          <div className="mode-toggle-row">
-            <button
-              className={`btn btn-secondary mode-toggle-btn${displayMode === 'bible' ? ' mode-toggle-btn--active' : ''}`}
-              onClick={handleToggleDisplayMode}
-              title="Switch between Bible verse and GHS hymn mode"
-            >
-              {displayMode === 'bible' ? 'Bible Mode' : 'GHS Mode'}
-            </button>
-          </div>
-
-          {/* ── Active hymn panel ── */}
-          {displayMode === 'hymn' && activeHymn && (
-            <section className="op-panel op-panel-hymn">
-              <h2 className="op-panel-heading">
-                GHS {activeHymn.number} — {activeHymn.title}
-              </h2>
-              {hymnSection && (
-                <>
-                  <p className="hymn-section-label">
-                    {hymnSection.isChorus ? 'Chorus' : `Stanza ${hymnSection.stanzaNumber ?? ''}`}
-                  </p>
-                  <div className="hymn-section-lines">
-                    {hymnSection.lines.map((line, i) => (
-                      <p key={i} className="hymn-section-line">
-                        {line}
-                      </p>
-                    ))}
-                  </div>
-                </>
-              )}
-              <button className="btn btn-primary hymn-next-btn" onClick={handleNextStanza}>
-                Next Stanza →
-              </button>
-            </section>
-          )}
-
-          {/* ── Announcement panel ── */}
+          {/* ── 9. Announcements ── */}
           <section className="op-panel op-panel-announcement">
             <h2 className="op-panel-heading">Announcements</h2>
 
-            {/* Add new announcement */}
             <div className="announcement-add-row">
               <textarea
                 className="announcement-body-input"
@@ -949,7 +964,6 @@ export function App() {
               </div>
             </div>
 
-            {/* List */}
             {announcements.length > 0 && (
               <ol className="announcement-list">
                 {announcements.map((a, i) => (
@@ -970,7 +984,6 @@ export function App() {
               </ol>
             )}
 
-            {/* Playback controls */}
             <div className="announcement-controls">
               {!announcementRunning ? (
                 <button
@@ -996,16 +1009,9 @@ export function App() {
             </div>
           </section>
 
+          {/* ── 10. Manual verse + hymn override ── */}
           <ManualOverride onSubmit={handleManualOverride} />
           <ManualHymnOverride onSubmit={handleLoadHymn} />
-
-          {showUndo && (
-            <button className="btn-undo" onClick={handleUndo} title="Keyboard: Ctrl+Z">
-              ↩ Undo discard
-              <span className="undo-timer">{undoSecsLeft}s</span>
-              <kbd className="key-hint">Ctrl+Z</kbd>
-            </button>
-          )}
         </div>
       </main>
 

@@ -81,18 +81,18 @@ function QueueItem({ item, onConfirm, onReject }: QueueItemProps) {
 
       <div className="queue-actions">
         <button
-          className="btn btn-approve queue-btn"
+          className="queue-btn-confirm"
           onClick={() => onConfirm(item.id, item.label)}
-          aria-label={`Confirm ${item.label}`}
+          aria-label={`Show ${item.label} on screen`}
         >
-          ✓ Confirm
+          ✓ Show on Screen
         </button>
         <button
-          className="btn btn-reject queue-btn"
+          className="queue-btn-reject"
           onClick={() => onReject(item.id, item.label)}
-          aria-label={`Reject ${item.label}`}
+          aria-label={`Skip ${item.label}`}
         >
-          ✗ Reject
+          Not This
         </button>
       </div>
 

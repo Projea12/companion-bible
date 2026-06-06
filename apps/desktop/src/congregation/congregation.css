@@ -345,27 +345,26 @@ html {
 /* ── announcement ─────────────────────────────────────────────────────────── */
 
 /*
- * Abstract background: layered radial glows on a deep navy base.
- * Three orbs — gold top-left, royal blue bottom-right, indigo centre-top —
- * give depth without fighting the text.
+ * Warm amber/gold palette — visually distinct from the cool verse/hymn screens.
+ * The congregation reads the temperature shift before they read a single word:
+ * this is community news, not scripture.
  */
 #state-announcement {
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   justify-content: flex-start;
   overflow: hidden;
   padding: 0;
 
-  /* abstract layered background */
   background:
-    radial-gradient(ellipse 70% 55% at 8% 12%, rgba(201, 169, 110, 0.18) 0%, transparent 55%),
-    radial-gradient(ellipse 60% 65% at 92% 88%, rgba(50, 90, 200, 0.2) 0%, transparent 55%),
-    radial-gradient(ellipse 90% 40% at 50% 0%, rgba(25, 40, 100, 0.5) 0%, transparent 60%),
-    radial-gradient(ellipse 50% 50% at 75% 20%, rgba(100, 60, 200, 0.12) 0%, transparent 50%),
-    linear-gradient(175deg, #0b1330 0%, #060c1e 45%, #080d1a 100%);
+    radial-gradient(ellipse 70% 60% at 12% 15%, rgba(201, 169, 110, 0.22) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 50% at 86% 80%, rgba(180, 110, 50, 0.18) 0%, transparent 55%),
+    radial-gradient(ellipse 90% 40% at 50% 0%, rgba(100, 60, 20, 0.42) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 60% at 28% 92%, rgba(140, 80, 20, 0.14) 0%, transparent 55%),
+    linear-gradient(170deg, #120d02 0%, #0d0900 45%, #080600 100%);
 }
 
-/* slow ambient pulse on the whole panel — projects well on a big screen */
+/* slow ambient warmth pulse — readable on large projector screens */
 @keyframes announcement-glow {
   0%,
   100% {
@@ -380,116 +379,133 @@ html {
   animation: announcement-glow 8s ease-in-out infinite;
 }
 
-/* logo occupies the top 70 % of the viewport */
-.announcement-logo-area {
-  flex: 0 0 70vh;
+/* ── Top bar: logo bug — corner presence, never dominant ─────────────────── */
+
+.ann-top-bar {
+  flex-shrink: 0;
+  height: 10vh;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  width: 100%;
-  padding: 4vh 6vw 2vh;
-  box-sizing: border-box;
-  position: relative;
+  justify-content: flex-end;
+  padding: 0 4vw;
 }
 
-/* subtle gold hairline separating logo zone from text zone */
-.announcement-logo-area::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 10%;
-  width: 80%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(201, 169, 110, 0.5), transparent);
-}
-
-.announcement-logo {
-  max-height: 52vh;
-  max-width: 80vw;
+.ann-logo-bug {
+  height: clamp(28px, 4.5vh, 52px);
   width: auto;
   object-fit: contain;
-  /* soft drop-shadow so the logo pops on the gradient */
-  filter: drop-shadow(0 4px 40px rgba(201, 169, 110, 0.25))
-    drop-shadow(0 2px 12px rgba(0, 0, 0, 0.7));
+  opacity: 0.42;
+  filter: drop-shadow(0 1px 6px rgba(201, 169, 110, 0.25));
 }
 
-.announcement-church {
-  margin-top: 2.5vh;
-  font-family: var(--cb-sans);
-  font-size: clamp(18px, 2.6vw, 42px);
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--cb-accent);
-  text-shadow:
-    0 2px 20px rgba(201, 169, 110, 0.4),
-    0 1px 4px rgba(0, 0, 0, 0.9);
-}
+/* ── Body zone: the announcement text is the hero ────────────────────────── */
 
-/* text zone occupies the remaining 30 % — scrollable */
-.announcement-body-wrap {
+.ann-body-zone {
   flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow-y: auto;
   overflow-x: hidden;
-  width: 100%;
-  padding: 3vh 10vw 4vh;
-  box-sizing: border-box;
-  /* 3-D context for the page-flip animation */
-  perspective: 900px;
-  /* fade-out at the bottom so long text disappears cleanly */
-  -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
-  mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
   scrollbar-width: none;
+  padding: 2vh 15vw;
+  box-sizing: border-box;
+  perspective: 900px;
 }
 
-.announcement-body-wrap::-webkit-scrollbar {
+.ann-body-zone::-webkit-scrollbar {
   display: none;
 }
 
-.announcement-body {
+/* Subconscious brand — logo watermark, felt not seen */
+.ann-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: clamp(200px, 42vw, 620px);
+  opacity: 0.05;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  filter: sepia(1) saturate(0.4) brightness(1.8);
+}
+
+/* The announcement text — built for the back row */
+.ann-text {
   font-family: var(--cb-sans);
-  font-size: clamp(22px, 3.2vw, 54px);
+  font-size: clamp(32px, 6.2vw, 100px);
   font-weight: 500;
-  line-height: 1.55;
+  line-height: 1.6;
   color: var(--cb-text);
   text-align: center;
   white-space: pre-wrap;
-  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.85);
-  transform-origin: 50% 0%; /* flip from the top edge — like turning a book page */
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.85);
+  max-width: 70vw;
+  position: relative;
+  z-index: 1;
+  transform-origin: 50% 0%;
   will-change: transform, opacity;
 }
 
-/* page flips away upward */
+/* ── Footer: church name — signature, not headline ───────────────────────── */
+
+.ann-footer {
+  flex-shrink: 0;
+  height: 14vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid rgba(201, 169, 110, 0.22);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.ann-church-name {
+  font-family: var(--cb-sans);
+  font-size: clamp(11px, 1.5vw, 22px);
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  text-shadow: 0 1px 10px rgba(201, 169, 110, 0.4);
+}
+
+/* ── Text transition animations — crossfade, projector-safe ─────────────── */
+/*
+ * The JS (main.ts) still adds/removes ann-flip-out / ann-flip-in unchanged.
+ * Only the animation is replaced: rotateX (3-D, ghosting on projectors) →
+ * opacity + translateY (compositor-only, safe on any display).
+ */
+
 @keyframes ann-flip-out {
-  0% {
-    transform: rotateX(0deg);
+  from {
     opacity: 1;
+    transform: translateY(0px);
   }
-  100% {
-    transform: rotateX(-88deg);
+  to {
     opacity: 0;
+    transform: translateY(-14px);
   }
 }
 
-/* new page arrives from below */
 @keyframes ann-flip-in {
-  0% {
-    transform: rotateX(88deg);
+  from {
     opacity: 0;
+    transform: translateY(16px);
   }
-  100% {
-    transform: rotateX(0deg);
+  to {
     opacity: 1;
+    transform: translateY(0px);
   }
 }
 
 .ann-flip-out {
-  animation: ann-flip-out 300ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: ann-flip-out 280ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 .ann-flip-in {
-  animation: ann-flip-in 350ms cubic-bezier(0, 0, 0.2, 1) forwards;
+  animation: ann-flip-in 360ms cubic-bezier(0, 0, 0.2, 1) forwards;
 }
 
 /* ── order of service label — persistent bottom-left overlay ────────────── */

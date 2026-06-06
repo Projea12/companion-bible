@@ -63,15 +63,25 @@
         </div>
       </div>
 
-      <!-- Announcement — pre-service slides with church branding -->
+      <!-- Announcement — warm screen, text is the hero -->
       <div id="state-announcement" class="congregation-state" hidden>
-        <div class="announcement-logo-area">
-          <img src="/deeper_life_logo.png" class="announcement-logo" alt="Deeper Life Bible Church" />
-          <div class="announcement-church">Blessed Group&nbsp;&nbsp;Poka</div>
+
+        <!-- Logo bug — top-right corner, always visible, never dominant -->
+        <div class="ann-top-bar">
+          <img src="/deeper_life_logo.png" class="ann-logo-bug" aria-hidden="true" />
         </div>
-        <div class="announcement-body-wrap" id="announcement-body-wrap">
-          <div class="announcement-body" id="announcement-body"></div>
+
+        <!-- Text hero — takes the bulk of the screen, scrollable for long content -->
+        <div class="ann-body-zone" id="announcement-body-wrap">
+          <img src="/deeper_life_logo.png" class="ann-watermark" aria-hidden="true" />
+          <div class="ann-text" id="announcement-body"></div>
         </div>
+
+        <!-- Footer — church name, gold, minimal -->
+        <div class="ann-footer">
+          <div class="ann-church-name">Blessed Group&nbsp;&nbsp;Poka</div>
+        </div>
+
       </div>
 
       <!-- Blank — complete blackout, no content -->
