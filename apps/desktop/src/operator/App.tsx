@@ -14,6 +14,7 @@ import { useTranscript } from './useTranscript';
 import { useVerseQueue } from './useVerseQueue';
 import { CongregationPreview } from './CongregationPreview';
 import type { ScreenMode } from './CongregationPreview';
+import { ChapterBrowserPanel } from './ChapterBrowserPanel';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -80,6 +81,11 @@ export function App() {
   // screen mode
   const [screenMode, setScreenMode] = useState<ScreenMode>('idle');
   const [currentAnnouncementBody, setCurrentAnnouncementBody] = useState<string | null>(null);
+
+  // chapter browser
+  const [chapterBook, setChapterBook] = useState<string | null>(null);
+  const [chapterNum, setChapterNum] = useState<number | null>(null);
+  const [chapterActiveVerse, setChapterActiveVerse] = useState<number | null>(null);
 
   // order of service
   const [serviceItems, setServiceItems] = useState<
@@ -179,6 +185,9 @@ export function App() {
             translation: payload.translation,
           });
           setScreenMode('verse');
+          setChapterBook(payload.reference.book);
+          setChapterNum(payload.reference.chapter);
+          setChapterActiveVerse(payload.reference.verse ?? null);
           break;
 
         case 'DISPLAY_BLANKED':
@@ -398,6 +407,10 @@ export function App() {
   }, [undoExpiresAt]);
 
   const handleManualOverride = useCallback((ref: string) => {
+    void invoke('show_verse', { reference: ref, text: '' });
+  }, []);
+
+  const handleSelectChapterVerse = useCallback((ref: string) => {
     void invoke('show_verse', { reference: ref, text: '' });
   }, []);
 
@@ -788,7 +801,15 @@ export function App() {
             </button>
           </div>
 
-          {/* ── 3. Clear Screen ── */}
+          {/* ── 3. Chapter browser ── */}
+          <ChapterBrowserPanel
+            book={chapterBook}
+            chapter={chapterNum}
+            activeVerse={chapterActiveVerse}
+            onSelectVerse={handleSelectChapterVerse}
+          />
+
+          {/* ── 5. Clear Screen ── */}
           <button
             className="btn-discard"
             disabled={!displayedVerse}
@@ -799,7 +820,7 @@ export function App() {
             <kbd className="key-hint">Space</kbd>
           </button>
 
-          {/* ── 4. Undo (5-second window) ── */}
+          {/* ── 6. Undo (5-second window) ── */}
           {showUndo && (
             <button className="btn-undo" onClick={handleUndo} title="Keyboard: Ctrl+Z">
               ↩ Undo
@@ -808,7 +829,7 @@ export function App() {
             </button>
           )}
 
-          {/* ── 5. Mode toggle ── */}
+          {/* ── 7. Mode toggle ── */}
           <div className="mode-toggle-row">
             <button
               className={`btn btn-secondary mode-toggle-btn${displayMode === 'bible' ? ' mode-toggle-btn--active' : ''}`}

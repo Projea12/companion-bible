@@ -335,6 +335,16 @@ fn hide_congregation_window(app: AppHandle) {
 
 // ─── display commands ─────────────────────────────────────────────────────────
 
+/// Map UI book names to their KJV data keys where they differ.
+/// "Psalm" is how we display it; the KJV HashMap key is "Psalms".
+fn normalize_book(book: &str) -> &str {
+    if book.eq_ignore_ascii_case("psalm") {
+        "Psalms"
+    } else {
+        book
+    }
+}
+
 fn parse_reference(s: &str) -> Option<serde_json::Value> {
     let (book, chapter_verse) = s.rsplit_once(' ')?;
     if let Some((ch_str, verse_str)) = chapter_verse.split_once(':') {
@@ -368,7 +378,8 @@ fn lookup_verse_text(
     let Some(bible) = guard.as_ref() else {
         return String::new();
     };
-    let book = ref_json["book"].as_str().unwrap_or_default();
+    let book_raw = ref_json["book"].as_str().unwrap_or_default();
+    let book = normalize_book(book_raw);
     let chapter = ref_json["chapter"].as_u64().unwrap_or(1) as u8;
     let Some(verse_u64) = ref_json["verse"].as_u64() else {
         return String::new();
@@ -411,6 +422,30 @@ fn show_verse(app: AppHandle, state: State<ManagedState>, reference: String, tex
         let chapter = ref_json["chapter"].as_u64().unwrap_or(1) as u8;
         s.current_displayed_ref = Some((book, chapter, rv as u8));
     }
+}
+
+#[tauri::command]
+fn get_chapter_verses(
+    state: State<ManagedState>,
+    book: String,
+    chapter: u8,
+) -> Vec<serde_json::Value> {
+    let bible_guard = state.bible.lock().unwrap();
+    let Some(bible) = bible_guard.as_ref() else {
+        return vec![];
+    };
+    let book = normalize_book(&book);
+    let Ok(count) = bible.verse_count(book, chapter) else {
+        return vec![];
+    };
+    (1..=count)
+        .filter_map(|v| {
+            bible
+                .get_verse(book, chapter, v)
+                .ok()
+                .map(|vt| serde_json::json!({ "verse": v, "text": vt.text }))
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -1189,7 +1224,7 @@ fn next_verse(app: AppHandle, state: State<ManagedState>) {
     let next = {
         let guard = state.bible.lock().unwrap();
         let Some(bible) = guard.as_ref() else { return };
-        let Ok(total) = bible.verse_count(&book, chapter) else {
+        let Ok(total) = bible.verse_count(normalize_book(&book), chapter) else {
             return;
         };
         if verse >= total {
@@ -1602,6 +1637,7 @@ pub fn run() {
             hide_congregation_window,
             fix_screen_swap,
             show_verse,
+            get_chapter_verses,
             discard_verse,
             undo_discard,
             show_sermon_title,
