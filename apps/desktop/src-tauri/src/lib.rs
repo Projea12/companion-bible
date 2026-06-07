@@ -1516,6 +1516,12 @@ fn scroll_congregation(app: AppHandle, amount: i32) {
 
 // ─── order of service commands ────────────────────────────────────────────────
 
+fn next_item_label(s: &InternalState) -> Option<String> {
+    let cur_id = s.current_service_item_id?;
+    let cur_pos = s.service_items.iter().position(|i| i.id == cur_id)?;
+    s.service_items.get(cur_pos + 1).map(|i| i.label.clone())
+}
+
 #[tauri::command]
 fn add_service_item(label: String, state: State<ManagedState>) -> u32 {
     let mut s = state.inner.lock().unwrap();
@@ -1531,7 +1537,13 @@ fn remove_service_item(id: u32, state: State<ManagedState>, app: AppHandle) {
     s.service_items.retain(|i| i.id != id);
     if s.current_service_item_id == Some(id) {
         s.current_service_item_id = None;
-        let _ = app.emit("app-event", &AppEvent::ServiceItemChanged { label: None });
+        let _ = app.emit(
+            "app-event",
+            &AppEvent::ServiceItemChanged {
+                label: None,
+                next_label: None,
+            },
+        );
     }
 }
 
@@ -1545,7 +1557,11 @@ fn set_current_service_item(id: Option<u32>, state: State<ManagedState>, app: Ap
             .find(|i| i.id == id)
             .map(|i| i.label.clone())
     });
-    let _ = app.emit("app-event", &AppEvent::ServiceItemChanged { label });
+    let next_label = next_item_label(&s);
+    let _ = app.emit(
+        "app-event",
+        &AppEvent::ServiceItemChanged { label, next_label },
+    );
 }
 
 #[tauri::command]
@@ -1569,9 +1585,13 @@ fn next_service_item(state: State<ManagedState>, app: AppHandle) {
     let id = item.id;
     let label = item.label.clone();
     s.current_service_item_id = Some(id);
+    let next_label = s.service_items.get(next_idx + 1).map(|i| i.label.clone());
     let _ = app.emit(
         "app-event",
-        &AppEvent::ServiceItemChanged { label: Some(label) },
+        &AppEvent::ServiceItemChanged {
+            label: Some(label),
+            next_label,
+        },
     );
 }
 
@@ -1592,7 +1612,13 @@ fn clear_service_items(state: State<ManagedState>, app: AppHandle) {
     let mut s = state.inner.lock().unwrap();
     s.service_items.clear();
     s.current_service_item_id = None;
-    let _ = app.emit("app-event", &AppEvent::ServiceItemChanged { label: None });
+    let _ = app.emit(
+        "app-event",
+        &AppEvent::ServiceItemChanged {
+            label: None,
+            next_label: None,
+        },
+    );
 }
 
 #[tauri::command]

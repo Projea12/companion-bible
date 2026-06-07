@@ -1,16 +1,13 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 interface MoreTabProps {
-  // Service items
   serviceItems: { id: number; label: string; isCurrent: boolean }[];
-  currentServiceLabel: string | null;
   onAddServiceItem: (label: string) => void;
   onRemoveServiceItem: (id: number) => void;
   onSetCurrentServiceItem: (id: number) => void;
   onNextServiceItem: () => void;
   onClearServiceItems: () => void;
-  // Announcements
   announcements: { id: number; body: string; durationSecs: number }[];
   announcementRunning: boolean;
   announcementIndex: number | null;
@@ -20,13 +17,11 @@ interface MoreTabProps {
   onStopAnnouncements: () => void;
   onNextAnnouncement: () => void;
   onPrevAnnouncement: () => void;
-  // Settings
   sessionActive: boolean;
 }
 
 export function MoreTab({
   serviceItems,
-  currentServiceLabel,
   onAddServiceItem,
   onRemoveServiceItem,
   onSetCurrentServiceItem,
@@ -43,12 +38,12 @@ export function MoreTab({
   onPrevAnnouncement,
   sessionActive,
 }: MoreTabProps) {
-  // Form state — local to this tab
-  const [newServiceItemLabel, setNewServiceItemLabel] = useState('');
+  const [newLabel, setNewLabel] = useState('');
   const [newAnnouncementBody, setNewAnnouncementBody] = useState('');
   const [newAnnouncementDuration, setNewAnnouncementDuration] = useState(30);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const addInputRef = useRef<HTMLInputElement>(null);
 
-  // API key state — local to this tab
   const [assemblyaiKey, setAssemblyaiKey] = useState('');
   const [deepgramKey, setDeepgramKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
@@ -59,11 +54,27 @@ export function MoreTab({
     setSavedKey((prev) => new Set([...prev, service]));
   };
 
-  const handleAddServiceItem = () => {
-    const label = newServiceItemLabel.trim().toUpperCase();
+  const currentIdx = serviceItems.findIndex((i) => i.isCurrent);
+  const nextItem =
+    currentIdx >= 0 && currentIdx < serviceItems.length - 1 ? serviceItems[currentIdx + 1] : null;
+  const isOnLast = currentIdx === serviceItems.length - 1 && serviceItems.length > 0;
+
+  const handleAdd = () => {
+    const label = newLabel.trim().toUpperCase();
     if (!label) return;
     onAddServiceItem(label);
-    setNewServiceItemLabel('');
+    setNewLabel('');
+    addInputRef.current?.focus();
+  };
+
+  const handleClearConfirm = () => {
+    if (confirmClear) {
+      onClearServiceItems();
+      setConfirmClear(false);
+    } else {
+      setConfirmClear(true);
+      setTimeout(() => setConfirmClear(false), 3000);
+    }
   };
 
   const handleAddAnnouncement = () => {
@@ -73,80 +84,128 @@ export function MoreTab({
     setNewAnnouncementBody('');
   };
 
+  // Common service items for quick-add
+  const PRESETS = [
+    'OPENING PRAYER',
+    'WORSHIP',
+    'SCRIPTURE',
+    'SERMON',
+    'OFFERING',
+    'COMMUNION',
+    'CLOSING PRAYER',
+  ];
+  const unusedPresets = PRESETS.filter((p) => !serviceItems.some((i) => i.label === p));
+
   return (
     <>
-      {/* ── Order of Service ── */}
-      <section className="op-panel op-panel-service">
-        <div className="service-panel-header">
+      {/* ── Order of Service Runsheet ── */}
+      <section className="op-panel runsheet-panel">
+        <div className="runsheet-header">
           <h2 className="op-panel-heading">Order of Service</h2>
-          {currentServiceLabel && (
-            <span className="service-now-badge">● {currentServiceLabel}</span>
+          {serviceItems.length > 0 && (
+            <button
+              className={`runsheet-clear-btn${confirmClear ? ' runsheet-clear-btn--confirm' : ''}`}
+              onClick={handleClearConfirm}
+              title="Clear all items"
+            >
+              {confirmClear ? 'Confirm clear?' : 'Clear all'}
+            </button>
           )}
         </div>
 
-        <div className="service-add-row">
+        {/* Runsheet list */}
+        {serviceItems.length > 0 ? (
+          <ol className="runsheet-list">
+            {serviceItems.map((item, idx) => {
+              const isDone = currentIdx >= 0 && idx < currentIdx;
+              const isCurrent = item.isCurrent;
+              const isNext = idx === currentIdx + 1;
+
+              let rowClass = 'runsheet-row';
+              if (isDone) rowClass += ' runsheet-row--done';
+              if (isCurrent) rowClass += ' runsheet-row--current';
+              if (isNext) rowClass += ' runsheet-row--next';
+
+              return (
+                <li key={item.id} className={rowClass}>
+                  <button
+                    className="runsheet-row-btn"
+                    onClick={() => onSetCurrentServiceItem(item.id)}
+                    title={isCurrent ? 'Current item' : 'Jump to this item'}
+                  >
+                    <span className="runsheet-indicator" aria-hidden="true">
+                      {isDone ? '✓' : isCurrent ? '●' : ''}
+                    </span>
+                    <span className="runsheet-label">{item.label}</span>
+                    {isCurrent && <span className="runsheet-now-pill">NOW</span>}
+                    {isNext && <span className="runsheet-next-pill">NEXT</span>}
+                  </button>
+                  <button
+                    className="runsheet-remove-btn"
+                    onClick={() => onRemoveServiceItem(item.id)}
+                    title="Remove"
+                    aria-label={`Remove ${item.label}`}
+                  >
+                    ✕
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        ) : (
+          <p className="runsheet-empty">No items yet. Add items below or use quick-add.</p>
+        )}
+
+        {/* Quick-add presets */}
+        {unusedPresets.length > 0 && (
+          <div className="runsheet-presets">
+            {unusedPresets.map((p) => (
+              <button key={p} className="runsheet-preset-chip" onClick={() => onAddServiceItem(p)}>
+                + {p}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Custom add */}
+        <div className="runsheet-add-row">
           <input
-            className="service-add-input"
-            placeholder="e.g. OPENING PRAYER"
-            value={newServiceItemLabel}
-            onChange={(e) => setNewServiceItemLabel(e.target.value)}
+            ref={addInputRef}
+            className="runsheet-add-input"
+            placeholder="Custom item…"
+            value={newLabel}
+            onChange={(e) => setNewLabel(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleAddServiceItem();
+              if (e.key === 'Enter') handleAdd();
             }}
           />
           <button
-            className="btn btn-primary btn-sm"
-            disabled={!newServiceItemLabel.trim()}
-            onClick={handleAddServiceItem}
-          >
-            + Add
-          </button>
-        </div>
-
-        {serviceItems.length > 0 && (
-          <ol className="service-list">
-            {serviceItems.map((item) => (
-              <li
-                key={item.id}
-                className={`service-item${item.isCurrent ? ' service-item--active' : ''}`}
-                onClick={() => onSetCurrentServiceItem(item.id)}
-                title="Click to set as current"
-              >
-                <span className="service-item-dot" aria-hidden="true">
-                  {item.isCurrent ? '●' : '○'}
-                </span>
-                <span className="service-item-label">{item.label}</span>
-                <button
-                  className="btn btn-sm btn-danger service-item-remove"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRemoveServiceItem(item.id);
-                  }}
-                  title="Remove"
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ol>
-        )}
-
-        <div className="service-controls">
-          <button
             className="btn btn-secondary btn-sm"
-            disabled={serviceItems.length === 0}
-            onClick={onNextServiceItem}
+            disabled={!newLabel.trim()}
+            onClick={handleAdd}
           >
-            Next →
-          </button>
-          <button
-            className="btn btn-sm btn-danger"
-            disabled={serviceItems.length === 0}
-            onClick={onClearServiceItems}
-          >
-            Clear All
+            Add
           </button>
         </div>
+
+        {/* NEXT — the hero action */}
+        <button
+          className="runsheet-next-btn"
+          disabled={serviceItems.length === 0 || isOnLast}
+          onClick={onNextServiceItem}
+        >
+          {nextItem ? (
+            <>
+              <span className="runsheet-next-btn-label">NEXT</span>
+              <span className="runsheet-next-btn-item">{nextItem.label}</span>
+              <span className="runsheet-next-btn-arrow">→</span>
+            </>
+          ) : serviceItems.length === 0 ? (
+            'Add items to begin'
+          ) : (
+            'End of service'
+          )}
+        </button>
       </section>
 
       {/* ── Announcements ── */}

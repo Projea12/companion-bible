@@ -243,26 +243,90 @@ html {
   text-shadow: 0 1px 12px rgba(201, 169, 110, 0.3);
 }
 
-/* Footer — service name, gold, commanding */
+/* Footer — service name + optional NOW/NEXT programme */
 .idle-footer {
   flex-shrink: 0;
-  height: 12cqh;
+  min-height: 12cqh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1.2cqh;
   border-top: 1px solid rgba(201, 169, 110, 0.18);
   background: rgba(0, 0, 0, 0.2);
+  padding: 1.5cqh 4cqw;
 }
 
 .idle-service-name {
   font-family: var(--cb-sans);
-  font-size: clamp(12px, 1.8cqw, 26px);
-  font-weight: 800;
+  font-size: clamp(10px, 1.2cqw, 18px);
+  font-weight: 700;
   letter-spacing: 0.35em;
   text-transform: uppercase;
   color: var(--cb-accent);
-  opacity: 0.88;
-  text-shadow: 0 1px 14px rgba(201, 169, 110, 0.35);
+  opacity: 0.55;
+  text-shadow: 0 1px 14px rgba(201, 169, 110, 0.25);
+}
+
+/* NOW/NEXT programme strip — horizontal runway */
+.idle-programme {
+  display: flex;
+  align-items: center;
+  gap: clamp(16px, 3cqw, 48px);
+}
+
+.idle-programme[hidden] {
+  display: none;
+}
+
+.idle-prog-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1cqw, 16px);
+}
+
+.idle-prog-row--next[hidden] {
+  display: none;
+}
+
+.idle-prog-tag {
+  font-family: var(--cb-sans);
+  font-size: clamp(8px, 0.85cqw, 11px);
+  font-weight: 900;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.idle-prog-tag--next {
+  opacity: 0.4;
+}
+
+.idle-prog-item {
+  font-family: var(--cb-sans);
+  font-size: clamp(14px, 2cqw, 28px);
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--cb-text);
+  text-shadow: 0 1px 20px rgba(0, 0, 0, 0.8);
+}
+
+.idle-prog-item--next {
+  font-size: clamp(11px, 1.4cqw, 20px);
+  font-weight: 600;
+  color: var(--cb-text-dim);
+  opacity: 0.55;
+}
+
+/* Vertical separator between NOW and NEXT */
+.idle-prog-sep {
+  width: 1px;
+  height: clamp(16px, 2.5cqh, 32px);
+  background: rgba(201, 169, 110, 0.22);
+  flex-shrink: 0;
 }
 
 /* ── verse state panel — scrollable so enlarged text always fits ─────────── */

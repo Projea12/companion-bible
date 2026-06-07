@@ -53,6 +53,8 @@ export interface CongregationPreviewProps {
   transcriptLines: TranscriptLine[];
   sessionActive: boolean;
   serviceName: string;
+  currentServiceLabel: string | null;
+  nextServiceLabel: string | null;
 }
 
 export function CongregationPreview(props: CongregationPreviewProps) {
@@ -71,6 +73,8 @@ export function CongregationPreview(props: CongregationPreviewProps) {
     transcriptLines,
     sessionActive,
     serviceName,
+    currentServiceLabel,
+    nextServiceLabel,
   } = props;
 
   const verseRef = useRef<HTMLDivElement>(null);
@@ -157,6 +161,19 @@ export function CongregationPreview(props: CongregationPreviewProps) {
             </div>
             <div className="idle-footer">
               <div className="idle-service-name">{serviceName}</div>
+              {nextServiceLabel !== null && (
+                <div className="idle-programme">
+                  <div className="idle-prog-row">
+                    <span className="idle-prog-tag">NOW</span>
+                    <span className="idle-prog-item">{currentServiceLabel ?? ''}</span>
+                  </div>
+                  <div className="idle-prog-sep" aria-hidden="true" />
+                  <div className="idle-prog-row idle-prog-row--next">
+                    <span className="idle-prog-tag idle-prog-tag--next">NEXT</span>
+                    <span className="idle-prog-item idle-prog-item--next">{nextServiceLabel}</span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

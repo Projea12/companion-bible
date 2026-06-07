@@ -107,7 +107,7 @@ export type AppEvent =
   | { type: 'CONGREGATION_SCROLL'; amount: number }
 
   // ── Order of service ────────────────────────────────────────────────────
-  | { type: 'SERVICE_ITEM_CHANGED'; label: string | null }
+  | { type: 'SERVICE_ITEM_CHANGED'; label: string | null; next_label: string | null }
 
   // ── Idle screen ──────────────────────────────────────────────────────────
   | { type: 'IDLE_SERVICE_NAME_SET'; name: string };

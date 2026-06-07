@@ -31,6 +31,10 @@ const announcementBody = document.getElementById('announcement-body') as HTMLDiv
 const serviceLabel = document.getElementById('service-label') as HTMLDivElement;
 const serviceLabelText = document.getElementById('service-label-text') as HTMLElement;
 const idleServiceName = document.getElementById('idle-service-name') as HTMLElement;
+const idleProgramme = document.getElementById('idle-programme') as HTMLDivElement;
+const idleNowItem = document.getElementById('idle-now-item') as HTMLElement;
+const idleNextRow = document.getElementById('idle-next-row') as HTMLDivElement;
+const idleNextItem = document.getElementById('idle-next-item') as HTMLElement;
 
 // ─── state machine ────────────────────────────────────────────────────────────
 
@@ -300,8 +304,17 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       if (payload.label) {
         serviceLabelText.textContent = payload.label;
         serviceLabel.classList.add('visible');
+        idleNowItem.textContent = payload.label;
+        idleProgramme.removeAttribute('hidden');
+        if (payload.next_label) {
+          idleNextItem.textContent = payload.next_label;
+          idleNextRow.removeAttribute('hidden');
+        } else {
+          idleNextRow.setAttribute('hidden', '');
+        }
       } else {
         serviceLabel.classList.remove('visible');
+        idleProgramme.setAttribute('hidden', '');
       }
       break;
 
