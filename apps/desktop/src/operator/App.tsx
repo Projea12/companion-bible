@@ -79,7 +79,7 @@ export function App() {
   const [serviceItems, setServiceItems] = useState<
     { id: number; label: string; isCurrent: boolean }[]
   >([]);
-  const [currentServiceLabel, setCurrentServiceLabel] = useState<string | null>(null);
+  const [nextServiceLabel, setNextServiceLabel] = useState<string | null>(null);
 
   // chapter browser
   const [chapterBook, setChapterBook] = useState<string | null>(null);
@@ -115,9 +115,10 @@ export function App() {
     });
     void invoke<{ id: number; label: string; is_current: boolean }[]>('get_service_items').then(
       (items) => {
-        setServiceItems(items.map((i) => ({ id: i.id, label: i.label, isCurrent: i.is_current })));
-        const current = items.find((i) => i.is_current);
-        if (current) setCurrentServiceLabel(current.label);
+        const mapped = items.map((i) => ({ id: i.id, label: i.label, isCurrent: i.is_current }));
+        setServiceItems(mapped);
+        const curIdx = mapped.findIndex((i) => i.isCurrent);
+        if (curIdx >= 0) setNextServiceLabel(mapped[curIdx + 1]?.label ?? null);
       },
     );
   }, []);
@@ -312,7 +313,7 @@ export function App() {
           break;
 
         case 'SERVICE_ITEM_CHANGED':
-          setCurrentServiceLabel(payload.label);
+          setNextServiceLabel(payload.next_label);
           setServiceItems((prev) =>
             prev.map((i) => ({
               ...i,
@@ -487,7 +488,7 @@ export function App() {
   const handleClearServiceItems = useCallback(() => {
     void invoke('clear_service_items').then(() => {
       setServiceItems([]);
-      setCurrentServiceLabel(null);
+      setNextServiceLabel(null);
     });
   }, []);
 
@@ -534,6 +535,7 @@ export function App() {
 
   const showUndo = undoExpiresAt !== null && undoSecsLeft > 0;
   const screenIsActive = screenMode !== 'idle' && screenMode !== 'blank';
+  const currentServiceLabel = serviceItems.find((i) => i.isCurrent)?.label ?? null;
 
   return (
     <div className="op-layout">
@@ -601,6 +603,8 @@ export function App() {
             transcriptLines={transcript.lines}
             sessionActive={sessionActive}
             serviceName={serviceName}
+            currentServiceLabel={currentServiceLabel}
+            nextServiceLabel={nextServiceLabel}
           />
 
           <VerseQueuePanel
@@ -765,7 +769,6 @@ export function App() {
             <div hidden={activeTab !== 'more'}>
               <MoreTab
                 serviceItems={serviceItems}
-                currentServiceLabel={currentServiceLabel}
                 onAddServiceItem={handleAddServiceItem}
                 onRemoveServiceItem={handleRemoveServiceItem}
                 onSetCurrentServiceItem={handleSetCurrentServiceItem}

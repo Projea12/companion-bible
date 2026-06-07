@@ -31,6 +31,10 @@ const announcementBody = document.getElementById('announcement-body') as HTMLDiv
 const serviceLabel = document.getElementById('service-label') as HTMLDivElement;
 const serviceLabelText = document.getElementById('service-label-text') as HTMLElement;
 const idleServiceName = document.getElementById('idle-service-name') as HTMLElement;
+const idleProgramme = document.getElementById('idle-programme') as HTMLDivElement;
+const idleNowItem = document.getElementById('idle-now-item') as HTMLElement;
+const idleNextRow = document.getElementById('idle-next-row') as HTMLDivElement;
+const idleNextItem = document.getElementById('idle-next-item') as HTMLElement;
 
 // ─── state machine ────────────────────────────────────────────────────────────
 
@@ -133,19 +137,24 @@ function showSubPoint(text: string, index: number): void {
 let activePointNumber = 0;
 let activeHymnTitle = '';
 
-const HYMN_FS_MAX = 144;
-const HYMN_FS_MIN = 40;
+const HYMN_FS_MAX = 200;
+const HYMN_FS_MIN = 28;
 const HYMN_FS_STEP = 2;
 
 function fitHymnText(): void {
   stateHymn.style.removeProperty('--hymn-fs');
   requestAnimationFrame(() => {
-    const card = stateHymn.querySelector('.hymn-card');
-    if (!card) return;
-    let size = Math.min(HYMN_FS_MAX, Math.round(window.innerHeight * 0.055));
+    const bodyZone = stateHymn.querySelector('.hymn-body-zone');
+    const lines = stateHymn.querySelector('#hymn-lines');
+    if (!bodyZone || !lines) return;
+    // Start at 10% of body-zone height — generous for 2-line sections,
+    // the shrink loop reduces it for longer stanzas.
+    let size = Math.min(HYMN_FS_MAX, Math.round(bodyZone.clientHeight * 0.1));
     stateHymn.style.setProperty('--hymn-fs', `${String(size)}px`);
     requestAnimationFrame(function shrink() {
-      if (card.scrollHeight > stateHymn.clientHeight && size > HYMN_FS_MIN) {
+      const bodyBottom = bodyZone.getBoundingClientRect().bottom;
+      const linesBottom = lines.getBoundingClientRect().bottom;
+      if (linesBottom > bodyBottom && size > HYMN_FS_MIN) {
         size = Math.max(HYMN_FS_MIN, size - HYMN_FS_STEP);
         stateHymn.style.setProperty('--hymn-fs', `${String(size)}px`);
         requestAnimationFrame(shrink);
@@ -300,8 +309,17 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       if (payload.label) {
         serviceLabelText.textContent = payload.label;
         serviceLabel.classList.add('visible');
+        idleNowItem.textContent = payload.label;
+        idleProgramme.removeAttribute('hidden');
+        if (payload.next_label) {
+          idleNextItem.textContent = payload.next_label;
+          idleNextRow.removeAttribute('hidden');
+        } else {
+          idleNextRow.setAttribute('hidden', '');
+        }
       } else {
         serviceLabel.classList.remove('visible');
+        idleProgramme.setAttribute('hidden', '');
       }
       break;
 

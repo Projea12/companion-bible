@@ -28,11 +28,11 @@
         "url": "congregation.html",
         "width": 1920,
         "height": 1080,
-        "resizable": true,
+        "resizable": false,
         "visible": false,
         "decorations": false,
-        "alwaysOnTop": false,
-        "fullscreen": false
+        "alwaysOnTop": true,
+        "fullscreen": true
       }
     ],
     "security": {

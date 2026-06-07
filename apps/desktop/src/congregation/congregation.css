@@ -243,26 +243,90 @@ html {
   text-shadow: 0 1px 12px rgba(201, 169, 110, 0.3);
 }
 
-/* Footer — service name, gold, commanding */
+/* Footer — service name + optional NOW/NEXT programme */
 .idle-footer {
   flex-shrink: 0;
-  height: 12cqh;
+  min-height: 12cqh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1.2cqh;
   border-top: 1px solid rgba(201, 169, 110, 0.18);
   background: rgba(0, 0, 0, 0.2);
+  padding: 1.5cqh 4cqw;
 }
 
 .idle-service-name {
   font-family: var(--cb-sans);
-  font-size: clamp(12px, 1.8cqw, 26px);
-  font-weight: 800;
+  font-size: clamp(10px, 1.2cqw, 18px);
+  font-weight: 700;
   letter-spacing: 0.35em;
   text-transform: uppercase;
   color: var(--cb-accent);
-  opacity: 0.88;
-  text-shadow: 0 1px 14px rgba(201, 169, 110, 0.35);
+  opacity: 0.55;
+  text-shadow: 0 1px 14px rgba(201, 169, 110, 0.25);
+}
+
+/* NOW/NEXT programme strip — horizontal runway */
+.idle-programme {
+  display: flex;
+  align-items: center;
+  gap: clamp(16px, 3cqw, 48px);
+}
+
+.idle-programme[hidden] {
+  display: none;
+}
+
+.idle-prog-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1cqw, 16px);
+}
+
+.idle-prog-row--next[hidden] {
+  display: none;
+}
+
+.idle-prog-tag {
+  font-family: var(--cb-sans);
+  font-size: clamp(8px, 0.85cqw, 11px);
+  font-weight: 900;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.idle-prog-tag--next {
+  opacity: 0.4;
+}
+
+.idle-prog-item {
+  font-family: var(--cb-sans);
+  font-size: clamp(14px, 2cqw, 28px);
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--cb-text);
+  text-shadow: 0 1px 20px rgba(0, 0, 0, 0.8);
+}
+
+.idle-prog-item--next {
+  font-size: clamp(11px, 1.4cqw, 20px);
+  font-weight: 600;
+  color: var(--cb-text-dim);
+  opacity: 0.55;
+}
+
+/* Vertical separator between NOW and NEXT */
+.idle-prog-sep {
+  width: 1px;
+  height: clamp(16px, 2.5cqh, 32px);
+  background: rgba(201, 169, 110, 0.22);
+  flex-shrink: 0;
 }
 
 /* ── verse state panel — scrollable so enlarged text always fits ─────────── */
@@ -598,58 +662,162 @@ html {
   text-shadow: 0 1px 10px rgba(67, 56, 202, 0.55);
 }
 
-/* ── hymn card ────────────────────────────────────────────────────────────── */
-.hymn-card {
-  max-width: min(1200px, 88cqw);
+/* ── hymn — crown spotlight, 3-zone, Apple heavy-sans lyrics ─────────────── */
+
+/*
+ * Single emerald spotlight from the crown — stage lighting from above.
+ * One light source, not multiple gradients. Everything else near-black.
+ * Distinct from verse (aurora purple), sermon (indigo), announcement (amber).
+ */
+.state-hymn {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow: hidden;
+  padding: 0;
+
+  background:
+    radial-gradient(ellipse 65% 42% at 50% -2%, rgba(16, 120, 80, 0.65) 0%, transparent 55%),
+    linear-gradient(180deg, #020906 0%, #030b08 65%, #020704 100%);
+}
+
+@keyframes hymn-breathe {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.04);
+  }
+}
+
+.state-hymn:not([hidden]) {
+  animation: hymn-breathe 14s ease-in-out infinite;
+}
+
+/* Top bar — hymn reference left, logo bug right */
+.hymn-top-bar {
+  flex-shrink: 0;
+  height: 10cqh;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4cqw;
+}
+
+.hymn-ref {
+  display: flex;
+  align-items: center;
+  gap: 0.55em;
+  font-family: var(--cb-sans);
+  font-size: clamp(11px, 1.2cqw, 18px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  opacity: 0.72;
+}
+
+.hymn-ref-sep {
+  opacity: 0.38;
+}
+
+.hymn-ref-title {
+  font-weight: 400;
+  color: var(--cb-text-dim);
+  letter-spacing: 0.05em;
+  opacity: 0.8;
+}
+
+.hymn-logo-bug {
+  height: clamp(28px, 4.5cqh, 52px);
+  width: auto;
+  object-fit: contain;
+  opacity: 0.28;
+  filter: drop-shadow(0 1px 8px rgba(16, 120, 80, 0.35));
+}
+
+/* Body zone — section annotation + lyrics fill this space */
+.hymn-body-zone {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(12px, 1.8cqw, 28px);
-  padding: clamp(24px, 4cqw, 64px);
+  justify-content: center;
+  padding: 1cqh 7cqw 2cqh;
+  gap: clamp(12px, 2cqh, 32px);
 }
 
-.hymn-eyebrow {
+/* Section annotation — ultra-thin, tracked, above hairline rule */
+.hymn-section-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(8px, 1cqh, 16px);
+  flex-shrink: 0;
+}
+
+.hymn-section-label {
   font-family: var(--cb-sans);
-  font-size: var(--size-eyebrow);
-  font-weight: 600;
-  letter-spacing: 0.18em;
+  font-size: clamp(10px, 1.15cqw, 16px);
+  font-weight: 100;
+  letter-spacing: 0.55em;
   text-transform: uppercase;
   color: var(--cb-accent);
-  display: flex;
-  gap: 0.5em;
-  align-items: center;
+  opacity: 0.88;
 }
 
-.hymn-eyebrow-sep {
-  opacity: 0.5;
+/* Hairline gold rule — separates annotation from lyrics */
+.hymn-rule {
+  width: clamp(28px, 4.5cqw, 56px);
+  height: 1px;
+  background: var(--cb-accent);
+  opacity: 0.32;
+  border: none;
+  flex-shrink: 0;
 }
 
-.hymn-title {
-  font-family: var(--cb-serif);
-  font-size: clamp(18px, 2.4cqw, 36px);
-  font-weight: 400;
-  color: var(--cb-text-dim);
-  text-align: center;
-  letter-spacing: 0.04em;
-}
-
+/* Lyrics — heavy sans, fills the zone, no width cap */
 .hymn-lines {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(6px, 0.8cqw, 14px);
-  margin-top: clamp(8px, 1.2cqw, 20px);
+  gap: clamp(2px, 0.5cqh, 8px);
+  width: 100%;
 }
 
 .hymn-line {
-  font-family: var(--cb-serif);
-  font-size: var(--hymn-fs, clamp(26px, 4cqw, 64px));
-  font-weight: 400;
-  line-height: 1.5;
+  font-family: var(--cb-sans);
+  font-size: var(--hymn-fs, clamp(32px, 6cqh, 100px));
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.28;
   color: var(--cb-text);
   text-align: center;
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
+  text-shadow: 0 2px 32px rgba(0, 0, 0, 0.9);
   margin: 0;
+}
+
+/* Footer — church name, green-tinted rule */
+.hymn-footer {
+  flex-shrink: 0;
+  height: 10cqh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid rgba(16, 120, 80, 0.22);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.hymn-church-name {
+  font-family: var(--cb-sans);
+  font-size: clamp(11px, 1.5cqw, 22px);
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  opacity: 0.65;
+  text-shadow: 0 1px 10px rgba(16, 120, 80, 0.4);
 }
 
 /* ── blank — blackout matching body so the transition is invisible ────────── */
@@ -900,6 +1068,11 @@ html {
   }
 
   .state-announcement:not([hidden]) {
+    animation: none;
+    filter: none;
+  }
+
+  .state-hymn:not([hidden]) {
     animation: none;
     filter: none;
   }

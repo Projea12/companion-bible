@@ -247,6 +247,7 @@ pub enum AppEvent {
     /// The current order-of-service item changed. None means cleared.
     ServiceItemChanged {
         label: Option<String>,
+        next_label: Option<String>,
     },
 
     // ── Idle screen ───────────────────────────────────────────────────────────
