@@ -1,6 +1,32 @@
 import '../congregation/congregation.css';
 import type { TranscriptLine } from './useTranscript';
 
+function toRoman(n: number): string {
+  const map: [number, string][] = [
+    [1000, 'M'],
+    [900, 'CM'],
+    [500, 'D'],
+    [400, 'CD'],
+    [100, 'C'],
+    [90, 'XC'],
+    [50, 'L'],
+    [40, 'XL'],
+    [10, 'X'],
+    [9, 'IX'],
+    [5, 'V'],
+    [4, 'IV'],
+    [1, 'I'],
+  ];
+  let result = '';
+  for (const [val, sym] of map) {
+    while (n >= val) {
+      result += sym;
+      n -= val;
+    }
+  }
+  return result;
+}
+
 export type ScreenMode =
   | 'idle'
   | 'blank'
@@ -18,6 +44,7 @@ export interface CongregationPreviewProps {
   sermonTitle: string | null;
   sermonPoint: { number: number; text: string } | null;
   subPoint: string | null;
+  subPointIndex: number | null;
   hymn: { number: number; title: string } | null;
   hymnSection: { stanzaNumber: number | null; isChorus: boolean; lines: string[] } | null;
   announcementBody: string | null;
@@ -33,6 +60,7 @@ export function CongregationPreview(props: CongregationPreviewProps) {
     sermonTitle,
     sermonPoint,
     subPoint,
+    subPointIndex,
     hymn,
     hymnSection,
     announcementBody,
@@ -122,7 +150,9 @@ export function CongregationPreview(props: CongregationPreviewProps) {
           <div className="congregation-state state-sermon" hidden={screenMode !== 'subpoint'}>
             <div className="sermon-top-bar">
               <div className="sermon-badge">
-                {sermonPoint ? `Point\u00a0\u00a0${sermonPoint.number}` : ''}
+                {sermonPoint
+                  ? `Point\u00a0\u00a0${sermonPoint.number}${subPointIndex !== null ? `\u00a0·\u00a0${toRoman(subPointIndex + 1)}` : ''}`
+                  : ''}
               </div>
               <img src="/deeper_life_logo.png" className="sermon-logo-bug" aria-hidden="true" />
             </div>

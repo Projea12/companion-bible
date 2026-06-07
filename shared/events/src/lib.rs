@@ -111,6 +111,7 @@ pub enum AppEvent {
     },
     SubPointShown {
         text: String,
+        index: u32,
     },
     DisplayBlanked,
 

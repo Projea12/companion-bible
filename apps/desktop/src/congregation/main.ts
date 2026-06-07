@@ -112,9 +112,13 @@ function showSermonPoint(number: number, text: string): void {
   });
 }
 
-function showSubPoint(text: string): void {
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+
+function showSubPoint(text: string, index: number): void {
   showState('subpoint', () => {
-    subpointBadge.textContent = activePointNumber > 0 ? `Point  ${activePointNumber}` : '';
+    const roman = ROMAN[index] ?? String(index + 1);
+    subpointBadge.textContent =
+      activePointNumber > 0 ? `Point  ${activePointNumber}  ·  ${roman}` : '';
     subpointText.textContent = text;
   });
 }
@@ -251,7 +255,7 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       break;
 
     case 'SUB_POINT_SHOWN':
-      showSubPoint(payload.text);
+      showSubPoint(payload.text, payload.index);
       break;
 
     case 'DISPLAY_BLANKED':

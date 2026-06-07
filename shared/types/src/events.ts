@@ -35,7 +35,7 @@ export type AppEvent =
   | { type: 'DISPLAY_CLEARED' }
   | { type: 'SERMON_TITLE_SHOWN'; title: string }
   | { type: 'SERMON_POINT_SHOWN'; text: string; number: number }
-  | { type: 'SUB_POINT_SHOWN'; text: string }
+  | { type: 'SUB_POINT_SHOWN'; text: string; index: number }
   | { type: 'DISPLAY_BLANKED' }
 
   // ── Sermon lifecycle ───────────────────────────────────────────────────

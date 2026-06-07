@@ -503,9 +503,25 @@ fn show_sermon_point(app: AppHandle, state: State<ManagedState>, text: String, n
 
 #[tauri::command]
 fn show_sub_point(app: AppHandle, state: State<ManagedState>, sub_point: String) {
+    let index = {
+        let mut s = state.inner.lock().unwrap();
+        let idx = s
+            .sub_points
+            .iter()
+            .position(|t| t == &sub_point)
+            .unwrap_or_else(|| {
+                s.sub_points.push(sub_point.clone());
+                s.sub_points.len() - 1
+            });
+        s.current_sub_point_index = idx as i32;
+        idx as u32
+    };
     let _ = app.emit(
         "app-event",
-        serde_json::json!({ "type": "SUB_POINT_SHOWN", "text": sub_point }),
+        &AppEvent::SubPointShown {
+            text: sub_point,
+            index,
+        },
     );
     state.inner.lock().unwrap().display_mode = DisplayMode::Subpoint;
 }
@@ -1025,16 +1041,16 @@ fn next_sub_point(app: AppHandle, state: State<ManagedState>) {
         let next_idx = s.current_sub_point_index + 1;
         if next_idx < s.sub_points.len() as i32 {
             s.current_sub_point_index = next_idx;
-            s.sub_points.get(next_idx as usize).cloned()
+            s.sub_points
+                .get(next_idx as usize)
+                .cloned()
+                .map(|t| (t, next_idx as u32))
         } else {
             None
         }
     };
-    if let Some(text) = sub_point_text {
-        let _ = app.emit(
-            "app-event",
-            serde_json::json!({ "type": "SUB_POINT_SHOWN", "text": text }),
-        );
+    if let Some((text, index)) = sub_point_text {
+        let _ = app.emit("app-event", &AppEvent::SubPointShown { text, index });
         state.inner.lock().unwrap().display_mode = DisplayMode::Subpoint;
     }
 }

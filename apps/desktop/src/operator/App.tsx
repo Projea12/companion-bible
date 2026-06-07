@@ -41,6 +41,7 @@ export function App() {
   const [sermonTitle, setSermonTitle] = useState<string | null>(null);
   const [sermonPoint, setSermonPoint] = useState<{ number: number; text: string } | null>(null);
   const [currentSubPoint, setCurrentSubPoint] = useState<string | null>(null);
+  const [subPointIndex, setSubPointIndex] = useState<number | null>(null);
 
   // live transcript + verse queue
   const transcript = useTranscript();
@@ -198,6 +199,7 @@ export function App() {
 
         case 'SUB_POINT_SHOWN':
           setCurrentSubPoint(payload.text);
+          setSubPointIndex(payload.index);
           setScreenMode('subpoint');
           break;
 
@@ -564,6 +566,7 @@ export function App() {
             sermonTitle={sermonTitle}
             sermonPoint={sermonPoint}
             subPoint={currentSubPoint}
+            subPointIndex={subPointIndex}
             hymn={activeHymn}
             hymnSection={hymnSection}
             announcementBody={currentAnnouncementBody}
