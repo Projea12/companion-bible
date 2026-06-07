@@ -7,6 +7,7 @@ import { createStateMachine } from './state-machine';
 const stateIdle = document.getElementById('state-idle') as HTMLDivElement;
 const stateVerse = document.getElementById('state-verse') as HTMLDivElement;
 const stateTitle = document.getElementById('state-title') as HTMLDivElement;
+const statePoint = document.getElementById('state-point') as HTMLDivElement;
 const stateSubpoint = document.getElementById('state-subpoint') as HTMLDivElement;
 const stateBlank = document.getElementById('state-blank') as HTMLDivElement;
 const stateHymn = document.getElementById('state-hymn') as HTMLDivElement;
@@ -16,6 +17,8 @@ const verseReference = document.getElementById('verse-reference') as HTMLElement
 const verseText = document.getElementById('verse-text') as HTMLElement;
 const verseTranslation = document.getElementById('verse-translation') as HTMLElement;
 const titleText = document.getElementById('title-text') as HTMLElement;
+const pointLabel = document.getElementById('point-label') as HTMLElement;
+const pointText = document.getElementById('point-text') as HTMLElement;
 const subpointText = document.getElementById('subpoint-text') as HTMLElement;
 const hymnNumberLabel = document.getElementById('hymn-number-label') as HTMLElement;
 const hymnSectionLabel = document.getElementById('hymn-section-label') as HTMLElement;
@@ -33,6 +36,7 @@ const { showState, current: currentState } = createStateMachine({
   blank: stateBlank,
   verse: stateVerse,
   title: stateTitle,
+  point: statePoint,
   subpoint: stateSubpoint,
   hymn: stateHymn,
   announcement: stateAnnouncement,
@@ -97,10 +101,32 @@ function showSermonTitle(title: string): void {
   });
 }
 
+function showSermonPoint(number: number, text: string): void {
+  const roman = toRoman(number);
+  showState('point', () => {
+    pointLabel.textContent = `Point  ${roman}`;
+    pointText.textContent = text;
+  });
+}
+
 function showSubPoint(text: string): void {
   showState('subpoint', () => {
     subpointText.textContent = text;
   });
+}
+
+function toRoman(n: number): string {
+  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+  const syms = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I'];
+  let result = '';
+  let remaining = n;
+  for (let i = 0; i < vals.length; i++) {
+    while (remaining >= vals[i]) {
+      result += syms[i];
+      remaining -= vals[i];
+    }
+  }
+  return result;
 }
 
 let activeHymnTitle = '';
@@ -229,6 +255,10 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       showSermonTitle(payload.title);
       break;
 
+    case 'SERMON_POINT_SHOWN':
+      showSermonPoint(payload.number, payload.text);
+      break;
+
     case 'SUB_POINT_SHOWN':
       showSubPoint(payload.text);
       break;
@@ -277,6 +307,7 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       const panels: Partial<Record<string, HTMLElement>> = {
         verse: stateVerse,
         title: stateTitle,
+        point: statePoint,
         subpoint: stateSubpoint,
         hymn: stateHymn,
         announcement: announcementBodyWrap,

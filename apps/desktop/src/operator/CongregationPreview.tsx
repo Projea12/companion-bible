@@ -6,6 +6,7 @@ export type ScreenMode =
   | 'blank'
   | 'verse'
   | 'title'
+  | 'point'
   | 'subpoint'
   | 'hymn'
   | 'announcement';
@@ -15,6 +16,7 @@ export interface CongregationPreviewProps {
   congregationVisible: boolean;
   verse: { reference: string; text: string; translation: string } | null;
   sermonTitle: string | null;
+  sermonPoint: { number: number; text: string } | null;
   subPoint: string | null;
   hymn: { number: number; title: string } | null;
   hymnSection: { stanzaNumber: number | null; isChorus: boolean; lines: string[] } | null;
@@ -29,6 +31,7 @@ export function CongregationPreview(props: CongregationPreviewProps) {
     congregationVisible,
     verse,
     sermonTitle,
+    sermonPoint,
     subPoint,
     hymn,
     hymnSection,
@@ -78,6 +81,17 @@ export function CongregationPreview(props: CongregationPreviewProps) {
             <div className="title-card">
               <div className="title-eyebrow">Sermon</div>
               <div className="title-text">{sermonTitle ?? ''}</div>
+            </div>
+          </div>
+
+          {/* main point */}
+          <div className="congregation-state" hidden={screenMode !== 'point'}>
+            <div className="point-card">
+              <div className="point-eyebrow">
+                Point&nbsp;&nbsp;{sermonPoint ? toRoman(sermonPoint.number) : ''}
+              </div>
+              <div className="point-rule" aria-hidden="true" />
+              <div className="point-text">{sermonPoint?.text ?? ''}</div>
             </div>
           </div>
 
@@ -165,4 +179,18 @@ export function CongregationPreview(props: CongregationPreviewProps) {
       </div>
     </div>
   );
+}
+
+function toRoman(n: number): string {
+  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+  const syms = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I'];
+  let result = '';
+  let remaining = n;
+  for (let i = 0; i < vals.length; i++) {
+    while (remaining >= vals[i]) {
+      result += syms[i];
+      remaining -= vals[i];
+    }
+  }
+  return result;
 }

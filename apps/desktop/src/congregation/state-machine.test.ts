@@ -15,6 +15,7 @@ function makePanels(): StatePanels {
     blank: makePanel(),
     verse: makePanel(),
     title: makePanel(),
+    point: makePanel(),
     subpoint: makePanel(),
     hymn: makePanel(),
     announcement: makePanel(),

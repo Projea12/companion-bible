@@ -34,6 +34,7 @@ export type AppEvent =
   | { type: 'VERSE_DISPLAYED'; reference: BibleReference }
   | { type: 'DISPLAY_CLEARED' }
   | { type: 'SERMON_TITLE_SHOWN'; title: string }
+  | { type: 'SERMON_POINT_SHOWN'; text: string; number: number }
   | { type: 'SUB_POINT_SHOWN'; text: string }
   | { type: 'DISPLAY_BLANKED' }
 
@@ -115,7 +116,7 @@ export interface ScreenInfo {
   hasSecondaryScreen: boolean;
 }
 
-export type DisplayMode = 'idle' | 'blank' | 'verse' | 'title' | 'subpoint' | 'hymn';
+export type DisplayMode = 'idle' | 'blank' | 'verse' | 'title' | 'point' | 'subpoint' | 'hymn';
 
 export interface AppState {
   displayMode: DisplayMode;

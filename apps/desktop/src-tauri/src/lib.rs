@@ -33,6 +33,7 @@ enum DisplayMode {
     Blank,
     Verse,
     Title,
+    Point,
     Subpoint,
     Hymn,
     Announcement,
@@ -489,6 +490,15 @@ fn show_sermon_title(app: AppHandle, state: State<ManagedState>, title: String) 
         serde_json::json!({ "type": "SERMON_TITLE_SHOWN", "title": title }),
     );
     state.inner.lock().unwrap().display_mode = DisplayMode::Title;
+}
+
+#[tauri::command]
+fn show_sermon_point(app: AppHandle, state: State<ManagedState>, text: String, number: u8) {
+    let _ = app.emit(
+        "app-event",
+        serde_json::json!({ "type": "SERMON_POINT_SHOWN", "text": text, "number": number }),
+    );
+    state.inner.lock().unwrap().display_mode = DisplayMode::Point;
 }
 
 #[tauri::command]
@@ -1641,6 +1651,7 @@ pub fn run() {
             discard_verse,
             undo_discard,
             show_sermon_title,
+            show_sermon_point,
             show_sub_point,
             show_blank,
             clear_congregation_display,

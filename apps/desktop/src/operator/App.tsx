@@ -4,17 +4,16 @@ import { listen } from '@tauri-apps/api/event';
 import type { AppEvent, AppState } from '@companion-bible/types';
 import { TranscriptPanel } from './TranscriptPanel';
 import { VerseQueuePanel } from './VerseQueuePanel';
-import { ManualOverride } from './ManualOverride';
-import { ManualHymnOverride } from './ManualHymnOverride';
-import { SermonControls } from './SermonControls';
-import type { SermonSetup } from './SermonControls';
 import { StatusBar } from './StatusBar';
 import type { AudioStatus, InternetStatus, AiStatus, StorageStatus } from './StatusBar';
 import { useTranscript } from './useTranscript';
 import { useVerseQueue } from './useVerseQueue';
 import { CongregationPreview } from './CongregationPreview';
 import type { ScreenMode } from './CongregationPreview';
-import { ChapterBrowserPanel } from './ChapterBrowserPanel';
+import { BibleTab } from './BibleTab';
+import { SermonTab } from './SermonTab';
+import { HymnTab } from './HymnTab';
+import { MoreTab } from './MoreTab';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -23,6 +22,8 @@ interface DisplayedVerse {
   text: string;
   translation: string;
 }
+
+type ActiveTab = 'bible' | 'sermon' | 'hymn' | 'more';
 
 // ── root component ────────────────────────────────────────────────────────────
 
@@ -36,24 +37,21 @@ export function App() {
   const [totalScreens, setTotalScreens] = useState(1);
   const [hasSecondary, setHasSecondary] = useState(false);
 
-  // sermon context
-  const [sermonActive, setSermonActive] = useState(false);
+  // sermon display state (for "Now on Screen")
   const [sermonTitle, setSermonTitle] = useState<string | null>(null);
+  const [sermonPoint, setSermonPoint] = useState<{ number: number; text: string } | null>(null);
   const [currentSubPoint, setCurrentSubPoint] = useState<string | null>(null);
-  const [subPoints, setSubPoints] = useState<string[]>([]);
-  const [subPointIndex, setSubPointIndex] = useState(-1);
 
-  // live transcript
+  // live transcript + verse queue
   const transcript = useTranscript();
-
-  // verse queue
   const queue = useVerseQueue();
 
   // display
   const [displayedVerse, setDisplayedVerse] = useState<DisplayedVerse | null>(null);
+  const [screenMode, setScreenMode] = useState<ScreenMode>('idle');
+  const [currentAnnouncementBody, setCurrentAnnouncementBody] = useState<string | null>(null);
 
   // hymn
-  const [displayMode, setDisplayMode] = useState<'bible' | 'hymn'>('bible');
   const [activeHymn, setActiveHymn] = useState<{ number: number; title: string } | null>(null);
   const [hymnSection, setHymnSection] = useState<{
     stanzaNumber: number | null;
@@ -61,47 +59,35 @@ export function App() {
     lines: string[];
   } | null>(null);
 
-  // transcription
-  const [assemblyaiKey, setAssemblyaiKey] = useState('');
-  const [deepgramKey, setDeepgramKey] = useState('');
-  const [openaiKey, setOpenaiKey] = useState('');
-  const [transcriptionMode, setTranscriptionMode] = useState<'assemblyai' | 'deepgram' | 'whisper'>(
-    'whisper',
-  );
-
   // announcements
   const [announcements, setAnnouncements] = useState<
     { id: number; body: string; durationSecs: number }[]
   >([]);
   const [announcementRunning, setAnnouncementRunning] = useState(false);
   const [announcementIndex, setAnnouncementIndex] = useState<number | null>(null);
-  const [newAnnouncementBody, setNewAnnouncementBody] = useState('');
-  const [newAnnouncementDuration, setNewAnnouncementDuration] = useState(30);
 
-  // screen mode
-  const [screenMode, setScreenMode] = useState<ScreenMode>('idle');
-  const [currentAnnouncementBody, setCurrentAnnouncementBody] = useState<string | null>(null);
+  // order of service
+  const [serviceItems, setServiceItems] = useState<
+    { id: number; label: string; isCurrent: boolean }[]
+  >([]);
+  const [currentServiceLabel, setCurrentServiceLabel] = useState<string | null>(null);
 
   // chapter browser
   const [chapterBook, setChapterBook] = useState<string | null>(null);
   const [chapterNum, setChapterNum] = useState<number | null>(null);
   const [chapterActiveVerse, setChapterActiveVerse] = useState<number | null>(null);
 
-  // order of service
-  const [serviceItems, setServiceItems] = useState<
-    { id: number; label: string; isCurrent: boolean }[]
-  >([]);
-  const [newServiceItemLabel, setNewServiceItemLabel] = useState('');
-  const [currentServiceLabel, setCurrentServiceLabel] = useState<string | null>(null);
+  // tabs
+  const [activeTab, setActiveTab] = useState<ActiveTab>('bible');
 
-  // settings panel
-  const [settingsOpen, setSettingsOpen] = useState(false);
-
-  // undo (5-second window enforced on the frontend)
+  // undo (5-second window)
   const [undoExpiresAt, setUndoExpiresAt] = useState<number | null>(null);
   const [undoSecsLeft, setUndoSecsLeft] = useState(0);
 
   // status
+  const [transcriptionMode, setTranscriptionMode] = useState<'assemblyai' | 'deepgram' | 'whisper'>(
+    'whisper',
+  );
   const [internet, setInternet] = useState<InternetStatus>('offline');
   const [audio, setAudio] = useState<AudioStatus>('idle');
   const [ai, setAi] = useState<AiStatus>('idle');
@@ -205,26 +191,14 @@ export function App() {
           setScreenMode('title');
           break;
 
+        case 'SERMON_POINT_SHOWN':
+          setSermonPoint({ number: payload.number, text: payload.text });
+          setScreenMode('point');
+          break;
+
         case 'SUB_POINT_SHOWN':
           setCurrentSubPoint(payload.text);
           setScreenMode('subpoint');
-          break;
-
-        case 'SERMON_STARTED':
-          setSermonActive(true);
-          if (payload.title) setSermonTitle(payload.title);
-          break;
-
-        case 'SERMON_ENDED':
-          setSermonActive(false);
-          setSermonTitle(null);
-          setCurrentSubPoint(null);
-          setSubPoints([]);
-          setSubPointIndex(-1);
-          break;
-
-        case 'SUB_POINT_ADDED':
-          setSubPoints((prev) => (prev.includes(payload.text) ? prev : [...prev, payload.text]));
           break;
 
         case 'INTERNET_CONNECTED':
@@ -291,7 +265,6 @@ export function App() {
 
         case 'HYMN_DETECTED':
           setActiveHymn({ number: payload.number, title: payload.title });
-          setDisplayMode('hymn');
           break;
 
         case 'HYMN_SECTION_ADVANCED':
@@ -301,6 +274,7 @@ export function App() {
             lines: payload.lines,
           });
           setScreenMode('hymn');
+          setActiveTab('hymn');
           break;
 
         case 'HYMN_COMPLETED':
@@ -391,12 +365,16 @@ export function App() {
   );
 
   const handleDiscard = useCallback(() => {
-    if (!displayedVerse) return;
-    void invoke('discard_verse').then(() => {
-      setUndoExpiresAt(Date.now() + 5000);
-      setUndoSecsLeft(5);
-    });
-  }, [displayedVerse]);
+    if (screenMode === 'idle') return;
+    if (screenMode === 'verse' && displayedVerse) {
+      void invoke('discard_verse').then(() => {
+        setUndoExpiresAt(Date.now() + 5000);
+        setUndoSecsLeft(5);
+      });
+    } else {
+      void invoke('clear_congregation_display');
+    }
+  }, [screenMode, displayedVerse]);
 
   const handleUndo = useCallback(() => {
     if (!undoExpiresAt || Date.now() > undoExpiresAt) return;
@@ -415,20 +393,12 @@ export function App() {
   }, []);
 
   const handleLoadHymn = useCallback((number: number) => {
-    void invoke('load_hymn', { number }).then(() => setDisplayMode('hymn'));
+    void invoke('load_hymn', { number });
   }, []);
 
-  const handleSaveAssemblyAiKey = useCallback(() => {
-    void invoke('set_assemblyai_key', { key: assemblyaiKey });
-  }, [assemblyaiKey]);
-
-  const handleSaveDeepgramKey = useCallback(() => {
-    void invoke('set_deepgram_key', { key: deepgramKey });
-  }, [deepgramKey]);
-
-  const handleSaveOpenAiKey = useCallback(() => {
-    void invoke('set_openai_key', { key: openaiKey });
-  }, [openaiKey]);
+  const handleNextStanza = useCallback(() => {
+    void invoke('next_hymn_stanza');
+  }, []);
 
   const handleNextVerse = useCallback(() => {
     void invoke('next_verse');
@@ -438,50 +408,11 @@ export function App() {
     void invoke('previous_verse');
   }, []);
 
-  const handleStartService = useCallback((setup: SermonSetup) => {
-    void invoke('start_sermon', {
-      title: setup.title || null,
-      pastor: setup.pastor || null,
-      anchorScripture: setup.anchorScripture || null,
-    }).then(() => {
-      setSermonActive(true);
-      if (setup.title) setSermonTitle(setup.title);
+  const handleAddAnnouncement = useCallback((body: string, durationSecs: number) => {
+    void invoke<number>('add_announcement', { body, durationSecs }).then((id) => {
+      setAnnouncements((prev) => [...prev, { id, body, durationSecs }]);
     });
   }, []);
-
-  const handleEndService = useCallback(() => {
-    void invoke('end_sermon').then(() => {
-      setSermonActive(false);
-      setSermonTitle(null);
-      setCurrentSubPoint(null);
-      setSubPoints([]);
-      setSubPointIndex(-1);
-    });
-  }, []);
-
-  const handleAddSubPoint = useCallback((text: string) => {
-    void invoke('add_sub_point', { text }).then(() => {
-      setSubPoints((prev) => [...prev, text]);
-    });
-  }, []);
-
-  const handleToggleDisplayMode = useCallback(() => {
-    const next = displayMode === 'bible' ? 'hymn' : 'bible';
-    void invoke('set_display_mode', { mode: next }).then(() => setDisplayMode(next));
-  }, [displayMode]);
-
-  const handleNextStanza = useCallback(() => {
-    void invoke('next_hymn_stanza');
-  }, []);
-
-  const handleAddAnnouncement = useCallback(() => {
-    const body = newAnnouncementBody.trim();
-    if (!body) return;
-    void invoke('add_announcement', { body, durationSecs: newAnnouncementDuration }).then((id) => {
-      setAnnouncements((prev) => [...prev, { id, body, durationSecs: newAnnouncementDuration }]);
-      setNewAnnouncementBody('');
-    });
-  }, [newAnnouncementBody, newAnnouncementDuration]);
 
   const handleRemoveAnnouncement = useCallback((id: number) => {
     void invoke('remove_announcement', { id }).then(() => {
@@ -505,14 +436,11 @@ export function App() {
     void invoke('prev_announcement');
   }, []);
 
-  const handleAddServiceItem = useCallback(() => {
-    const label = newServiceItemLabel.trim().toUpperCase();
-    if (!label) return;
-    void invoke('add_service_item', { label }).then((id) => {
+  const handleAddServiceItem = useCallback((label: string) => {
+    void invoke<number>('add_service_item', { label }).then((id) => {
       setServiceItems((prev) => [...prev, { id, label, isCurrent: false }]);
-      setNewServiceItemLabel('');
     });
-  }, [newServiceItemLabel]);
+  }, []);
 
   const handleRemoveServiceItem = useCallback((id: number) => {
     void invoke('remove_service_item', { id }).then(() => {
@@ -535,15 +463,17 @@ export function App() {
     });
   }, []);
 
-  const handleNextSubPoint = useCallback(() => {
-    void invoke('next_sub_point').then(() => {
-      setSubPointIndex((i) => {
-        const next = i + 1;
-        setCurrentSubPoint(subPoints[next] ?? null);
-        return next;
-      });
-    });
-  }, [subPoints]);
+  const switchTab = useCallback(
+    (tab: ActiveTab) => {
+      setActiveTab(tab);
+      if (tab === 'hymn') {
+        void invoke('set_display_mode', { mode: 'hymn' });
+      } else if (activeTab === 'hymn') {
+        void invoke('set_display_mode', { mode: 'bible' });
+      }
+    },
+    [activeTab],
+  );
 
   // ── keyboard shortcuts ────────────────────────────────────────────────────
 
@@ -575,6 +505,7 @@ export function App() {
   // ── render ────────────────────────────────────────────────────────────────
 
   const showUndo = undoExpiresAt !== null && undoSecsLeft > 0;
+  const screenIsActive = screenMode !== 'idle' && screenMode !== 'blank';
 
   return (
     <div className="op-layout">
@@ -619,115 +550,8 @@ export function App() {
           >
             {congregationVisible ? 'Hide Screen' : 'Show Screen'}
           </button>
-          {!sessionActive && (
-            <button
-              className={`btn btn-secondary btn-icon${settingsOpen ? ' btn-icon--active' : ''}`}
-              onClick={() => setSettingsOpen((o) => !o)}
-              title="API key settings"
-              aria-expanded={settingsOpen}
-            >
-              ⚙
-            </button>
-          )}
         </div>
       </header>
-
-      {/* ── Settings panel (API keys) ── */}
-      {settingsOpen && !sessionActive && (
-        <div className="op-settings-panel">
-          <div className="settings-panel-inner">
-            <p className="settings-hint">
-              Transcription: AssemblyAI → Deepgram → Whisper (offline). Detection: OpenAI (primary).
-            </p>
-            <div className="settings-key-grid">
-              <div className="settings-key-row">
-                <div className="settings-key-meta">
-                  <span className="settings-key-label">AssemblyAI</span>
-                  <span className="settings-key-tag settings-key-tag--primary">Recommended</span>
-                </div>
-                <div className="settings-key-input-row">
-                  <input
-                    className="settings-input"
-                    type="password"
-                    placeholder="aai-…"
-                    value={assemblyaiKey}
-                    onChange={(e) => setAssemblyaiKey(e.target.value)}
-                    onBlur={handleSaveAssemblyAiKey}
-                    autoComplete="off"
-                  />
-                  <button className="btn btn-secondary btn-sm" onClick={handleSaveAssemblyAiKey}>
-                    Save
-                  </button>
-                </div>
-                {assemblyaiKey && <span className="settings-key-saved">✓ Saved</span>}
-              </div>
-
-              <div className="settings-key-divider" />
-
-              <div className="settings-key-row">
-                <div className="settings-key-meta">
-                  <span className="settings-key-label">Deepgram</span>
-                  <span className="settings-key-tag">Fallback</span>
-                </div>
-                <div className="settings-key-input-row">
-                  <input
-                    className="settings-input"
-                    type="password"
-                    placeholder="Paste Deepgram key…"
-                    value={deepgramKey}
-                    onChange={(e) => setDeepgramKey(e.target.value)}
-                    onBlur={handleSaveDeepgramKey}
-                    autoComplete="off"
-                  />
-                  <button className="btn btn-secondary btn-sm" onClick={handleSaveDeepgramKey}>
-                    Save
-                  </button>
-                </div>
-                {deepgramKey && <span className="settings-key-saved">✓ Saved</span>}
-              </div>
-
-              <div className="settings-key-divider" />
-
-              <div className="settings-key-row">
-                <div className="settings-key-meta">
-                  <span className="settings-key-label">OpenAI</span>
-                  <span className="settings-key-tag settings-key-tag--primary">
-                    Verse Detection
-                  </span>
-                </div>
-                <div className="settings-key-input-row">
-                  <input
-                    className="settings-input"
-                    type="password"
-                    placeholder="sk-…"
-                    value={openaiKey}
-                    onChange={(e) => setOpenaiKey(e.target.value)}
-                    onBlur={handleSaveOpenAiKey}
-                    autoComplete="off"
-                  />
-                  <button className="btn btn-secondary btn-sm" onClick={handleSaveOpenAiKey}>
-                    Save
-                  </button>
-                </div>
-                {openaiKey && <span className="settings-key-saved">✓ Saved</span>}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Sermon Bar ── */}
-      <div className="op-sermon-bar">
-        <div className="sermon-slot">
-          <span className="sermon-slot-label">Sermon</span>
-          <span className="sermon-slot-value sermon-title">{sermonTitle ?? '—'}</span>
-        </div>
-        <div className="sermon-divider" />
-        <div className="sermon-slot">
-          <span className="sermon-slot-label">Sub-point</span>
-          <span className="sermon-slot-value sermon-subpoint">{currentSubPoint ?? '—'}</span>
-        </div>
-      </div>
 
       {/* ── Main ── */}
       <main className="op-main">
@@ -738,6 +562,7 @@ export function App() {
             congregationVisible={congregationVisible}
             verse={displayedVerse}
             sermonTitle={sermonTitle}
+            sermonPoint={sermonPoint}
             subPoint={currentSubPoint}
             hymn={activeHymn}
             hymnSection={hymnSection}
@@ -759,280 +584,145 @@ export function App() {
           </section>
         </div>
 
-        {/* ── Right: now on screen → nav → clear → undo → mode → service → sermon → announcements → overrides ── */}
+        {/* ── Right: pinned Now on Screen + tabs ── */}
         <div className="op-col op-col-right">
-          {/* ── 1. Now on Screen ── */}
-          <section className="op-panel op-panel-verse">
-            <div className="verse-live-header">
-              <span className="verse-live-label">
-                <span className={`verse-live-dot${displayedVerse ? ' verse-live-dot--on' : ''}`} />
+          {/* ── Now on Screen — always visible ── */}
+          <div className="op-now-on-screen">
+            <div className="op-now-header">
+              <span className="op-now-label">
+                <span className={`verse-live-dot${screenIsActive ? ' verse-live-dot--on' : ''}`} />
                 Now on Screen
               </span>
+              <span className="op-now-mode">{screenMode}</span>
             </div>
-            {displayedVerse ? (
-              <div className="verse-display">
-                <div className="verse-display-ref">{displayedVerse.reference}</div>
-                <p className="verse-display-text">{displayedVerse.text || '(text loading…)'}</p>
-                <span className="verse-display-trans">{displayedVerse.translation}</span>
-              </div>
-            ) : (
-              <p className="verse-display-empty">Nothing on congregation screen</p>
-            )}
-          </section>
 
-          {/* ── 2. Verse navigation ── */}
-          <div className="verse-nav-row">
-            <button
-              className="btn btn-secondary"
-              disabled={!displayedVerse}
-              onClick={handlePrevVerse}
-              title="Previous verse — Keyboard: ←"
-            >
-              ← Previous
-              <kbd className="key-hint">←</kbd>
-            </button>
-            <button
-              className="btn btn-secondary"
-              disabled={!displayedVerse}
-              onClick={handleNextVerse}
-              title="Next verse — Keyboard: →"
-            >
-              Next →<kbd className="key-hint">→</kbd>
-            </button>
-          </div>
-
-          {/* ── 3. Chapter browser ── */}
-          <ChapterBrowserPanel
-            book={chapterBook}
-            chapter={chapterNum}
-            activeVerse={chapterActiveVerse}
-            onSelectVerse={handleSelectChapterVerse}
-          />
-
-          {/* ── 5. Clear Screen ── */}
-          <button
-            className="btn-discard"
-            disabled={!displayedVerse}
-            onClick={handleDiscard}
-            title="Keyboard: Space"
-          >
-            Clear Screen
-            <kbd className="key-hint">Space</kbd>
-          </button>
-
-          {/* ── 6. Undo (5-second window) ── */}
-          {showUndo && (
-            <button className="btn-undo" onClick={handleUndo} title="Keyboard: Ctrl+Z">
-              ↩ Undo
-              <span className="undo-timer">{undoSecsLeft}s</span>
-              <kbd className="key-hint">Ctrl+Z</kbd>
-            </button>
-          )}
-
-          {/* ── 7. Mode toggle ── */}
-          <div className="mode-toggle-row">
-            <button
-              className={`btn btn-secondary mode-toggle-btn${displayMode === 'bible' ? ' mode-toggle-btn--active' : ''}`}
-              onClick={handleToggleDisplayMode}
-              title="Switch between Bible verse and GHS hymn mode"
-            >
-              {displayMode === 'bible' ? 'Bible Mode' : 'GHS Mode'}
-            </button>
-          </div>
-
-          {/* ── 6. Active hymn panel ── */}
-          {displayMode === 'hymn' && activeHymn && (
-            <section className="op-panel op-panel-hymn">
-              <h2 className="op-panel-heading">
-                GHS {activeHymn.number} — {activeHymn.title}
-              </h2>
-              {hymnSection && (
+            <div className="op-now-content">
+              {screenMode === 'verse' && displayedVerse ? (
                 <>
-                  <p className="hymn-section-label">
-                    {hymnSection.isChorus ? 'Chorus' : `Stanza ${hymnSection.stanzaNumber ?? ''}`}
-                  </p>
-                  <div className="hymn-section-lines">
-                    {hymnSection.lines.map((line, i) => (
-                      <p key={i} className="hymn-section-line">
-                        {line}
-                      </p>
-                    ))}
-                  </div>
+                  <div className="verse-display-ref">{displayedVerse.reference}</div>
+                  <p className="verse-display-text">{displayedVerse.text || '(text loading…)'}</p>
                 </>
-              )}
-              <button className="btn btn-primary hymn-next-btn" onClick={handleNextStanza}>
-                Next Stanza →
-              </button>
-            </section>
-          )}
-
-          {/* ── 7. Order of Service ── */}
-          <section className="op-panel op-panel-service">
-            <div className="service-panel-header">
-              <h2 className="op-panel-heading">Order of Service</h2>
-              {currentServiceLabel && (
-                <span className="service-now-badge">● {currentServiceLabel}</span>
-              )}
-            </div>
-
-            <div className="service-add-row">
-              <input
-                className="service-add-input"
-                placeholder="e.g. OPENING PRAYER"
-                value={newServiceItemLabel}
-                onChange={(e) => setNewServiceItemLabel(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAddServiceItem();
-                }}
-              />
-              <button
-                className="btn btn-primary btn-sm"
-                disabled={!newServiceItemLabel.trim()}
-                onClick={handleAddServiceItem}
-              >
-                + Add
-              </button>
-            </div>
-
-            {serviceItems.length > 0 && (
-              <ol className="service-list">
-                {serviceItems.map((item) => (
-                  <li
-                    key={item.id}
-                    className={`service-item${item.isCurrent ? ' service-item--active' : ''}`}
-                    onClick={() => handleSetCurrentServiceItem(item.id)}
-                    title="Click to set as current"
-                  >
-                    <span className="service-item-dot" aria-hidden="true">
-                      {item.isCurrent ? '●' : '○'}
+              ) : screenMode === 'title' ? (
+                <div className="op-now-text">{sermonTitle ?? '—'}</div>
+              ) : screenMode === 'point' && sermonPoint ? (
+                <div className="op-now-text">
+                  <span className="op-now-eyebrow">Point {toRoman(sermonPoint.number)}</span>
+                  {sermonPoint.text}
+                </div>
+              ) : screenMode === 'subpoint' ? (
+                <div className="op-now-text">{currentSubPoint ?? '—'}</div>
+              ) : screenMode === 'hymn' && activeHymn ? (
+                <div className="op-now-text">
+                  GHS {activeHymn.number} · {activeHymn.title}
+                  {hymnSection && (
+                    <span className="op-now-eyebrow">
+                      {hymnSection.isChorus ? 'Chorus' : `Stanza ${hymnSection.stanzaNumber ?? ''}`}
                     </span>
-                    <span className="service-item-label">{item.label}</span>
-                    <button
-                      className="btn btn-sm btn-danger service-item-remove"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveServiceItem(item.id);
-                      }}
-                      title="Remove"
-                    >
-                      ✕
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            )}
-
-            <div className="service-controls">
-              <button
-                className="btn btn-secondary btn-sm"
-                disabled={serviceItems.length === 0}
-                onClick={handleNextServiceItem}
-              >
-                Next →
-              </button>
-              <button
-                className="btn btn-sm btn-danger"
-                disabled={serviceItems.length === 0}
-                onClick={handleClearServiceItems}
-              >
-                Clear All
-              </button>
-            </div>
-          </section>
-
-          {/* ── 8. Sermon controls ── */}
-          <SermonControls
-            sermonActive={sermonActive}
-            subPoints={subPoints}
-            subPointIndex={subPointIndex}
-            onStartService={handleStartService}
-            onEndService={handleEndService}
-            onAddSubPoint={handleAddSubPoint}
-            onNextSubPoint={handleNextSubPoint}
-          />
-
-          {/* ── 9. Announcements ── */}
-          <section className="op-panel op-panel-announcement">
-            <h2 className="op-panel-heading">Announcements</h2>
-
-            <div className="announcement-add-row">
-              <textarea
-                className="announcement-body-input"
-                placeholder="Announcement text…"
-                value={newAnnouncementBody}
-                onChange={(e) => setNewAnnouncementBody(e.target.value)}
-                rows={3}
-              />
-              <div className="announcement-add-controls">
-                <label className="announcement-duration-label">
-                  Duration (s)
-                  <input
-                    type="number"
-                    className="announcement-duration-input"
-                    min={5}
-                    max={300}
-                    value={newAnnouncementDuration}
-                    onChange={(e) => setNewAnnouncementDuration(Number(e.target.value))}
-                  />
-                </label>
-                <button
-                  className="btn btn-primary"
-                  disabled={!newAnnouncementBody.trim()}
-                  onClick={handleAddAnnouncement}
-                >
-                  + Add
-                </button>
-              </div>
-            </div>
-
-            {announcements.length > 0 && (
-              <ol className="announcement-list">
-                {announcements.map((a, i) => (
-                  <li
-                    key={a.id}
-                    className={`announcement-item${announcementIndex === i ? ' announcement-item--active' : ''}`}
-                  >
-                    <span className="announcement-item-body">{a.body}</span>
-                    <span className="announcement-item-dur">{a.durationSecs}s</span>
-                    <button
-                      className="btn btn-sm btn-danger"
-                      onClick={() => handleRemoveAnnouncement(a.id)}
-                    >
-                      ✕
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            )}
-
-            <div className="announcement-controls">
-              {!announcementRunning ? (
-                <button
-                  className="btn btn-primary"
-                  disabled={announcements.length === 0}
-                  onClick={handleStartAnnouncements}
-                >
-                  ▶ Start
-                </button>
+                  )}
+                </div>
+              ) : screenMode === 'announcement' ? (
+                <div className="op-now-text op-now-text--clamp">
+                  {currentAnnouncementBody ?? '—'}
+                </div>
               ) : (
-                <>
-                  <button className="btn btn-secondary" onClick={handlePrevAnnouncement}>
-                    ← Prev
-                  </button>
-                  <button className="btn btn-secondary" onClick={handleNextAnnouncement}>
-                    Next →
-                  </button>
-                  <button className="btn btn-danger" onClick={handleStopAnnouncements}>
-                    ■ Stop
-                  </button>
-                </>
+                <p className="verse-display-empty">
+                  {screenMode === 'blank' ? 'Screen is blank' : 'Nothing on screen'}
+                </p>
               )}
             </div>
-          </section>
 
-          {/* ── 10. Manual verse + hymn override ── */}
-          <ManualOverride onSubmit={handleManualOverride} />
-          <ManualHymnOverride onSubmit={handleLoadHymn} />
+            {/* Verse nav — only when a verse is showing */}
+            {screenMode === 'verse' && (
+              <div className="op-now-verse-nav">
+                <button className="btn btn-secondary" onClick={handlePrevVerse} title="Keyboard: ←">
+                  ← Prev<kbd className="key-hint">←</kbd>
+                </button>
+                <button className="btn btn-secondary" onClick={handleNextVerse} title="Keyboard: →">
+                  Next →<kbd className="key-hint">→</kbd>
+                </button>
+              </div>
+            )}
+
+            {/* Clear + Undo */}
+            <div className="op-now-actions">
+              <button
+                className="btn-discard op-now-clear"
+                disabled={screenMode === 'idle'}
+                onClick={handleDiscard}
+                title="Keyboard: Space"
+              >
+                Clear Screen<kbd className="key-hint">Space</kbd>
+              </button>
+              {showUndo && (
+                <button
+                  className="btn-undo op-now-undo"
+                  onClick={handleUndo}
+                  title="Keyboard: Ctrl+Z"
+                >
+                  ↩ Undo<span className="undo-timer">{undoSecsLeft}s</span>
+                  <kbd className="key-hint">Ctrl+Z</kbd>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* ── Tab bar ── */}
+          <div className="op-tab-bar" role="tablist">
+            {(['bible', 'sermon', 'hymn', 'more'] as const).map((tab) => (
+              <button
+                key={tab}
+                role="tab"
+                aria-selected={activeTab === tab}
+                className={`op-tab-btn${activeTab === tab ? ' op-tab-btn--active' : ''}`}
+                onClick={() => switchTab(tab)}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Tab content ── */}
+          <div className="op-tab-content" role="tabpanel">
+            {activeTab === 'bible' && (
+              <BibleTab
+                chapterBook={chapterBook}
+                chapterNum={chapterNum}
+                chapterActiveVerse={chapterActiveVerse}
+                onSelectVerse={handleSelectChapterVerse}
+                onManualSubmit={handleManualOverride}
+              />
+            )}
+            {activeTab === 'sermon' && <SermonTab />}
+            {activeTab === 'hymn' && (
+              <HymnTab
+                activeHymn={activeHymn}
+                hymnSection={hymnSection}
+                onLoadHymn={handleLoadHymn}
+                onNextStanza={handleNextStanza}
+              />
+            )}
+            {activeTab === 'more' && (
+              <MoreTab
+                serviceItems={serviceItems}
+                currentServiceLabel={currentServiceLabel}
+                onAddServiceItem={handleAddServiceItem}
+                onRemoveServiceItem={handleRemoveServiceItem}
+                onSetCurrentServiceItem={handleSetCurrentServiceItem}
+                onNextServiceItem={handleNextServiceItem}
+                onClearServiceItems={handleClearServiceItems}
+                announcements={announcements}
+                announcementRunning={announcementRunning}
+                announcementIndex={announcementIndex}
+                onAddAnnouncement={handleAddAnnouncement}
+                onRemoveAnnouncement={handleRemoveAnnouncement}
+                onStartAnnouncements={handleStartAnnouncements}
+                onStopAnnouncements={handleStopAnnouncements}
+                onNextAnnouncement={handleNextAnnouncement}
+                onPrevAnnouncement={handlePrevAnnouncement}
+                sessionActive={sessionActive}
+              />
+            )}
+          </div>
         </div>
       </main>
 
@@ -1054,4 +744,18 @@ export function App() {
 
 function formatRef(book: string, chapter: number, verse: number | null | undefined): string {
   return verse != null ? `${book} ${chapter}:${verse}` : `${book} ${chapter}`;
+}
+
+function toRoman(n: number): string {
+  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
+  const syms = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I'];
+  let result = '';
+  let remaining = n;
+  for (let i = 0; i < vals.length; i++) {
+    while (remaining >= vals[i]) {
+      result += syms[i];
+      remaining -= vals[i];
+    }
+  }
+  return result;
 }
