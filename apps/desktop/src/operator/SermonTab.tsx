@@ -19,12 +19,14 @@ interface SermonPoint {
   id: number;
   romanNumeral: string;
   text: string;
+  scriptures: SermonScripture[];
   subPoints: SermonSubPoint[];
 }
 
 interface SermonOutline {
   title: string;
   preacher: string;
+  scriptures: SermonScripture[];
   points: SermonPoint[];
 }
 
@@ -71,7 +73,7 @@ function ScriptureInput({ value, onChange }: ScriptureInputProps) {
         onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
       {open && suggestions.length > 0 && (
-        <ul className="override-suggestions">
+        <ul className="scripture-suggestions">
           {suggestions.map((book) => (
             <li
               key={book}
@@ -102,12 +104,30 @@ interface SetupViewProps {
 function SetupView({ outline, onChange, onGoLive }: SetupViewProps) {
   const canGoLive = outline.title.trim().length > 0;
 
+  const addOutlineScripture = () =>
+    onChange({ ...outline, scriptures: [...outline.scriptures, { id: uid(), reference: '' }] });
+
+  const removeOutlineScripture = (rid: number) =>
+    onChange({ ...outline, scriptures: outline.scriptures.filter((r) => r.id !== rid) });
+
+  const updateOutlineScripture = (rid: number, reference: string) =>
+    onChange({
+      ...outline,
+      scriptures: outline.scriptures.map((r) => (r.id === rid ? { ...r, reference } : r)),
+    });
+
   const addPoint = () =>
     onChange({
       ...outline,
       points: [
         ...outline.points,
-        { id: uid(), romanNumeral: toRoman(outline.points.length + 1), text: '', subPoints: [] },
+        {
+          id: uid(),
+          romanNumeral: toRoman(outline.points.length + 1),
+          text: '',
+          scriptures: [],
+          subPoints: [],
+        },
       ],
     });
 
@@ -128,6 +148,32 @@ function SetupView({ outline, onChange, onGoLive }: SetupViewProps) {
     [pts[i], pts[j]] = [pts[j], pts[i]];
     onChange({ ...outline, points: pts });
   };
+
+  const addPointScripture = (pid: number) =>
+    onChange({
+      ...outline,
+      points: outline.points.map((p) =>
+        p.id === pid ? { ...p, scriptures: [...p.scriptures, { id: uid(), reference: '' }] } : p,
+      ),
+    });
+
+  const removePointScripture = (pid: number, rid: number) =>
+    onChange({
+      ...outline,
+      points: outline.points.map((p) =>
+        p.id === pid ? { ...p, scriptures: p.scriptures.filter((r) => r.id !== rid) } : p,
+      ),
+    });
+
+  const updatePointScripture = (pid: number, rid: number, reference: string) =>
+    onChange({
+      ...outline,
+      points: outline.points.map((p) =>
+        p.id === pid
+          ? { ...p, scriptures: p.scriptures.map((r) => (r.id === rid ? { ...r, reference } : r)) }
+          : p,
+      ),
+    });
 
   const addSubPoint = (pid: number) =>
     onChange({
@@ -247,6 +293,27 @@ function SetupView({ outline, onChange, onGoLive }: SetupViewProps) {
               onChange={(e) => onChange({ ...outline, preacher: e.target.value })}
             />
           </div>
+          <div className="sermon-field">
+            <label className="sermon-field-label">Scripture(s)</label>
+            {outline.scriptures.map((ref) => (
+              <div key={ref.id} className="sermon-scripture-row">
+                <span className="sermon-scripture-icon">→</span>
+                <ScriptureInput
+                  value={ref.reference}
+                  onChange={(val) => updateOutlineScripture(ref.id, val)}
+                />
+                <button
+                  className="btn-icon-sm btn-icon-sm--danger"
+                  onClick={() => removeOutlineScripture(ref.id)}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button className="btn-outline-sm" onClick={addOutlineScripture}>
+              + Add Scripture
+            </button>
+          </div>
         </div>
       </div>
 
@@ -287,6 +354,26 @@ function SetupView({ outline, onChange, onGoLive }: SetupViewProps) {
               </button>
             </div>
           </div>
+
+          {/* Point scriptures */}
+          {point.scriptures.map((ref) => (
+            <div key={ref.id} className="sermon-scripture-row">
+              <span className="sermon-scripture-icon">→</span>
+              <ScriptureInput
+                value={ref.reference}
+                onChange={(val) => updatePointScripture(point.id, ref.id, val)}
+              />
+              <button
+                className="btn-icon-sm btn-icon-sm--danger"
+                onClick={() => removePointScripture(point.id, ref.id)}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button className="btn-outline-sm" onClick={() => addPointScripture(point.id)}>
+            + Scripture
+          </button>
 
           {/* Sub-points */}
           {point.subPoints.map((sub, sIdx) => (
@@ -408,6 +495,29 @@ function LiveView({ outline, onEditOutline }: LiveViewProps) {
         {shown.has('title') && <span className="sermon-check">✓</span>}
       </button>
 
+      {/* Sermon-level scriptures */}
+      {outline.scriptures.map((ref) => {
+        const refId = `sc-${ref.id}`;
+        return (
+          <button
+            key={ref.id}
+            className={`sermon-live-row sermon-live-row--scripture${activeId === refId ? ' sermon-live-row--active' : ''}`}
+            onClick={() =>
+              tap(refId, () => invoke('show_verse', { reference: ref.reference, text: '' }))
+            }
+            disabled={!ref.reference.trim()}
+          >
+            <div className="sermon-live-row-body">
+              <span className="sermon-live-eyebrow">→</span>
+              <span className="sermon-live-text sermon-live-text--ref">
+                {ref.reference || '(no reference)'}
+              </span>
+            </div>
+            {shown.has(refId) && <span className="sermon-check">✓</span>}
+          </button>
+        );
+      })}
+
       {/* Points */}
       {outline.points.map((point, pIdx) => {
         const pointId = `p-${point.id}`;
@@ -427,6 +537,29 @@ function LiveView({ outline, onEditOutline }: LiveViewProps) {
               </div>
               {shown.has(pointId) && <span className="sermon-check">✓</span>}
             </button>
+
+            {/* Point scriptures */}
+            {point.scriptures.map((ref) => {
+              const refId = `p-${point.id}-sc-${ref.id}`;
+              return (
+                <button
+                  key={ref.id}
+                  className={`sermon-live-row sermon-live-row--scripture${activeId === refId ? ' sermon-live-row--active' : ''}`}
+                  onClick={() =>
+                    tap(refId, () => invoke('show_verse', { reference: ref.reference, text: '' }))
+                  }
+                  disabled={!ref.reference.trim()}
+                >
+                  <div className="sermon-live-row-body">
+                    <span className="sermon-live-eyebrow">→</span>
+                    <span className="sermon-live-text sermon-live-text--ref">
+                      {ref.reference || '(no reference)'}
+                    </span>
+                  </div>
+                  {shown.has(refId) && <span className="sermon-check">✓</span>}
+                </button>
+              );
+            })}
 
             {/* Sub-points */}
             {point.subPoints.map((sub, sIdx) => {
@@ -482,7 +615,7 @@ function LiveView({ outline, onEditOutline }: LiveViewProps) {
 
 // ── main component ─────────────────────────────────────────────────────────────
 
-const EMPTY_OUTLINE: SermonOutline = { title: '', preacher: '', points: [] };
+const EMPTY_OUTLINE: SermonOutline = { title: '', preacher: '', scriptures: [], points: [] };
 
 export function SermonTab() {
   const [outline, setOutline] = useState<SermonOutline>(EMPTY_OUTLINE);

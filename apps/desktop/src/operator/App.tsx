@@ -681,9 +681,9 @@ export function App() {
             ))}
           </div>
 
-          {/* ── Tab content ── */}
+          {/* ── Tab content — all tabs stay mounted to preserve state ── */}
           <div className="op-tab-content" role="tabpanel">
-            {activeTab === 'bible' && (
+            <div hidden={activeTab !== 'bible'}>
               <BibleTab
                 chapterBook={chapterBook}
                 chapterNum={chapterNum}
@@ -691,17 +691,19 @@ export function App() {
                 onSelectVerse={handleSelectChapterVerse}
                 onManualSubmit={handleManualOverride}
               />
-            )}
-            {activeTab === 'sermon' && <SermonTab />}
-            {activeTab === 'hymn' && (
+            </div>
+            <div hidden={activeTab !== 'sermon'}>
+              <SermonTab />
+            </div>
+            <div hidden={activeTab !== 'hymn'}>
               <HymnTab
                 activeHymn={activeHymn}
                 hymnSection={hymnSection}
                 onLoadHymn={handleLoadHymn}
                 onNextStanza={handleNextStanza}
               />
-            )}
-            {activeTab === 'more' && (
+            </div>
+            <div hidden={activeTab !== 'more'}>
               <MoreTab
                 serviceItems={serviceItems}
                 currentServiceLabel={currentServiceLabel}
@@ -721,7 +723,7 @@ export function App() {
                 onPrevAnnouncement={handlePrevAnnouncement}
                 sessionActive={sessionActive}
               />
-            )}
+            </div>
           </div>
         </div>
       </main>
