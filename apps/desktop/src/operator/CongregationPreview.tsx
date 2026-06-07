@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import '../congregation/congregation.css';
 import type { TranscriptLine } from './useTranscript';
 
@@ -45,6 +46,7 @@ export interface CongregationPreviewProps {
   sermonPoint: { number: number; text: string } | null;
   subPoint: string | null;
   subPointIndex: number | null;
+  verseScrollSignal: { amount: number; id: number } | null;
   hymn: { number: number; title: string } | null;
   hymnSection: { stanzaNumber: number | null; isChorus: boolean; lines: string[] } | null;
   announcementBody: string | null;
@@ -61,12 +63,21 @@ export function CongregationPreview(props: CongregationPreviewProps) {
     sermonPoint,
     subPoint,
     subPointIndex,
+    verseScrollSignal,
     hymn,
     hymnSection,
     announcementBody,
     transcriptLines,
     sessionActive,
   } = props;
+
+  const verseRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (verseScrollSignal && verseRef.current) {
+      verseRef.current.scrollBy({ top: verseScrollSignal.amount, behavior: 'smooth' });
+    }
+  }, [verseScrollSignal]);
 
   const hymnSectionLabel = hymnSection?.isChorus
     ? 'Chorus'
@@ -94,7 +105,11 @@ export function CongregationPreview(props: CongregationPreviewProps) {
           </div>
 
           {/* verse */}
-          <div className="congregation-state state-verse" hidden={screenMode !== 'verse'}>
+          <div
+            ref={verseRef}
+            className="congregation-state state-verse"
+            hidden={screenMode !== 'verse'}
+          >
             <div className="verse-card">
               <img src="/deeper_life_logo.png" className="verse-card-logo" aria-hidden="true" />
               <div className="verse-text">{verse?.text ?? ''}</div>

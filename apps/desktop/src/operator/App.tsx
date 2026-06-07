@@ -42,6 +42,9 @@ export function App() {
   const [sermonPoint, setSermonPoint] = useState<{ number: number; text: string } | null>(null);
   const [currentSubPoint, setCurrentSubPoint] = useState<string | null>(null);
   const [subPointIndex, setSubPointIndex] = useState<number | null>(null);
+  const [verseScrollSignal, setVerseScrollSignal] = useState<{ amount: number; id: number } | null>(
+    null,
+  );
 
   // live transcript + verse queue
   const transcript = useTranscript();
@@ -567,6 +570,7 @@ export function App() {
             sermonPoint={sermonPoint}
             subPoint={currentSubPoint}
             subPointIndex={subPointIndex}
+            verseScrollSignal={verseScrollSignal}
             hymn={activeHymn}
             hymnSection={hymnSection}
             announcementBody={currentAnnouncementBody}
@@ -657,14 +661,20 @@ export function App() {
                   <span className="op-now-scroll-label">Scroll</span>
                   <button
                     className="btn btn-secondary op-now-scroll-btn"
-                    onClick={() => void invoke('scroll_congregation', { amount: -250 })}
+                    onClick={() => {
+                      void invoke('scroll_congregation', { amount: -250 });
+                      setVerseScrollSignal((s) => ({ amount: -250, id: (s?.id ?? 0) + 1 }));
+                    }}
                     title="Scroll congregation screen up"
                   >
                     ↑ Up
                   </button>
                   <button
                     className="btn btn-secondary op-now-scroll-btn"
-                    onClick={() => void invoke('scroll_congregation', { amount: 250 })}
+                    onClick={() => {
+                      void invoke('scroll_congregation', { amount: 250 });
+                      setVerseScrollSignal((s) => ({ amount: 250, id: (s?.id ?? 0) + 1 }));
+                    }}
                     title="Scroll congregation screen down"
                   >
                     ↓ Down
