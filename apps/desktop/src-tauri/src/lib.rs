@@ -334,6 +334,7 @@ fn fix_screen_swap(app: AppHandle) {
 fn show_congregation_window(app: AppHandle) {
     assign_congregation_to_secondary(&app);
     if let Some(w) = congregation_window(&app) {
+        let _ = w.set_fullscreen(true);
         let _ = w.show();
         let _ = w.set_focus();
     }
