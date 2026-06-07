@@ -57,13 +57,22 @@ function stopVerseScroll(): void {
 function startVerseScroll(): void {
   stopVerseScroll();
 
-  // 30 px/s — slow enough to read comfortably on a large screen.
-  const PX_PER_MS = 30 / 1000;
+  // 25 px/s — comfortable reading speed on a large projector screen.
+  const PX_PER_MS = 25 / 1000;
   let lastTime: number | null = null;
+  // Give the browser up to 1.5 s after this call to finish painting before
+  // we give up waiting for scrollable content to appear.
+  const deadline = performance.now() + 1500;
 
   function step(now: number): void {
     const maxScroll = stateVerse.scrollHeight - stateVerse.clientHeight;
-    if (maxScroll <= 0) return; // text fits — nothing to scroll
+
+    if (maxScroll <= 0) {
+      // Text fits on screen — keep polling until deadline in case layout is
+      // still settling (fonts loading, container resizing, etc.)
+      if (now < deadline) verseScrollRaf = requestAnimationFrame(step);
+      return;
+    }
 
     if (lastTime !== null) {
       stateVerse.scrollTop = Math.min(
@@ -89,12 +98,9 @@ function showVerse(reference: string, text: string, translation: string): void {
     verseText.textContent = text;
     verseTranslation.textContent = translation;
   });
-  // --cb-fade is 300 ms. Wait 700 ms so the panel is fully visible and the
-  // browser has painted the final layout before we measure scrollHeight.
-  // (transitionend is unreliable here because two properties transition
-  // simultaneously — opacity and transform — and { once: true } consumes
-  // the listener on the first one fired, which may not be opacity.)
-  setTimeout(startVerseScroll, 700);
+  // Start the scroll loop after the 300 ms fade transition. The loop itself
+  // handles any remaining layout-settle time via the deadline mechanism.
+  setTimeout(startVerseScroll, 350);
 }
 
 function showSermonTitle(title: string): void {
@@ -299,6 +305,9 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       break;
 
     case 'CONGREGATION_SCROLL': {
+      // Manual scroll takes priority — stop auto-scroll so it doesn't
+      // immediately override the operator's scrollBy call.
+      if (currentState() === 'verse') stopVerseScroll();
       const panels: Partial<Record<string, HTMLElement>> = {
         verse: stateVerse,
         title: stateTitle,

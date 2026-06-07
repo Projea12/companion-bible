@@ -1442,6 +1442,29 @@ kbd.key-hint {
   gap: 6px;
 }
 
+.op-now-scroll-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px 8px;
+}
+
+.op-now-scroll-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.op-now-scroll-btn {
+  flex: 1;
+  justify-content: center;
+  font-size: 13px;
+  min-height: 34px;
+}
+
 .op-now-actions {
   display: flex;
   flex-direction: column;

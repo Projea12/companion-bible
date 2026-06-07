@@ -636,14 +636,41 @@ export function App() {
 
             {/* Verse nav — only when a verse is showing */}
             {screenMode === 'verse' && (
-              <div className="op-now-verse-nav">
-                <button className="btn btn-secondary" onClick={handlePrevVerse} title="Keyboard: ←">
-                  ← Prev<kbd className="key-hint">←</kbd>
-                </button>
-                <button className="btn btn-secondary" onClick={handleNextVerse} title="Keyboard: →">
-                  Next →<kbd className="key-hint">→</kbd>
-                </button>
-              </div>
+              <>
+                <div className="op-now-verse-nav">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handlePrevVerse}
+                    title="Keyboard: ←"
+                  >
+                    ← Prev<kbd className="key-hint">←</kbd>
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleNextVerse}
+                    title="Keyboard: →"
+                  >
+                    Next →<kbd className="key-hint">→</kbd>
+                  </button>
+                </div>
+                <div className="op-now-scroll-row">
+                  <span className="op-now-scroll-label">Scroll</span>
+                  <button
+                    className="btn btn-secondary op-now-scroll-btn"
+                    onClick={() => void invoke('scroll_congregation', { amount: -250 })}
+                    title="Scroll congregation screen up"
+                  >
+                    ↑ Up
+                  </button>
+                  <button
+                    className="btn btn-secondary op-now-scroll-btn"
+                    onClick={() => void invoke('scroll_congregation', { amount: 250 })}
+                    title="Scroll congregation screen down"
+                  >
+                    ↓ Down
+                  </button>
+                </div>
+              </>
             )}
 
             {/* Clear + Undo */}
