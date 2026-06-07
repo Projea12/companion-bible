@@ -72,11 +72,52 @@ export function CongregationPreview(props: CongregationPreviewProps) {
   } = props;
 
   const verseRef = useRef<HTMLDivElement>(null);
+  const verseRafRef = useRef(0);
+  const verseTimerRef = useRef(0);
 
+  // Mirror main.ts startVerseScroll — restarts whenever the verse changes
   useEffect(() => {
-    if (verseScrollSignal && verseRef.current) {
-      verseRef.current.scrollBy({ top: verseScrollSignal.amount, behavior: 'smooth' });
+    cancelAnimationFrame(verseRafRef.current);
+    clearTimeout(verseTimerRef.current);
+
+    const el = verseRef.current;
+    if (!verse || !el) return;
+
+    el.scrollTop = 0;
+
+    const PX_PER_MS = 25 / 1000;
+    let lastTime: number | null = null;
+    const deadline = performance.now() + 1500;
+
+    function step(now: number) {
+      const maxScroll = el!.scrollHeight - el!.clientHeight;
+      if (maxScroll <= 0) {
+        if (now < deadline) verseRafRef.current = requestAnimationFrame(step);
+        return;
+      }
+      if (lastTime !== null) {
+        el!.scrollTop = Math.min(el!.scrollTop + PX_PER_MS * (now - lastTime), maxScroll);
+      }
+      lastTime = now;
+      if (el!.scrollTop < maxScroll) verseRafRef.current = requestAnimationFrame(step);
     }
+
+    verseTimerRef.current = window.setTimeout(() => {
+      verseRafRef.current = requestAnimationFrame(step);
+    }, 350);
+
+    return () => {
+      clearTimeout(verseTimerRef.current);
+      cancelAnimationFrame(verseRafRef.current);
+    };
+  }, [verse]);
+
+  // Manual scroll — stop auto-scroll, apply operator's scroll amount
+  useEffect(() => {
+    if (!verseScrollSignal || !verseRef.current) return;
+    cancelAnimationFrame(verseRafRef.current);
+    clearTimeout(verseTimerRef.current);
+    verseRef.current.scrollBy({ top: verseScrollSignal.amount, behavior: 'smooth' });
   }, [verseScrollSignal]);
 
   const hymnSectionLabel = hymnSection?.isChorus

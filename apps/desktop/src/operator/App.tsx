@@ -206,6 +206,10 @@ export function App() {
           setScreenMode('subpoint');
           break;
 
+        case 'CONGREGATION_SCROLL':
+          setVerseScrollSignal((s) => ({ amount: payload.amount, id: (s?.id ?? 0) + 1 }));
+          break;
+
         case 'INTERNET_CONNECTED':
           setInternet('online');
           break;
@@ -661,20 +665,14 @@ export function App() {
                   <span className="op-now-scroll-label">Scroll</span>
                   <button
                     className="btn btn-secondary op-now-scroll-btn"
-                    onClick={() => {
-                      void invoke('scroll_congregation', { amount: -250 });
-                      setVerseScrollSignal((s) => ({ amount: -250, id: (s?.id ?? 0) + 1 }));
-                    }}
+                    onClick={() => void invoke('scroll_congregation', { amount: -250 })}
                     title="Scroll congregation screen up"
                   >
                     ↑ Up
                   </button>
                   <button
                     className="btn btn-secondary op-now-scroll-btn"
-                    onClick={() => {
-                      void invoke('scroll_congregation', { amount: 250 });
-                      setVerseScrollSignal((s) => ({ amount: 250, id: (s?.id ?? 0) + 1 }));
-                    }}
+                    onClick={() => void invoke('scroll_congregation', { amount: 250 })}
                     title="Scroll congregation screen down"
                   >
                     ↓ Down
