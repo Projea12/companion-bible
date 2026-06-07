@@ -257,12 +257,12 @@ describe('accent colour', () => {
     expect(congregationCss).toMatch(/\.verse-reference\s*\{[^}]*color\s*:\s*var\(--cb-accent\)/s);
   });
 
-  it('title-eyebrow uses the accent colour', () => {
-    expect(congregationCss).toMatch(/\.title-eyebrow\s*\{[^}]*color\s*:\s*var\(--cb-accent\)/s);
+  it('sermon-eyebrow uses the accent colour', () => {
+    expect(congregationCss).toMatch(/\.sermon-eyebrow\s*\{[^}]*color\s*:\s*var\(--cb-accent\)/s);
   });
 
-  it('subpoint left border uses the accent colour', () => {
-    expect(congregationCss).toMatch(/\.subpoint-card\s*\{[^}]*border-left[^;]*var\(--cb-accent\)/s);
+  it('sermon-badge uses the accent colour', () => {
+    expect(congregationCss).toMatch(/\.sermon-badge\s*\{[^}]*color\s*:\s*var\(--cb-accent\)/s);
   });
 });
 

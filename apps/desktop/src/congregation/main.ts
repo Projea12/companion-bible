@@ -18,6 +18,8 @@ const verseText = document.getElementById('verse-text') as HTMLElement;
 const verseTranslation = document.getElementById('verse-translation') as HTMLElement;
 const titleText = document.getElementById('title-text') as HTMLElement;
 const pointLabel = document.getElementById('point-label') as HTMLElement;
+const pointGhost = document.getElementById('point-ghost') as HTMLElement;
+const subpointBadge = document.getElementById('subpoint-badge') as HTMLElement;
 const pointText = document.getElementById('point-text') as HTMLElement;
 const subpointText = document.getElementById('subpoint-text') as HTMLElement;
 const hymnNumberLabel = document.getElementById('hymn-number-label') as HTMLElement;
@@ -102,18 +104,22 @@ function showSermonTitle(title: string): void {
 }
 
 function showSermonPoint(number: number, text: string): void {
+  activePointNumber = number;
   showState('point', () => {
     pointLabel.textContent = `Point  ${number}`;
+    pointGhost.textContent = String(number);
     pointText.textContent = text;
   });
 }
 
 function showSubPoint(text: string): void {
   showState('subpoint', () => {
+    subpointBadge.textContent = activePointNumber > 0 ? `Point  ${activePointNumber}` : '';
     subpointText.textContent = text;
   });
 }
 
+let activePointNumber = 0;
 let activeHymnTitle = '';
 
 const HYMN_FS_MAX = 144;

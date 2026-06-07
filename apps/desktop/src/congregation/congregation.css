@@ -244,62 +244,171 @@ html {
   color: var(--cb-text-dim);
 }
 
-/* ── sermon title card ────────────────────────────────────────────────────── */
-.title-card {
+/* ── sermon states (title, point, sub-point) — shared cinematic shell ──────── */
+
+/*
+ * Deep indigo palette — sacred, authoritative.
+ * Distinct from announcement amber and verse aurora.
+ * The congregation senses "sermon mode" before reading a single word.
+ */
+.state-sermon {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow: hidden;
+  padding: 0;
+
+  background:
+    radial-gradient(ellipse 80% 55% at 50% 0%, rgba(67, 56, 202, 0.42) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 12% 80%, rgba(49, 46, 129, 0.28) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 60% at 88% 25%, rgba(79, 70, 229, 0.22) 0%, transparent 50%),
+    radial-gradient(ellipse 90% 35% at 50% 100%, rgba(30, 27, 75, 0.38) 0%, transparent 60%),
+    linear-gradient(170deg, #08070f 0%, #090812 45%, #080d1a 100%);
+}
+
+@keyframes sermon-glow {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.05);
+  }
+}
+
+.state-sermon:not([hidden]) {
+  animation: sermon-glow 10s ease-in-out infinite;
+}
+
+/* ── Top bar: logo bug + optional badge ─────────────────────────────────── */
+
+.sermon-top-bar {
+  flex-shrink: 0;
+  height: 10cqh;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4cqw;
+}
+
+.sermon-logo-bug {
+  height: clamp(28px, 4.5cqh, 52px);
+  width: auto;
+  object-fit: contain;
+  opacity: 0.42;
+  filter: drop-shadow(0 1px 6px rgba(67, 56, 202, 0.35));
+  margin-left: auto;
+}
+
+/* Badge — "POINT 1" or "POINT 1 · I" — whisper, not shout */
+.sermon-badge {
+  font-family: var(--cb-sans);
+  font-size: clamp(10px, 1.1cqw, 16px);
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  opacity: 0.82;
+}
+
+/* ── Body zone: text is the hero ────────────────────────────────────────── */
+
+.sermon-body-zone {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 2cqh 10cqw;
+  box-sizing: border-box;
+}
+
+/* Subconscious brand — felt, not seen */
+.sermon-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: clamp(200px, 42cqw, 620px);
+  opacity: 0.05;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  filter: sepia(1) saturate(0.4) brightness(1.8);
+}
+
+/* Ghost typography — texture, not label */
+.sermon-ghost {
+  position: absolute;
+  font-family: var(--cb-sans);
+  font-weight: 100;
+  font-size: clamp(160px, 42cqh, 560px);
+  color: #fff;
+  opacity: 0.07;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  transform: none;
+  z-index: 0;
+  white-space: nowrap;
+}
+
+/* Point ghost: single digit, enormous, hard left */
+.sermon-ghost--number {
+  font-size: clamp(240px, 58cqh, 700px);
+  opacity: 0.08;
+  font-weight: 900;
+  letter-spacing: -0.06em;
+  transform: translateX(-14cqw);
+}
+
+/* Sub-point decorative mark — centred, softer */
+.sermon-ghost--deco {
+  font-size: clamp(120px, 30cqh, 420px);
+  opacity: 0.08;
+  letter-spacing: 0;
+  transform: none;
+  font-weight: 400;
+}
+
+/* Content sits above all ghosted layers */
+.sermon-content {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: min(1200px, 84cqw);
-  padding: clamp(40px, 6cqw, 100px) clamp(32px, 5cqw, 80px);
-  gap: clamp(14px, 2cqw, 28px);
+  gap: clamp(12px, 1.8cqw, 28px);
+  max-width: min(1200px, 80cqw);
 }
 
-.title-eyebrow {
+/* Eyebrow — title state only */
+.sermon-eyebrow {
   font-family: var(--cb-sans);
-  font-size: var(--size-eyebrow);
-  font-weight: 600;
-  letter-spacing: 0.28em;
+  font-size: clamp(11px, 1.2cqw, 17px);
+  font-weight: 700;
+  letter-spacing: 0.32em;
   text-transform: uppercase;
   color: var(--cb-accent);
+  opacity: 0.9;
 }
+
+/* ── Primary text elements ─────────────────────────────────────────────── */
 
 .title-text {
   font-family: var(--cb-sans);
   font-size: var(--size-title);
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: -0.025em;
-  line-height: 1.12;
+  line-height: 1.1;
   color: var(--cb-text);
-  text-shadow: 0 2px 32px rgba(0, 0, 0, 0.9);
-}
-
-/* ── main point card ──────────────────────────────────────────────────────── */
-.point-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  max-width: min(1200px, 84cqw);
-  padding: clamp(40px, 6cqw, 100px) clamp(32px, 5cqw, 80px);
-  gap: clamp(16px, 2.4cqw, 36px);
-}
-
-.point-eyebrow {
-  font-family: var(--cb-sans);
-  font-size: var(--size-eyebrow);
-  font-weight: 700;
-  letter-spacing: 0.36em;
-  text-transform: uppercase;
-  color: var(--cb-accent);
-}
-
-.point-rule {
-  width: clamp(60px, 9cqw, 140px);
-  height: 2px;
-  background: var(--cb-accent);
-  opacity: 0.65;
-  border: none;
+  text-shadow:
+    0 2px 32px rgba(0, 0, 0, 0.9),
+    0 0 80px rgba(67, 56, 202, 0.35);
 }
 
 .point-text {
@@ -309,14 +418,9 @@ html {
   letter-spacing: -0.02em;
   line-height: 1.2;
   color: var(--cb-text);
-  text-shadow: 0 2px 32px rgba(0, 0, 0, 0.9);
-}
-
-/* ── sub-point card ───────────────────────────────────────────────────────── */
-.subpoint-card {
-  max-width: min(1100px, 84cqw);
-  padding: clamp(32px, 5cqw, 80px);
-  text-align: center;
+  text-shadow:
+    0 2px 32px rgba(0, 0, 0, 0.9),
+    0 0 80px rgba(67, 56, 202, 0.35);
 }
 
 .subpoint-text {
@@ -325,7 +429,31 @@ html {
   font-weight: 500;
   line-height: 1.45;
   color: var(--cb-text);
-  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.8);
+  text-shadow:
+    0 2px 24px rgba(0, 0, 0, 0.8),
+    0 0 50px rgba(67, 56, 202, 0.28);
+}
+
+/* ── Footer: hairline + church name signature ───────────────────────────── */
+
+.sermon-footer {
+  flex-shrink: 0;
+  height: 10cqh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid rgba(79, 70, 229, 0.28);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.sermon-church-name {
+  font-family: var(--cb-sans);
+  font-size: clamp(11px, 1.5cqw, 22px);
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  text-shadow: 0 1px 10px rgba(67, 56, 202, 0.55);
 }
 
 /* ── hymn card ────────────────────────────────────────────────────────────── */
@@ -617,6 +745,11 @@ html {
   .state-verse {
     animation: none;
     filter: none !important;
+  }
+
+  .state-sermon:not([hidden]) {
+    animation: none;
+    filter: none;
   }
 
   .state-announcement:not([hidden]) {

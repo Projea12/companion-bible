@@ -35,27 +35,57 @@
         </div>
       </div>
 
-      <!-- SermonTitle — full-screen title with eyebrow label -->
-      <div id="state-title" class="congregation-state" hidden>
-        <div class="title-card">
-          <div class="title-eyebrow" aria-label="Sermon">Sermon</div>
-          <div class="title-text" id="title-text"></div>
+      <!-- SermonTitle — cinematic 3-zone: logo bug / text hero / footer -->
+      <div id="state-title" class="congregation-state state-sermon" hidden>
+        <div class="sermon-top-bar">
+          <img src="/deeper_life_logo.png" class="sermon-logo-bug" aria-hidden="true" />
+        </div>
+        <div class="sermon-body-zone">
+          <img src="/deeper_life_logo.png" class="sermon-watermark" aria-hidden="true" />
+          <span class="sermon-ghost" aria-hidden="true">SERMON</span>
+          <div class="sermon-content">
+            <div class="sermon-eyebrow">Sermon</div>
+            <div class="title-text" id="title-text"></div>
+          </div>
+        </div>
+        <div class="sermon-footer">
+          <div class="sermon-church-name">Blessed Group&nbsp;&nbsp;Poka</div>
         </div>
       </div>
 
-      <!-- Point — main sermon point (I, II, III) with accent eyebrow -->
-      <div id="state-point" class="congregation-state" hidden>
-        <div class="point-card">
-          <div class="point-eyebrow" id="point-label"></div>
-          <div class="point-rule" aria-hidden="true"></div>
-          <div class="point-text" id="point-text"></div>
+      <!-- Point — ghost numeral as texture, badge in top bar -->
+      <div id="state-point" class="congregation-state state-sermon" hidden>
+        <div class="sermon-top-bar">
+          <div class="sermon-badge" id="point-label"></div>
+          <img src="/deeper_life_logo.png" class="sermon-logo-bug" aria-hidden="true" />
+        </div>
+        <div class="sermon-body-zone">
+          <img src="/deeper_life_logo.png" class="sermon-watermark" aria-hidden="true" />
+          <span class="sermon-ghost sermon-ghost--number" id="point-ghost" aria-hidden="true">1</span>
+          <div class="sermon-content">
+            <div class="point-text" id="point-text"></div>
+          </div>
+        </div>
+        <div class="sermon-footer">
+          <div class="sermon-church-name">Blessed Group&nbsp;&nbsp;Poka</div>
         </div>
       </div>
 
-      <!-- SubPoint — numbered sub-point text -->
-      <div id="state-subpoint" class="congregation-state" hidden>
-        <div class="subpoint-card">
-          <div class="subpoint-text" id="subpoint-text"></div>
+      <!-- SubPoint — breadcrumb badge, decorative ghost, text hero -->
+      <div id="state-subpoint" class="congregation-state state-sermon" hidden>
+        <div class="sermon-top-bar">
+          <div class="sermon-badge" id="subpoint-badge"></div>
+          <img src="/deeper_life_logo.png" class="sermon-logo-bug" aria-hidden="true" />
+        </div>
+        <div class="sermon-body-zone">
+          <img src="/deeper_life_logo.png" class="sermon-watermark" aria-hidden="true" />
+          <span class="sermon-ghost sermon-ghost--deco" aria-hidden="true">✦</span>
+          <div class="sermon-content">
+            <div class="subpoint-text" id="subpoint-text"></div>
+          </div>
+        </div>
+        <div class="sermon-footer">
+          <div class="sermon-church-name">Blessed Group&nbsp;&nbsp;Poka</div>
         </div>
       </div>
 

@@ -77,28 +77,66 @@ export function CongregationPreview(props: CongregationPreviewProps) {
           </div>
 
           {/* sermon title */}
-          <div className="congregation-state" hidden={screenMode !== 'title'}>
-            <div className="title-card">
-              <div className="title-eyebrow">Sermon</div>
-              <div className="title-text">{sermonTitle ?? ''}</div>
+          <div className="congregation-state state-sermon" hidden={screenMode !== 'title'}>
+            <div className="sermon-top-bar">
+              <img src="/deeper_life_logo.png" className="sermon-logo-bug" aria-hidden="true" />
+            </div>
+            <div className="sermon-body-zone">
+              <img src="/deeper_life_logo.png" className="sermon-watermark" aria-hidden="true" />
+              <span className="sermon-ghost" aria-hidden="true">
+                SERMON
+              </span>
+              <div className="sermon-content">
+                <div className="sermon-eyebrow">Sermon</div>
+                <div className="title-text">{sermonTitle ?? ''}</div>
+              </div>
+            </div>
+            <div className="sermon-footer">
+              <div className="sermon-church-name">Blessed Group&nbsp;&nbsp;Poka</div>
             </div>
           </div>
 
           {/* main point */}
-          <div className="congregation-state" hidden={screenMode !== 'point'}>
-            <div className="point-card">
-              <div className="point-eyebrow">
+          <div className="congregation-state state-sermon" hidden={screenMode !== 'point'}>
+            <div className="sermon-top-bar">
+              <div className="sermon-badge">
                 Point&nbsp;&nbsp;{sermonPoint ? sermonPoint.number : ''}
               </div>
-              <div className="point-rule" aria-hidden="true" />
-              <div className="point-text">{sermonPoint?.text ?? ''}</div>
+              <img src="/deeper_life_logo.png" className="sermon-logo-bug" aria-hidden="true" />
+            </div>
+            <div className="sermon-body-zone">
+              <img src="/deeper_life_logo.png" className="sermon-watermark" aria-hidden="true" />
+              <span className="sermon-ghost sermon-ghost--number" aria-hidden="true">
+                {sermonPoint ? sermonPoint.number : ''}
+              </span>
+              <div className="sermon-content">
+                <div className="point-text">{sermonPoint?.text ?? ''}</div>
+              </div>
+            </div>
+            <div className="sermon-footer">
+              <div className="sermon-church-name">Blessed Group&nbsp;&nbsp;Poka</div>
             </div>
           </div>
 
           {/* sub-point */}
-          <div className="congregation-state" hidden={screenMode !== 'subpoint'}>
-            <div className="subpoint-card">
-              <div className="subpoint-text">{subPoint ?? ''}</div>
+          <div className="congregation-state state-sermon" hidden={screenMode !== 'subpoint'}>
+            <div className="sermon-top-bar">
+              <div className="sermon-badge">
+                {sermonPoint ? `Point\u00a0\u00a0${sermonPoint.number}` : ''}
+              </div>
+              <img src="/deeper_life_logo.png" className="sermon-logo-bug" aria-hidden="true" />
+            </div>
+            <div className="sermon-body-zone">
+              <img src="/deeper_life_logo.png" className="sermon-watermark" aria-hidden="true" />
+              <span className="sermon-ghost sermon-ghost--deco" aria-hidden="true">
+                ✦
+              </span>
+              <div className="sermon-content">
+                <div className="subpoint-text">{subPoint ?? ''}</div>
+              </div>
+            </div>
+            <div className="sermon-footer">
+              <div className="sermon-church-name">Blessed Group&nbsp;&nbsp;Poka</div>
             </div>
           </div>
 
