@@ -259,16 +259,22 @@ export function CongregationPreview(props: CongregationPreviewProps) {
           </div>
 
           {/* hymn */}
-          <div className="congregation-state" hidden={screenMode !== 'hymn'}>
-            <div className="hymn-card">
-              <div className="hymn-eyebrow">
-                <span>{hymn ? `GHS ${hymn.number}` : ''}</span>
-                <span className="hymn-eyebrow-sep" aria-hidden="true">
+          <div className="congregation-state state-hymn" hidden={screenMode !== 'hymn'}>
+            <div className="hymn-top-bar">
+              <div className="hymn-ref">
+                <span className="hymn-number-label">{hymn ? `GHS ${hymn.number}` : ''}</span>
+                <span className="hymn-ref-sep" aria-hidden="true">
                   ·
                 </span>
-                <span>{hymnSectionLabel}</span>
+                <span className="hymn-ref-title">{hymn?.title ?? ''}</span>
               </div>
-              {hymn && <div className="hymn-title">{hymn.title}</div>}
+              <img src="/deeper_life_logo.png" className="hymn-logo-bug" aria-hidden="true" />
+            </div>
+            <div className="hymn-body-zone">
+              <div className="hymn-section-wrap">
+                <div className="hymn-section-label">{hymnSectionLabel}</div>
+                <div className="hymn-rule" aria-hidden="true" />
+              </div>
               <div className="hymn-lines">
                 {hymnSection?.lines.map((line, i) => (
                   <p key={i} className="hymn-line">
@@ -276,6 +282,9 @@ export function CongregationPreview(props: CongregationPreviewProps) {
                   </p>
                 ))}
               </div>
+            </div>
+            <div className="hymn-footer">
+              <div className="hymn-church-name">Blessed Group&nbsp;&nbsp;Poka</div>
             </div>
           </div>
 
