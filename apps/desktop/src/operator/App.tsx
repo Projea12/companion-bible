@@ -14,6 +14,7 @@ import { BibleTab } from './BibleTab';
 import { SermonTab } from './SermonTab';
 import { HymnTab } from './HymnTab';
 import { MoreTab } from './MoreTab';
+import { ServiceNameDialog } from './ServiceNameDialog';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,10 @@ type ActiveTab = 'bible' | 'sermon' | 'hymn' | 'more';
 // ── root component ────────────────────────────────────────────────────────────
 
 export function App() {
+  // startup dialog
+  const [showDialog, setShowDialog] = useState(true);
+  const [serviceName, setServiceName] = useState('SUNDAY WORSHIP SERVICE');
+
   // session
   const [sessionActive, setSessionActive] = useState(false);
   const [sessionStarting, setSessionStarting] = useState(false);
@@ -106,6 +111,7 @@ export function App() {
       setTotalScreens(s.totalScreens);
       setHasSecondary(s.hasSecondaryScreen);
       if (s.sessionActive) setAudio('flowing');
+      if (s.serviceName) setServiceName(s.serviceName);
     });
     void invoke<{ id: number; label: string; is_current: boolean }[]>('get_service_items').then(
       (items) => {
@@ -314,6 +320,10 @@ export function App() {
             })),
           );
           break;
+
+        case 'IDLE_SERVICE_NAME_SET':
+          setServiceName(payload.name);
+          break;
       }
     });
 
@@ -323,6 +333,15 @@ export function App() {
   }, [transcript, queue]);
 
   // ── actions ───────────────────────────────────────────────────────────────
+
+  const handleDialogSubmit = useCallback((name: string) => {
+    setShowDialog(false);
+    void invoke('set_service_name', { name });
+  }, []);
+
+  const handleDialogSkip = useCallback(() => {
+    setShowDialog(false);
+  }, []);
 
   const handleStartSession = useCallback(() => {
     setSessionStarting(true);
@@ -518,6 +537,7 @@ export function App() {
 
   return (
     <div className="op-layout">
+      {showDialog && <ServiceNameDialog onSubmit={handleDialogSubmit} onSkip={handleDialogSkip} />}
       {/* ── Header ── */}
       <header className="op-header">
         <div className="op-header-left">
@@ -580,6 +600,7 @@ export function App() {
             announcementBody={currentAnnouncementBody}
             transcriptLines={transcript.lines}
             sessionActive={sessionActive}
+            serviceName={serviceName}
           />
 
           <VerseQueuePanel

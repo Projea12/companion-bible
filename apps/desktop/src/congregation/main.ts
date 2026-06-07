@@ -30,6 +30,7 @@ const announcementBodyWrap = document.getElementById('announcement-body-wrap') a
 const announcementBody = document.getElementById('announcement-body') as HTMLDivElement;
 const serviceLabel = document.getElementById('service-label') as HTMLDivElement;
 const serviceLabelText = document.getElementById('service-label-text') as HTMLElement;
+const idleServiceName = document.getElementById('idle-service-name') as HTMLElement;
 
 // ─── state machine ────────────────────────────────────────────────────────────
 
@@ -302,6 +303,10 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       } else {
         serviceLabel.classList.remove('visible');
       }
+      break;
+
+    case 'IDLE_SERVICE_NAME_SET':
+      idleServiceName.textContent = payload.name;
       break;
 
     case 'CONGREGATION_SCROLL': {

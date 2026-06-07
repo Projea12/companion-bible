@@ -52,6 +52,7 @@ export interface CongregationPreviewProps {
   announcementBody: string | null;
   transcriptLines: TranscriptLine[];
   sessionActive: boolean;
+  serviceName: string;
 }
 
 export function CongregationPreview(props: CongregationPreviewProps) {
@@ -69,6 +70,7 @@ export function CongregationPreview(props: CongregationPreviewProps) {
     announcementBody,
     transcriptLines,
     sessionActive,
+    serviceName,
   } = props;
 
   const verseRef = useRef<HTMLDivElement>(null);
@@ -139,9 +141,22 @@ export function CongregationPreview(props: CongregationPreviewProps) {
       <div className="cong-preview-box">
         <div className="congregation-app">
           {/* idle */}
-          <div className="congregation-state" hidden={screenMode !== 'idle'}>
-            <div className="idle-mark" aria-hidden="true">
-              ✦
+          <div className="congregation-state state-idle" hidden={screenMode !== 'idle'}>
+            <div className="idle-top-bar">
+              <img src="/deeper_life_logo.png" className="idle-logo-bug" aria-hidden="true" />
+            </div>
+            <div className="idle-body-zone">
+              <span className="idle-ghost" aria-hidden="true">
+                ✦
+              </span>
+              <div className="idle-content">
+                <img src="/deeper_life_logo.png" className="idle-center-logo" aria-hidden="true" />
+                <div className="idle-rule" aria-hidden="true" />
+                <div className="idle-church-name">Blessed Group&nbsp;&nbsp;Poka</div>
+              </div>
+            </div>
+            <div className="idle-footer">
+              <div className="idle-service-name">{serviceName}</div>
             </div>
           </div>
 

@@ -249,6 +249,12 @@ pub enum AppEvent {
         label: Option<String>,
     },
 
+    // ── Idle screen ───────────────────────────────────────────────────────────
+    /// Service name shown on the idle screen footer, set by operator.
+    IdleServiceNameSet {
+        name: String,
+    },
+
     // ── Model setup ──────────────────────────────────────────────────────────
     /// First launch: model weights are not present — setup is required.
     ModelSetupRequired,

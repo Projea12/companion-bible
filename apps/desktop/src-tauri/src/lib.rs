@@ -122,6 +122,7 @@ struct InternalState {
     service_items: Vec<ServiceItem>,
     current_service_item_id: Option<u32>,
     next_service_item_id: u32,
+    service_name: String,
 }
 
 impl Default for InternalState {
@@ -148,6 +149,7 @@ impl Default for InternalState {
             service_items: Vec::new(),
             current_service_item_id: None,
             next_service_item_id: 1,
+            service_name: "SUNDAY WORSHIP SERVICE".into(),
         }
     }
 }
@@ -183,6 +185,7 @@ struct AppState {
     sermon_active: bool,
     sermon_title: Option<String>,
     sub_point_index: i32,
+    service_name: String,
 }
 
 // ─── screen management ────────────────────────────────────────────────────────
@@ -294,7 +297,16 @@ fn get_app_state(app: AppHandle, state: State<ManagedState>) -> AppState {
         sermon_active: s.sermon_active,
         sermon_title: s.sermon_title.clone(),
         sub_point_index: s.current_sub_point_index,
+        service_name: s.service_name.clone(),
     }
+}
+
+// ─── service name command ─────────────────────────────────────────────────────
+
+#[tauri::command]
+fn set_service_name(app: AppHandle, state: State<ManagedState>, name: String) {
+    state.inner.lock().unwrap().service_name = name.clone();
+    let _ = app.emit("app-event", &AppEvent::IdleServiceNameSet { name });
 }
 
 // ─── screen commands ──────────────────────────────────────────────────────────
@@ -1708,6 +1720,7 @@ pub fn run() {
             reorder_service_items,
             clear_service_items,
             get_service_items,
+            set_service_name,
         ])
         .run(tauri::generate_context!())
         .expect("error while running companion bible");

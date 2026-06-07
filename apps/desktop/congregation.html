@@ -15,9 +15,22 @@
   <body class="congregation-body">
     <div id="app" class="congregation-app">
 
-      <!-- Idle — shown when no content is active -->
-      <div id="state-idle" class="congregation-state">
-        <div class="idle-mark" aria-hidden="true">✦</div>
+      <!-- Idle — branded 3-zone: logo bug / breathing logo + church name / service name -->
+      <div id="state-idle" class="congregation-state state-idle">
+        <div class="idle-top-bar">
+          <img src="/deeper_life_logo.png" class="idle-logo-bug" aria-hidden="true" />
+        </div>
+        <div class="idle-body-zone">
+          <span class="idle-ghost" aria-hidden="true">✦</span>
+          <div class="idle-content">
+            <img src="/deeper_life_logo.png" class="idle-center-logo" aria-hidden="true" />
+            <div class="idle-rule" aria-hidden="true"></div>
+            <div class="idle-church-name">Blessed Group&nbsp;&nbsp;Poka</div>
+          </div>
+        </div>
+        <div class="idle-footer">
+          <div class="idle-service-name" id="idle-service-name">SUNDAY WORSHIP SERVICE</div>
+        </div>
       </div>
 
       <!-- Verse — scripture text with reference below -->

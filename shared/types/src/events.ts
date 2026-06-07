@@ -107,7 +107,10 @@ export type AppEvent =
   | { type: 'CONGREGATION_SCROLL'; amount: number }
 
   // ── Order of service ────────────────────────────────────────────────────
-  | { type: 'SERVICE_ITEM_CHANGED'; label: string | null };
+  | { type: 'SERVICE_ITEM_CHANGED'; label: string | null }
+
+  // ── Idle screen ──────────────────────────────────────────────────────────
+  | { type: 'IDLE_SERVICE_NAME_SET'; name: string };
 
 export type AppEventType = AppEvent['type'];
 
@@ -124,6 +127,7 @@ export interface AppState {
   congregationVisible: boolean;
   totalScreens: number;
   hasSecondaryScreen: boolean;
+  serviceName: string;
 }
 
 export function isAppEvent(value: unknown): value is AppEvent {

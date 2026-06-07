@@ -106,21 +106,163 @@ html {
   pointer-events: none;
 }
 
-/* ── idle ─────────────────────────────────────────────────────────────────── */
-.idle-mark {
-  font-size: 72px;
-  color: var(--cb-text-ghost);
-  animation: idle-breathe 5s ease-in-out infinite;
+/* ── idle — branded 3-zone layout ────────────────────────────────────────── */
+
+.state-idle {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  overflow: hidden;
+  padding: 0;
+
+  background:
+    radial-gradient(ellipse 70% 50% at 50% 0%, rgba(30, 40, 80, 0.45) 0%, transparent 65%),
+    radial-gradient(ellipse 55% 55% at 10% 85%, rgba(25, 30, 65, 0.28) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 45% at 90% 20%, rgba(20, 25, 60, 0.22) 0%, transparent 50%),
+    linear-gradient(175deg, #07080f 0%, #080a14 50%, #06080f 100%);
+}
+
+@keyframes idle-glow {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.04);
+  }
+}
+
+.state-idle:not([hidden]) {
+  animation: idle-glow 12s ease-in-out infinite;
+}
+
+/* Top bar — logo bug, right-aligned */
+.idle-top-bar {
+  flex-shrink: 0;
+  height: 10cqh;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 4cqw;
+}
+
+.idle-logo-bug {
+  height: clamp(28px, 4.5cqh, 52px);
+  width: auto;
+  object-fit: contain;
+  opacity: 0.3;
+  filter: drop-shadow(0 1px 6px rgba(201, 169, 110, 0.2));
+}
+
+/* Body zone — breathing logo + church name, centred */
+.idle-body-zone {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Ghost ✦ — enormous background texture */
+.idle-ghost {
+  position: absolute;
+  font-size: clamp(200px, 55cqh, 700px);
+  color: #fff;
+  opacity: 0.04;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  line-height: 1;
+  animation: idle-breathe 7s ease-in-out infinite;
 }
 
 @keyframes idle-breathe {
   0%,
   100% {
-    opacity: 0.2;
+    opacity: 0.03;
+    transform: scale(1);
   }
   50% {
-    opacity: 0.5;
+    opacity: 0.07;
+    transform: scale(1.03);
   }
+}
+
+/* Centered logo + rule + church name */
+.idle-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(16px, 2.5cqh, 36px);
+}
+
+/* Large breathing logo — the visual centrepiece */
+.idle-center-logo {
+  width: clamp(120px, 30cqw, 400px);
+  height: auto;
+  object-fit: contain;
+  opacity: 0.55;
+  filter: drop-shadow(0 0 40px rgba(201, 169, 110, 0.18));
+  animation: idle-logo-breathe 7s ease-in-out infinite;
+}
+
+@keyframes idle-logo-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(1.015);
+  }
+}
+
+/* Gold hairline rule */
+.idle-rule {
+  width: clamp(40px, 8cqw, 100px);
+  height: 1px;
+  background: var(--cb-accent);
+  opacity: 0.45;
+  border: none;
+  flex-shrink: 0;
+}
+
+/* Church name — gold, spaced, understated */
+.idle-church-name {
+  font-family: var(--cb-sans);
+  font-size: clamp(11px, 1.5cqw, 20px);
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  opacity: 0.75;
+  text-shadow: 0 1px 12px rgba(201, 169, 110, 0.3);
+}
+
+/* Footer — service name, gold, commanding */
+.idle-footer {
+  flex-shrink: 0;
+  height: 12cqh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 1px solid rgba(201, 169, 110, 0.18);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.idle-service-name {
+  font-family: var(--cb-sans);
+  font-size: clamp(12px, 1.8cqw, 26px);
+  font-weight: 800;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+  color: var(--cb-accent);
+  opacity: 0.88;
+  text-shadow: 0 1px 14px rgba(201, 169, 110, 0.35);
 }
 
 /* ── verse state panel — scrollable so enlarged text always fits ─────────── */
@@ -737,9 +879,14 @@ html {
     transform: none !important;
   }
 
-  .idle-mark {
+  .state-idle:not([hidden]) {
     animation: none;
-    opacity: 0.35;
+    filter: none;
+  }
+
+  .idle-ghost,
+  .idle-center-logo {
+    animation: none !important;
   }
 
   .state-verse {
