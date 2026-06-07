@@ -123,7 +123,7 @@ function SetupView({ outline, onChange, onGoLive }: SetupViewProps) {
         ...outline.points,
         {
           id: uid(),
-          romanNumeral: toRoman(outline.points.length + 1),
+          romanNumeral: String(outline.points.length + 1),
           text: '',
           scriptures: [],
           subPoints: [],
@@ -379,7 +379,7 @@ function SetupView({ outline, onChange, onGoLive }: SetupViewProps) {
           {point.subPoints.map((sub, sIdx) => (
             <div key={sub.id} className="sermon-subpoint-block">
               <div className="sermon-subpoint-header">
-                <span className="sermon-subpoint-num">{sIdx + 1}.</span>
+                <span className="sermon-subpoint-num">{toRoman(sIdx + 1)}.</span>
                 <input
                   className="override-input sermon-subpoint-input"
                   placeholder="Sub-point text…"

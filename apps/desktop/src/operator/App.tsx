@@ -606,7 +606,7 @@ export function App() {
                 <div className="op-now-text">{sermonTitle ?? '—'}</div>
               ) : screenMode === 'point' && sermonPoint ? (
                 <div className="op-now-text">
-                  <span className="op-now-eyebrow">Point {toRoman(sermonPoint.number)}</span>
+                  <span className="op-now-eyebrow">Point {sermonPoint.number}</span>
                   {sermonPoint.text}
                 </div>
               ) : screenMode === 'subpoint' ? (
@@ -746,18 +746,4 @@ export function App() {
 
 function formatRef(book: string, chapter: number, verse: number | null | undefined): string {
   return verse != null ? `${book} ${chapter}:${verse}` : `${book} ${chapter}`;
-}
-
-function toRoman(n: number): string {
-  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
-  const syms = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I'];
-  let result = '';
-  let remaining = n;
-  for (let i = 0; i < vals.length; i++) {
-    while (remaining >= vals[i]) {
-      result += syms[i];
-      remaining -= vals[i];
-    }
-  }
-  return result;
 }

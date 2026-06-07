@@ -88,7 +88,7 @@ export function CongregationPreview(props: CongregationPreviewProps) {
           <div className="congregation-state" hidden={screenMode !== 'point'}>
             <div className="point-card">
               <div className="point-eyebrow">
-                Point&nbsp;&nbsp;{sermonPoint ? toRoman(sermonPoint.number) : ''}
+                Point&nbsp;&nbsp;{sermonPoint ? sermonPoint.number : ''}
               </div>
               <div className="point-rule" aria-hidden="true" />
               <div className="point-text">{sermonPoint?.text ?? ''}</div>
@@ -179,18 +179,4 @@ export function CongregationPreview(props: CongregationPreviewProps) {
       </div>
     </div>
   );
-}
-
-function toRoman(n: number): string {
-  const vals = [1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1];
-  const syms = ['M', 'CM', 'D', 'CD', 'C', 'XC', 'L', 'XL', 'X', 'IX', 'V', 'IV', 'I'];
-  let result = '';
-  let remaining = n;
-  for (let i = 0; i < vals.length; i++) {
-    while (remaining >= vals[i]) {
-      result += syms[i];
-      remaining -= vals[i];
-    }
-  }
-  return result;
 }
