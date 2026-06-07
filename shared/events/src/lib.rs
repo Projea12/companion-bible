@@ -111,6 +111,7 @@ pub enum AppEvent {
     },
     SubPointShown {
         text: String,
+        index: u32,
     },
     DisplayBlanked,
 
@@ -246,6 +247,12 @@ pub enum AppEvent {
     /// The current order-of-service item changed. None means cleared.
     ServiceItemChanged {
         label: Option<String>,
+    },
+
+    // ── Idle screen ───────────────────────────────────────────────────────────
+    /// Service name shown on the idle screen footer, set by operator.
+    IdleServiceNameSet {
+        name: String,
     },
 
     // ── Model setup ──────────────────────────────────────────────────────────

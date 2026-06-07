@@ -3,6 +3,7 @@ export type DisplayState =
   | 'blank'
   | 'verse'
   | 'title'
+  | 'point'
   | 'subpoint'
   | 'hymn'
   | 'announcement';
@@ -12,6 +13,7 @@ export interface StatePanels {
   blank: HTMLElement;
   verse: HTMLElement;
   title: HTMLElement;
+  point: HTMLElement;
   subpoint: HTMLElement;
   hymn: HTMLElement;
   announcement: HTMLElement;

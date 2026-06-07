@@ -34,7 +34,8 @@ export type AppEvent =
   | { type: 'VERSE_DISPLAYED'; reference: BibleReference }
   | { type: 'DISPLAY_CLEARED' }
   | { type: 'SERMON_TITLE_SHOWN'; title: string }
-  | { type: 'SUB_POINT_SHOWN'; text: string }
+  | { type: 'SERMON_POINT_SHOWN'; text: string; number: number }
+  | { type: 'SUB_POINT_SHOWN'; text: string; index: number }
   | { type: 'DISPLAY_BLANKED' }
 
   // ── Sermon lifecycle ───────────────────────────────────────────────────
@@ -106,7 +107,10 @@ export type AppEvent =
   | { type: 'CONGREGATION_SCROLL'; amount: number }
 
   // ── Order of service ────────────────────────────────────────────────────
-  | { type: 'SERVICE_ITEM_CHANGED'; label: string | null };
+  | { type: 'SERVICE_ITEM_CHANGED'; label: string | null }
+
+  // ── Idle screen ──────────────────────────────────────────────────────────
+  | { type: 'IDLE_SERVICE_NAME_SET'; name: string };
 
 export type AppEventType = AppEvent['type'];
 
@@ -115,7 +119,7 @@ export interface ScreenInfo {
   hasSecondaryScreen: boolean;
 }
 
-export type DisplayMode = 'idle' | 'blank' | 'verse' | 'title' | 'subpoint' | 'hymn';
+export type DisplayMode = 'idle' | 'blank' | 'verse' | 'title' | 'point' | 'subpoint' | 'hymn';
 
 export interface AppState {
   displayMode: DisplayMode;
@@ -123,6 +127,7 @@ export interface AppState {
   congregationVisible: boolean;
   totalScreens: number;
   hasSecondaryScreen: boolean;
+  serviceName: string;
 }
 
 export function isAppEvent(value: unknown): value is AppEvent {

@@ -33,6 +33,7 @@ enum DisplayMode {
     Blank,
     Verse,
     Title,
+    Point,
     Subpoint,
     Hymn,
     Announcement,
@@ -121,6 +122,7 @@ struct InternalState {
     service_items: Vec<ServiceItem>,
     current_service_item_id: Option<u32>,
     next_service_item_id: u32,
+    service_name: String,
 }
 
 impl Default for InternalState {
@@ -147,6 +149,7 @@ impl Default for InternalState {
             service_items: Vec::new(),
             current_service_item_id: None,
             next_service_item_id: 1,
+            service_name: "SUNDAY WORSHIP SERVICE".into(),
         }
     }
 }
@@ -182,6 +185,7 @@ struct AppState {
     sermon_active: bool,
     sermon_title: Option<String>,
     sub_point_index: i32,
+    service_name: String,
 }
 
 // ─── screen management ────────────────────────────────────────────────────────
@@ -293,7 +297,16 @@ fn get_app_state(app: AppHandle, state: State<ManagedState>) -> AppState {
         sermon_active: s.sermon_active,
         sermon_title: s.sermon_title.clone(),
         sub_point_index: s.current_sub_point_index,
+        service_name: s.service_name.clone(),
     }
+}
+
+// ─── service name command ─────────────────────────────────────────────────────
+
+#[tauri::command]
+fn set_service_name(app: AppHandle, state: State<ManagedState>, name: String) {
+    state.inner.lock().unwrap().service_name = name.clone();
+    let _ = app.emit("app-event", &AppEvent::IdleServiceNameSet { name });
 }
 
 // ─── screen commands ──────────────────────────────────────────────────────────
@@ -492,10 +505,35 @@ fn show_sermon_title(app: AppHandle, state: State<ManagedState>, title: String) 
 }
 
 #[tauri::command]
-fn show_sub_point(app: AppHandle, state: State<ManagedState>, sub_point: String) {
+fn show_sermon_point(app: AppHandle, state: State<ManagedState>, text: String, number: u8) {
     let _ = app.emit(
         "app-event",
-        serde_json::json!({ "type": "SUB_POINT_SHOWN", "text": sub_point }),
+        serde_json::json!({ "type": "SERMON_POINT_SHOWN", "text": text, "number": number }),
+    );
+    state.inner.lock().unwrap().display_mode = DisplayMode::Point;
+}
+
+#[tauri::command]
+fn show_sub_point(app: AppHandle, state: State<ManagedState>, sub_point: String) {
+    let index = {
+        let mut s = state.inner.lock().unwrap();
+        let idx = s
+            .sub_points
+            .iter()
+            .position(|t| t == &sub_point)
+            .unwrap_or_else(|| {
+                s.sub_points.push(sub_point.clone());
+                s.sub_points.len() - 1
+            });
+        s.current_sub_point_index = idx as i32;
+        idx as u32
+    };
+    let _ = app.emit(
+        "app-event",
+        &AppEvent::SubPointShown {
+            text: sub_point,
+            index,
+        },
     );
     state.inner.lock().unwrap().display_mode = DisplayMode::Subpoint;
 }
@@ -1015,16 +1053,16 @@ fn next_sub_point(app: AppHandle, state: State<ManagedState>) {
         let next_idx = s.current_sub_point_index + 1;
         if next_idx < s.sub_points.len() as i32 {
             s.current_sub_point_index = next_idx;
-            s.sub_points.get(next_idx as usize).cloned()
+            s.sub_points
+                .get(next_idx as usize)
+                .cloned()
+                .map(|t| (t, next_idx as u32))
         } else {
             None
         }
     };
-    if let Some(text) = sub_point_text {
-        let _ = app.emit(
-            "app-event",
-            serde_json::json!({ "type": "SUB_POINT_SHOWN", "text": text }),
-        );
+    if let Some((text, index)) = sub_point_text {
+        let _ = app.emit("app-event", &AppEvent::SubPointShown { text, index });
         state.inner.lock().unwrap().display_mode = DisplayMode::Subpoint;
     }
 }
@@ -1641,6 +1679,7 @@ pub fn run() {
             discard_verse,
             undo_discard,
             show_sermon_title,
+            show_sermon_point,
             show_sub_point,
             show_blank,
             clear_congregation_display,
@@ -1681,6 +1720,7 @@ pub fn run() {
             reorder_service_items,
             clear_service_items,
             get_service_items,
+            set_service_name,
         ])
         .run(tauri::generate_context!())
         .expect("error while running companion bible");

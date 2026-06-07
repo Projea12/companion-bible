@@ -7,6 +7,7 @@ import { createStateMachine } from './state-machine';
 const stateIdle = document.getElementById('state-idle') as HTMLDivElement;
 const stateVerse = document.getElementById('state-verse') as HTMLDivElement;
 const stateTitle = document.getElementById('state-title') as HTMLDivElement;
+const statePoint = document.getElementById('state-point') as HTMLDivElement;
 const stateSubpoint = document.getElementById('state-subpoint') as HTMLDivElement;
 const stateBlank = document.getElementById('state-blank') as HTMLDivElement;
 const stateHymn = document.getElementById('state-hymn') as HTMLDivElement;
@@ -16,6 +17,10 @@ const verseReference = document.getElementById('verse-reference') as HTMLElement
 const verseText = document.getElementById('verse-text') as HTMLElement;
 const verseTranslation = document.getElementById('verse-translation') as HTMLElement;
 const titleText = document.getElementById('title-text') as HTMLElement;
+const pointLabel = document.getElementById('point-label') as HTMLElement;
+const pointGhost = document.getElementById('point-ghost') as HTMLElement;
+const subpointBadge = document.getElementById('subpoint-badge') as HTMLElement;
+const pointText = document.getElementById('point-text') as HTMLElement;
 const subpointText = document.getElementById('subpoint-text') as HTMLElement;
 const hymnNumberLabel = document.getElementById('hymn-number-label') as HTMLElement;
 const hymnSectionLabel = document.getElementById('hymn-section-label') as HTMLElement;
@@ -25,6 +30,7 @@ const announcementBodyWrap = document.getElementById('announcement-body-wrap') a
 const announcementBody = document.getElementById('announcement-body') as HTMLDivElement;
 const serviceLabel = document.getElementById('service-label') as HTMLDivElement;
 const serviceLabelText = document.getElementById('service-label-text') as HTMLElement;
+const idleServiceName = document.getElementById('idle-service-name') as HTMLElement;
 
 // ─── state machine ────────────────────────────────────────────────────────────
 
@@ -33,6 +39,7 @@ const { showState, current: currentState } = createStateMachine({
   blank: stateBlank,
   verse: stateVerse,
   title: stateTitle,
+  point: statePoint,
   subpoint: stateSubpoint,
   hymn: stateHymn,
   announcement: stateAnnouncement,
@@ -51,13 +58,22 @@ function stopVerseScroll(): void {
 function startVerseScroll(): void {
   stopVerseScroll();
 
-  // 30 px/s — slow enough to read comfortably on a large screen.
-  const PX_PER_MS = 30 / 1000;
+  // 25 px/s — comfortable reading speed on a large projector screen.
+  const PX_PER_MS = 25 / 1000;
   let lastTime: number | null = null;
+  // Give the browser up to 1.5 s after this call to finish painting before
+  // we give up waiting for scrollable content to appear.
+  const deadline = performance.now() + 1500;
 
   function step(now: number): void {
     const maxScroll = stateVerse.scrollHeight - stateVerse.clientHeight;
-    if (maxScroll <= 0) return; // text fits — nothing to scroll
+
+    if (maxScroll <= 0) {
+      // Text fits on screen — keep polling until deadline in case layout is
+      // still settling (fonts loading, container resizing, etc.)
+      if (now < deadline) verseScrollRaf = requestAnimationFrame(step);
+      return;
+    }
 
     if (lastTime !== null) {
       stateVerse.scrollTop = Math.min(
@@ -83,12 +99,9 @@ function showVerse(reference: string, text: string, translation: string): void {
     verseText.textContent = text;
     verseTranslation.textContent = translation;
   });
-  // --cb-fade is 300 ms. Wait 700 ms so the panel is fully visible and the
-  // browser has painted the final layout before we measure scrollHeight.
-  // (transitionend is unreliable here because two properties transition
-  // simultaneously — opacity and transform — and { once: true } consumes
-  // the listener on the first one fired, which may not be opacity.)
-  setTimeout(startVerseScroll, 700);
+  // Start the scroll loop after the 300 ms fade transition. The loop itself
+  // handles any remaining layout-settle time via the deadline mechanism.
+  setTimeout(startVerseScroll, 350);
 }
 
 function showSermonTitle(title: string): void {
@@ -97,12 +110,27 @@ function showSermonTitle(title: string): void {
   });
 }
 
-function showSubPoint(text: string): void {
+function showSermonPoint(number: number, text: string): void {
+  activePointNumber = number;
+  showState('point', () => {
+    pointLabel.textContent = `Point  ${number}`;
+    pointGhost.textContent = String(number);
+    pointText.textContent = text;
+  });
+}
+
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+
+function showSubPoint(text: string, index: number): void {
   showState('subpoint', () => {
+    const roman = ROMAN[index] ?? String(index + 1);
+    subpointBadge.textContent =
+      activePointNumber > 0 ? `Point  ${activePointNumber}  ·  ${roman}` : '';
     subpointText.textContent = text;
   });
 }
 
+let activePointNumber = 0;
 let activeHymnTitle = '';
 
 const HYMN_FS_MAX = 144;
@@ -229,8 +257,12 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       showSermonTitle(payload.title);
       break;
 
+    case 'SERMON_POINT_SHOWN':
+      showSermonPoint(payload.number, payload.text);
+      break;
+
     case 'SUB_POINT_SHOWN':
-      showSubPoint(payload.text);
+      showSubPoint(payload.text, payload.index);
       break;
 
     case 'DISPLAY_BLANKED':
@@ -273,10 +305,18 @@ void listen<AppEvent>('app-event', ({ payload }) => {
       }
       break;
 
+    case 'IDLE_SERVICE_NAME_SET':
+      idleServiceName.textContent = payload.name;
+      break;
+
     case 'CONGREGATION_SCROLL': {
+      // Manual scroll takes priority — stop auto-scroll so it doesn't
+      // immediately override the operator's scrollBy call.
+      if (currentState() === 'verse') stopVerseScroll();
       const panels: Partial<Record<string, HTMLElement>> = {
         verse: stateVerse,
         title: stateTitle,
+        point: statePoint,
         subpoint: stateSubpoint,
         hymn: stateHymn,
         announcement: announcementBodyWrap,
