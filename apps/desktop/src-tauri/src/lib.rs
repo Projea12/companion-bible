@@ -1187,6 +1187,42 @@ async fn next_hymn_stanza(app: AppHandle, state: State<'_, ManagedState>) -> Res
     Ok(true)
 }
 
+/// Go back to the previous hymn section (operator button).
+#[tauri::command]
+async fn prev_hymn_stanza(app: AppHandle, state: State<'_, ManagedState>) -> Result<bool, String> {
+    if let Some(eng) = state.engine.lock().await.as_mut() {
+        return Ok(eng.previous_hymn());
+    }
+
+    let event = {
+        let mut s = state.inner.lock().unwrap();
+        s.hymn_session.as_mut().and_then(|sess| sess.go_back())
+    };
+    let Some(event) = event else {
+        return Ok(false);
+    };
+    if let companion_engine::HymnSessionEvent::Advanced {
+        number,
+        section_index,
+        stanza_number,
+        is_chorus,
+        lines,
+    } = event
+    {
+        let _ = app.emit(
+            "app-event",
+            &AppEvent::HymnSectionAdvanced {
+                number,
+                section_index,
+                stanza_number,
+                is_chorus,
+                lines,
+            },
+        );
+    }
+    Ok(true)
+}
+
 // ─── operator action commands ─────────────────────────────────────────────────
 
 /// Confirm a detected reference — looks up verse text and displays it.
@@ -1721,6 +1757,7 @@ pub fn run() {
             set_display_mode,
             load_hymn,
             next_hymn_stanza,
+            prev_hymn_stanza,
             next_verse,
             previous_verse,
             set_assemblyai_key,

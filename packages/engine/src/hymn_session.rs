@@ -119,6 +119,24 @@ impl HymnSession {
         self.advance()
     }
 
+    /// Go back to the previous section (operator button).
+    /// Returns `None` when already at the first section.
+    pub fn go_back(&mut self) -> Option<HymnSessionEvent> {
+        if self.position == 0 {
+            return None;
+        }
+        self.completed = false;
+        self.position -= 1;
+        let (is_chorus, lines) = &self.sequence[self.position];
+        Some(HymnSessionEvent::Advanced {
+            number: self.number,
+            section_index: self.position,
+            stanza_number: self.stanza_number_at(self.position),
+            is_chorus: *is_chorus,
+            lines: lines.clone(),
+        })
+    }
+
     /// Manually advance to the next section (operator button).
     pub fn advance(&mut self) -> Option<HymnSessionEvent> {
         if self.completed {

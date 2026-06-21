@@ -200,6 +200,21 @@ impl DetectionEngine {
         }
     }
 
+    /// Go back to the previous hymn section (operator button).
+    /// Returns `false` if no hymn session is active or already at the first section.
+    pub fn previous_hymn(&mut self) -> bool {
+        let session = match self.hymn_session.as_mut() {
+            Some(s) => s,
+            None => return false,
+        };
+        if let Some(event) = session.go_back() {
+            self.emit_event(hymn_session_to_app_event(event));
+            true
+        } else {
+            false
+        }
+    }
+
     // ── process ───────────────────────────────────────────────────────────────
 
     /// Process one transcription segment through the full pipeline and return
@@ -222,8 +237,19 @@ impl DetectionEngine {
             .as_ref()
             .map(|r| r.to_string());
 
-        // ── 1b. Hymn detection — runs regardless of display mode ──────────
-        self.process_hymn_segment(&text);
+        // ── 1b. Hymn detection — if a new hymn was loaded this segment,
+        //    short-circuit: return HoldForOperator so the Bible verse pipeline
+        //    never fires and doesn't stomp on the hymn display.
+        if self.process_hymn_segment(&text) {
+            return DetectionDecision {
+                reference: None,
+                confidence: 0.0,
+                action: companion_arbitrator::DisplayAction::HoldForOperator,
+                validation: crate::decision::ValidationOutcome::NoReference,
+                all_layers_agreed: false,
+                processing_ms: t0.elapsed().as_millis() as u64,
+            };
+        }
 
         // ── 2. Pattern layer (sync, embedded in enrichment) ───────────────
         let segment_pattern = layers::pattern_layer(&enriched);
@@ -231,6 +257,18 @@ impl DetectionEngine {
             .as_ref()
             .map(|r| r.book.is_some() && r.chapter.is_some() && r.verse.is_some())
             .unwrap_or(false);
+
+        // When the segment itself contains an explicit full reference (book+chapter+verse),
+        // forward that reference's book/chapter to AI layers instead of the stale
+        // previous-verse context. This prevents AI from being anchored to the old
+        // verse (e.g., "John 4" when the speaker just said "James 1:5") and returning
+        // stale results that drag confidence below the AutoDisplay threshold.
+        let (ai_book, ai_chapter) = if has_full_ref {
+            let seg = segment_pattern.as_ref().unwrap();
+            (seg.book.clone(), seg.chapter)
+        } else {
+            (active_book.clone(), active_chapter)
+        };
 
         // Only scan the rolling transcript when the current segment contains an
         // explicit scripture-intent signal.  Without this gate, every segment
@@ -272,13 +310,13 @@ impl DetectionEngine {
                 let ai = ai.clone();
                 let text_c = text.clone();
                 let transcript_c = transcript.clone();
-                let book_c = active_book.clone();
+                let book_c = ai_book.clone();
                 let anchor_c = anchor.clone();
                 tokio::task::spawn_blocking(move || {
                     ai.detect(
                         &text_c,
                         book_c.as_deref(),
-                        active_chapter,
+                        ai_chapter,
                         &transcript_c,
                         anchor_c.as_deref(),
                     )
@@ -292,8 +330,8 @@ impl DetectionEngine {
         let local_rx = self.local_ai.as_ref().and_then(|h| {
             h.try_submit(
                 text.clone(),
-                active_book.clone(),
-                active_chapter,
+                ai_book.clone(),
+                ai_chapter,
                 transcript.clone(),
             )
         });
@@ -305,13 +343,13 @@ impl DetectionEngine {
                 let cloud = cloud.clone();
                 let text_c = text.clone();
                 let transcript_c = transcript.clone();
-                let book_c = active_book.clone();
+                let book_c = ai_book.clone();
                 let anchor_c = anchor.clone();
                 tokio::task::spawn_blocking(move || {
                     cloud.detect(
                         &text_c,
                         book_c.as_deref(),
-                        active_chapter,
+                        ai_chapter,
                         &transcript_c,
                         anchor_c.as_deref(),
                     )
@@ -455,7 +493,9 @@ impl DetectionEngine {
         quotation::best_quotation_match(&candidates, transcript)
     }
 
-    fn process_hymn_segment(&mut self, text: &str) {
+    /// Returns `true` when a NEW hymn was loaded from this segment (caller
+    /// should short-circuit and skip Bible verse detection).
+    fn process_hymn_segment(&mut self, text: &str) -> bool {
         // Check for a new hymn number in speech first.
         if let Some(number) = detect_hymn_number(text) {
             let already_at_start = self
@@ -466,7 +506,6 @@ impl DetectionEngine {
 
             if !already_at_start {
                 if let Some(session) = HymnSession::load(number) {
-                    // Emit detection event (carries title).
                     if let Some(HymnSessionEvent::Loaded {
                         number: n,
                         ref title,
@@ -490,17 +529,18 @@ impl DetectionEngine {
                     }
                     self.hymn_session = Some(session);
                     self.display_mode = DisplayMode::Hymn;
-                    return;
+                    return true;
                 }
             }
         }
 
-        // Check last-line match against the active section.
+        // Check last-line match against the active section (auto-advance).
         if let Some(session) = self.hymn_session.as_mut() {
             if let Some(event) = session.check_advance(text) {
                 self.emit_event(hymn_session_to_app_event(event));
             }
         }
+        false
     }
 
     fn emit_event(&self, event: AppEvent) {

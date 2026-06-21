@@ -429,6 +429,10 @@ export function App() {
     void invoke('next_hymn_stanza');
   }, []);
 
+  const handlePrevStanza = useCallback(() => {
+    void invoke('prev_hymn_stanza');
+  }, []);
+
   const handleNextVerse = useCallback(() => {
     void invoke('next_verse');
   }, []);
@@ -764,6 +768,7 @@ export function App() {
                 hymnSection={hymnSection}
                 onLoadHymn={handleLoadHymn}
                 onNextStanza={handleNextStanza}
+                onPrevStanza={handlePrevStanza}
               />
             </div>
             <div hidden={activeTab !== 'more'}>

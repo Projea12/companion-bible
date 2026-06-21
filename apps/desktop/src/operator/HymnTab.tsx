@@ -5,9 +5,16 @@ interface HymnTabProps {
   hymnSection: { stanzaNumber: number | null; isChorus: boolean; lines: string[] } | null;
   onLoadHymn: (number: number) => void;
   onNextStanza: () => void;
+  onPrevStanza: () => void;
 }
 
-export function HymnTab({ activeHymn, hymnSection, onLoadHymn, onNextStanza }: HymnTabProps) {
+export function HymnTab({
+  activeHymn,
+  hymnSection,
+  onLoadHymn,
+  onNextStanza,
+  onPrevStanza,
+}: HymnTabProps) {
   return (
     <>
       <ManualHymnOverride onSubmit={onLoadHymn} />
@@ -30,9 +37,14 @@ export function HymnTab({ activeHymn, hymnSection, onLoadHymn, onNextStanza }: H
               </div>
             </>
           )}
-          <button className="btn btn-primary hymn-next-btn" onClick={onNextStanza}>
-            Next Stanza →
-          </button>
+          <div className="hymn-nav-btns">
+            <button className="btn btn-secondary hymn-prev-btn" onClick={onPrevStanza}>
+              ← Previous
+            </button>
+            <button className="btn btn-primary hymn-next-btn" onClick={onNextStanza}>
+              Next →
+            </button>
+          </div>
         </section>
       )}
     </>

@@ -786,9 +786,14 @@
   margin: 0;
   line-height: 1.55;
 }
-.hymn-next-btn {
-  align-self: flex-start;
+.hymn-nav-btns {
+  display: flex;
+  gap: 8px;
   margin-top: 4px;
+}
+.hymn-prev-btn,
+.hymn-next-btn {
+  flex: 1;
 }
 
 /* ── Order of Service ───────────────────────────────────────── */
