@@ -1,448 +1,507 @@
-import { BookOpen, Mic, Monitor, Music, Download, Zap, WifiOff } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { BookOpen, Download, ChevronRight, Check } from 'lucide-react';
 
-const LandingPage = () => {
+/* ─── ANIMATED VERSE ─── */
+const VERSE_SEGMENTS = [
+  { text: 'And we know that', highlight: false },
+  { text: 'all things', highlight: false },
+  { text: 'work together', highlight: true },
+  { text: 'for good', highlight: true },
+  { text: 'to them that love God,', highlight: false },
+  { text: 'to them who are the called', highlight: false },
+  { text: 'according to his purpose.', highlight: false },
+];
+
+function AnimatedVerse() {
+  const words: { text: string; highlight: boolean; delay: number }[] = [];
+  let i = 0;
+  VERSE_SEGMENTS.forEach(({ text, highlight }) => {
+    text.split(' ').forEach((w) => {
+      if (w) {
+        words.push({ text: w, highlight, delay: 0.3 + i * 0.07 });
+        i++;
+      }
+    });
+  });
+
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        backgroundColor: '#0a0a0a',
-        fontFamily: 'system-ui, sans-serif',
-        color: '#fff',
-      }}
-    >
-      {/* Navbar */}
-      <nav
-        style={{
-          padding: '1.25rem 2rem',
-          backgroundColor: '#0a0a0a',
-          borderBottom: '1px solid #1a1a1a',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          position: 'sticky',
-          top: 0,
-          zIndex: 100,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          <BookOpen size={22} color="#646cff" />
-          <span style={{ fontWeight: '700', fontSize: '1.1rem' }}>Companion Bible</span>
-        </div>
-        <a
-          href="#download"
-          style={{
-            padding: '0.6rem 1.4rem',
-            backgroundColor: '#646cff',
-            color: '#fff',
-            borderRadius: '8px',
-            fontSize: '0.9rem',
-            fontWeight: '600',
-            textDecoration: 'none',
-          }}
+    <div className="verse-text">
+      {words.map(({ text, highlight, delay }, idx) => (
+        <span
+          key={idx}
+          className={`verse-word${highlight ? ' verse-highlight' : ''}`}
+          style={{ animationDelay: `${delay}s` }}
         >
-          Download Free
-        </a>
-      </nav>
-
-      {/* Hero */}
-      <section
-        style={{
-          padding: '7rem 2rem',
-          background: 'linear-gradient(135deg, #0a0a0a 0%, #1a0a2e 100%)',
-          textAlign: 'center',
-        }}
-      >
-        <div style={{ maxWidth: '860px', margin: '0 auto' }}>
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              padding: '0.5rem 1rem',
-              backgroundColor: '#1a1a1a',
-              borderRadius: '50px',
-              marginBottom: '2rem',
-              border: '1px solid #333',
-            }}
-          >
-            <Zap size={15} color="#646cff" />
-            <span style={{ fontSize: '0.85rem', color: '#888' }}>
-              Real-time scripture &amp; hymn display for live services
-            </span>
-          </div>
-
-          <h1
-            style={{
-              fontSize: 'clamp(2.4rem, 5vw, 3.8rem)',
-              fontWeight: 'bold',
-              lineHeight: 1.15,
-              marginBottom: '1.5rem',
-              background: 'linear-gradient(135deg, #fff 0%, #646cff 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
-          >
-            Scripture &amp; Hymns,
-            <br />
-            Live on the Congregation Screen
-          </h1>
-
-          <p
-            style={{
-              fontSize: '1.2rem',
-              color: '#aaa',
-              maxWidth: '640px',
-              margin: '0 auto 1rem',
-              lineHeight: '1.8',
-            }}
-          >
-            Companion Bible listens to the preacher, detects Bible verse citations in real time, and
-            automatically displays the full KJV text on a second screen — no operator action
-            required.
-          </p>
-          <p
-            style={{
-              fontSize: '1.05rem',
-              color: '#888',
-              maxWidth: '560px',
-              margin: '0 auto 3rem',
-              lineHeight: '1.7',
-            }}
-          >
-            Also detects GHS hymn numbers from speech and advances stanzas and choruses
-            automatically as the congregation sings.
-          </p>
-
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <a
-              href="#download"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '1rem 2rem',
-                backgroundColor: '#646cff',
-                color: '#fff',
-                borderRadius: '8px',
-                fontSize: '1.05rem',
-                fontWeight: '600',
-                textDecoration: 'none',
-              }}
-            >
-              <Download size={18} />
-              Download for Mac or Windows
-            </a>
-            {/* <a
-              href="https://github.com/Projea12/companion-bible"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '1rem 2rem',
-                backgroundColor: '#1a1a1a',
-                color: '#fff',
-                borderRadius: '8px',
-                fontSize: '1.05rem',
-                fontWeight: '600',
-                border: '1px solid #333',
-                textDecoration: 'none',
-              }}
-            >
-              View on GitHub
-              <ArrowRight size={18} />
-            </a> */}
-          </div>
-        </div>
-      </section>
-
-      {/* What It Does */}
-      <section style={{ padding: '6rem 2rem', backgroundColor: '#0f0f0f' }}>
-        <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-          <h2
-            style={{ fontSize: '2.2rem', textAlign: 'center', marginBottom: '1rem', color: '#fff' }}
-          >
-            What Companion Bible Does
-          </h2>
-          <p
-            style={{
-              textAlign: 'center',
-              color: '#888',
-              marginBottom: '4rem',
-              fontSize: '1.05rem',
-            }}
-          >
-            Two powerful features for live church services — all running on a single laptop.
-          </p>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-              gap: '2rem',
-            }}
-          >
-            <FeatureCard
-              icon={<BookOpen size={38} color="#646cff" />}
-              title="Automatic Bible Verse Display"
-              description={`The pastor says "Romans eight twenty-eight" — within ~400 ms the congregation screen shows the full KJV verse. No button press needed. Pattern matching, local AI, and cloud AI work together to catch every citation.`}
-            />
-            <FeatureCard
-              icon={<Music size={38} color="#646cff" />}
-              title="GHS Hymn Display"
-              description={`Say "open GHS two hundred and thirty four" and the first stanza appears instantly. The display auto-advances to the next stanza or chorus as the congregation sings, keeping pace without operator input.`}
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* How It Works */}
-      <section style={{ padding: '6rem 2rem' }}>
-        <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-          <h2
-            style={{ fontSize: '2.2rem', textAlign: 'center', marginBottom: '4rem', color: '#fff' }}
-          >
-            How It Works
-          </h2>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-              gap: '3rem',
-            }}
-          >
-            <ProcessStep
-              number="1"
-              title="Plug In a Mic"
-              description="Connect a microphone near the pulpit or choir leader. A lapel, USB, or built-in mic all work."
-            />
-            <ProcessStep
-              number="2"
-              title="Start a Session"
-              description="Open Companion Bible, click Start Session, and connect a second monitor for the congregation display."
-            />
-            <ProcessStep
-              number="3"
-              title="Preach Normally"
-              description="The AI listens continuously. Bible references and GHS hymn numbers are detected automatically from natural speech."
-            />
-            <ProcessStep
-              number="4"
-              title="Scripture Appears"
-              description="The congregation screen updates in real time. The operator can confirm, override, or manually load content at any time."
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* Features */}
-      <section style={{ padding: '6rem 2rem', backgroundColor: '#0f0f0f' }}>
-        <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-          <h2
-            style={{ fontSize: '2.2rem', textAlign: 'center', marginBottom: '4rem', color: '#fff' }}
-          >
-            Built for African Churches
-          </h2>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: '2rem',
-            }}
-          >
-            <FeatureCard
-              icon={<Mic size={38} color="#646cff" />}
-              title="Optimised for African Accents"
-              description="AssemblyAI streaming transcription with accent-aware patterns. Handles spoken numbers, 'and' as verse separator, and references fragmented across sentences."
-            />
-            <FeatureCard
-              icon={<WifiOff size={38} color="#646cff" />}
-              title="Works Fully Offline"
-              description="No internet? No problem. Whisper local transcription + Phi-3 Mini on-device AI keeps detection running. API keys are optional, not required."
-            />
-            <FeatureCard
-              icon={<Monitor size={38} color="#646cff" />}
-              title="Dual-Window Display"
-              description="An operator window gives full control: confirm or override detections, manually load any verse or hymn, toggle Bible/GHS mode, advance stanzas."
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* Download */}
-      <section
-        id="download"
-        style={{
-          padding: '6rem 2rem',
-          background: 'linear-gradient(135deg, #1a0a2e 0%, #0a0a0a 100%)',
-          textAlign: 'center',
-        }}
-      >
-        <div style={{ maxWidth: '700px', margin: '0 auto' }}>
-          <h2 style={{ fontSize: '2.4rem', marginBottom: '1rem', color: '#fff' }}>
-            Download Companion Bible
-          </h2>
-          <p style={{ fontSize: '1.1rem', color: '#aaa', marginBottom: '3rem', lineHeight: '1.7' }}>
-            Free and open source. Available for macOS and Windows. Requires macOS 12+ or Windows
-            10+.
-          </p>
-
-          <div
-            style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center', flexWrap: 'wrap' }}
-          >
-            <PlatformButton
-              label="Download for macOS"
-              sublabel="macOS 12+ · Apple Silicon &amp; Intel"
-              href="https://github.com/johnolugbemi/companion-bible/releases/latest/download/companion-bible-mac.dmg"
-            />
-            <PlatformButton
-              label="Download for Windows"
-              sublabel="Windows 10/11 · 64-bit"
-              href="https://github.com/johnolugbemi/companion-bible/releases/latest/download/companion-bible-windows.exe"
-            />
-          </div>
-
-          <p style={{ marginTop: '2rem', fontSize: '0.9rem', color: '#555' }}>
-            All releases on{' '}
-            <a
-              href="https://github.com/johnolugbemi/companion-bible/releases"
-              style={{ color: '#646cff', textDecoration: 'none' }}
-            >
-              GitHub Releases
-            </a>
-            . Source code available under the MIT licence.
-          </p>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer
-        style={{
-          padding: '2rem',
-          backgroundColor: '#0f0f0f',
-          borderTop: '1px solid #1a1a1a',
-          textAlign: 'center',
-          color: '#555',
-          fontSize: '0.9rem',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: '0.5rem',
-            marginBottom: '0.5rem',
-          }}
-        >
-          <BookOpen size={16} color="#646cff" />
-          <span style={{ fontWeight: '600', color: '#888' }}>Companion Bible</span>
-        </div>
-        <p style={{ marginTop: '0.25rem' }}>
-          &copy; 2026 Companion Bible. Open source, free forever.
-        </p>
-      </footer>
+          {text}{' '}
+        </span>
+      ))}
     </div>
   );
-};
+}
 
-const FeatureCard = ({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}) => (
-  <div
-    style={{
-      padding: '2rem',
-      backgroundColor: '#1a1a1a',
-      borderRadius: '12px',
-      border: '1px solid #222',
-    }}
-  >
-    <div style={{ marginBottom: '1rem' }}>{icon}</div>
-    <h3 style={{ fontSize: '1.3rem', marginBottom: '0.75rem', color: '#fff' }}>{title}</h3>
-    <p style={{ color: '#aaa', lineHeight: '1.7', fontSize: '0.97rem' }}>{description}</p>
-  </div>
-);
+/* ─── SCROLL-IN HOOK ─── */
+function useInView(threshold = 0.3) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) setVisible(true);
+      },
+      { threshold },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [threshold]);
+  return { ref, visible };
+}
 
-const ProcessStep = ({
-  number,
-  title,
-  description,
-}: {
-  number: string;
-  title: string;
-  description: string;
-}) => (
-  <div style={{ textAlign: 'center' }}>
-    <div
-      style={{
-        width: '58px',
-        height: '58px',
-        borderRadius: '50%',
-        backgroundColor: '#646cff',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: '1.4rem',
-        fontWeight: 'bold',
-        margin: '0 auto 1rem',
-      }}
-    >
-      {number}
+/* ═══════════════════════════════════════════════════════ */
+
+export default function LandingPage() {
+  return (
+    <div>
+      <Nav />
+      <Hero />
+      <ProofTicker />
+      <Features />
+      <EditorialShowcase />
+      <HowItWorks />
+      <DownloadSection />
+      <Footer />
     </div>
-    <h3 style={{ fontSize: '1.15rem', marginBottom: '0.5rem', color: '#fff' }}>{title}</h3>
-    <p style={{ color: '#aaa', lineHeight: '1.6', fontSize: '0.95rem' }}>{description}</p>
-  </div>
-);
+  );
+}
 
-const PlatformButton = ({
-  label,
-  sublabel,
-  href,
+/* ─── NAV ─── */
+function Nav() {
+  return (
+    <nav className="nav">
+      <a href="/" className="nav-logo">
+        <div className="logomark">
+          <BookOpen size={16} color="#fff" />
+        </div>
+        Companion Bible
+      </a>
+      <ul className="nav-links">
+        <li>
+          <a href="#features">Features</a>
+        </li>
+        <li>
+          <a href="#how-it-works">How It Works</a>
+        </li>
+        <li>
+          <a href="#download">Download</a>
+        </li>
+      </ul>
+      <a href="#download" className="nav-dl">
+        <Download size={14} />
+        Free Download
+      </a>
+    </nav>
+  );
+}
+
+/* ─── HERO ─────────────────────────────────────────────
+   The top portion IS the congregation screen.
+   The user sees exactly what the congregation sees.
+   Headline + CTA emerge below, out of the darkness.
+────────────────────────────────────────────────────── */
+function Hero() {
+  return (
+    <>
+      <section className="hero">
+        {/* projector beam + grid texture */}
+        <div className="hero-beam" aria-hidden="true" />
+        <div className="hero-grid" aria-hidden="true" />
+
+        <div className="hero-inner">
+          {/* live status */}
+          <div className="live-badge a1">
+            <div className="live-dot" />
+            <Waveform />
+            Listening live
+          </div>
+
+          {/* congregation screen verse */}
+          <div className="congregation-display a2">
+            <AnimatedVerse />
+            <div className="verse-ref">Romans 8 : 28 · KJV</div>
+          </div>
+        </div>
+
+        {/* gradient fade — congregation screen bleeds into headline */}
+        <div className="hero-fade" aria-hidden="true" />
+      </section>
+
+      {/* headline + CTA sit below the hero, outside it so layout is clean */}
+      <div className="hero-bottom">
+        <h1 className="hero-h1 a3">
+          The verse appears
+          <br />
+          the moment <em>it's spoken.</em>
+        </h1>
+        <p className="hero-sub a4">
+          Companion Bible streams your pastor's sermon live, detects every Bible verse and GHS hymn
+          number, and pushes it to the congregation screen in real time. No keyboard. No delay.
+        </p>
+        <div className="hero-actions a5">
+          <a href="#download" className="btn-gold">
+            <Download size={15} />
+            Download for Free
+          </a>
+          <a href="#how-it-works" className="btn-ghost">
+            See how it works
+            <ChevronRight size={15} />
+          </a>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Waveform() {
+  return (
+    <div className="waveform">
+      {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+        <div key={n} className="wave-bar" />
+      ))}
+    </div>
+  );
+}
+
+/* ─── PROOF TICKER ─── */
+const TICKER_ITEMS = [
+  { label: 'Hymnal', value: 'GHS — 900+ hymns' },
+  { label: 'Bible translation', value: 'KJV — all 31,102 verses' },
+  { label: 'Detection latency', value: '< 400 ms' },
+  { label: 'Platform', value: 'macOS & Windows' },
+  { label: 'Price', value: 'Free & open source' },
+  { label: 'Setup time', value: 'Under 5 minutes' },
+];
+
+function ProofTicker() {
+  const items = [...TICKER_ITEMS, ...TICKER_ITEMS];
+  return (
+    <div className="ticker-wrap" aria-hidden="true">
+      <div className="ticker-track">
+        {items.map(({ label, value }, i) => (
+          <React.Fragment key={i}>
+            <div className="ticker-item">
+              {label}&nbsp;<strong>{value}</strong>
+            </div>
+            <div className="ticker-item">
+              <div className="ticker-sep" />
+            </div>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── FEATURES ─── */
+function Features() {
+  return (
+    <section className="section" id="features">
+      <div className="s-inner">
+        <div className="s-head">
+          <div className="eyebrow">What It Does</div>
+          <h2 className="s-h2">Two things, done perfectly.</h2>
+          <p className="s-p">
+            Companion Bible does exactly two things and does them without you touching the keyboard.
+            Everything else is noise.
+          </p>
+        </div>
+
+        <div className="feature-trio">
+          <FTrioItem
+            n="01"
+            title="Bible verse detection"
+            desc={`Streams your pastor's voice live and detects every verse citation — spoken naturally, in any order, across sentences. Romans 8:28, "chapter eight verse twenty-eight", even "Romans and twenty-eight" — all caught, all displayed.`}
+            foot="KJV · All 31,102 verses"
+            points={[
+              'Spoken numbers understood: "eight twenty-eight"',
+              'References split across sentences still detected',
+              'Confidence scoring keeps every detection accurate',
+            ]}
+          />
+          <FTrioItem
+            n="02"
+            title="GHS hymn display"
+            desc="The choir leader calls the hymn number. Companion Bible opens it immediately and advances each stanza as the congregation sings — timed automatically, hands completely free."
+            foot="GHS Hymnal · 900+ hymns"
+            points={[
+              'Auto-advances stanza by stanza as they sing',
+              'Chorus repeats handled automatically',
+              'Service lead can load any hymn manually at any time',
+            ]}
+          />
+          <FTrioItem
+            n="03"
+            title="Order of service"
+            desc="Plan your entire service in advance. The runsheet shows NOW and NEXT on the congregation screen so the service flows — no one shouts page numbers, no one scrambles."
+            foot="Service Planning · Dual Window"
+            points={[
+              'Pre-load hymns and readings before service',
+              'NOW/NEXT displayed on congregation screen',
+              'Control panel for the service lead on a second display',
+            ]}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FTrioItem({
+  n,
+  title,
+  desc,
+  foot,
+  points,
 }: {
-  label: string;
-  sublabel: string;
-  href: string;
-}) => (
-  <a
-    href={href}
-    style={{
-      display: 'inline-flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: '0.35rem',
-      padding: '1.1rem 2.2rem',
-      backgroundColor: '#646cff',
-      color: '#fff',
-      borderRadius: '10px',
-      textDecoration: 'none',
-      minWidth: '230px',
-    }}
-  >
-    <span
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        fontSize: '1.05rem',
-        fontWeight: '700',
-      }}
-    >
-      <Download size={18} />
-      {label}
-    </span>
-    <span
-      style={{ fontSize: '0.8rem', opacity: 0.75 }}
-      dangerouslySetInnerHTML={{ __html: sublabel }}
-    />
-  </a>
-);
+  n: string;
+  title: string;
+  desc: string;
+  foot: string;
+  points: string[];
+}) {
+  return (
+    <div className="ftrio-item">
+      <div className="ftrio-num">{n}.</div>
+      <h3 className="ftrio-title">{title}</h3>
+      <p className="ftrio-desc">{desc}</p>
+      <ul
+        style={{
+          listStyle: 'none',
+          marginTop: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}
+      >
+        {points.map((p) => (
+          <li
+            key={p}
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 9,
+              fontSize: '.82rem',
+              color: 'var(--t2)',
+              lineHeight: 1.6,
+            }}
+          >
+            <div
+              style={{
+                width: 18,
+                height: 18,
+                borderRadius: 5,
+                flexShrink: 0,
+                marginTop: 1,
+                background: 'rgba(34,197,94,.1)',
+                border: '1px solid rgba(34,197,94,.18)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Check size={10} color="#22C55E" strokeWidth={3} />
+            </div>
+            {p}
+          </li>
+        ))}
+      </ul>
+      <div className="ftrio-foot">{foot}</div>
+    </div>
+  );
+}
 
-export default LandingPage;
+/* ─── EDITORIAL SHOWCASE ───────────────────────────────
+   The single section designed to stop the scroll.
+   A scripture verse, perfectly typeset, full-width.
+   No boxes. No cards. Just the word.
+────────────────────────────────────────────────────── */
+function EditorialShowcase() {
+  const { ref, visible } = useInView(0.25);
+
+  return (
+    <section className="showcase section-dark">
+      <div className="showcase-label">What your congregation sees</div>
+
+      <div ref={ref}>
+        <blockquote className={`showcase-verse${visible ? ' visible' : ''}`}>
+          "For God so loved the world, that he gave his only begotten Son, that whosoever believeth
+          in him should not perish, but have <mark>everlasting life.</mark>"
+        </blockquote>
+
+        <div className={`showcase-ref${visible ? ' visible' : ''}`}>
+          John 3 : 16 · King James Version · Auto-detected
+        </div>
+
+        <p className={`showcase-caption${visible ? ' visible' : ''}`}>
+          <strong>This is what your congregation sees.</strong> Every verse. Every service.
+          Automatically — the moment the pastor speaks it.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/* ─── HOW IT WORKS ─── */
+function HowItWorks() {
+  const steps = [
+    {
+      n: '01',
+      title: 'Plug in a mic',
+      desc: `Any microphone near the pulpit \u2014 a lapel, USB condenser, or the laptop\u2019s built-in mic.`,
+    },
+    {
+      n: '02',
+      title: 'Open the app',
+      desc: 'Connect your congregation screen as a second display and click Start Session.',
+    },
+    {
+      n: '03',
+      title: 'Preach normally',
+      desc: 'The app streams the sermon live and detects verse citations and hymn numbers from natural speech.',
+    },
+    {
+      n: '04',
+      title: 'Scripture appears',
+      desc: 'The congregation screen updates in real time, completely hands-free.',
+    },
+  ];
+
+  return (
+    <section className="section" id="how-it-works">
+      <div className="s-inner">
+        <div className="s-head">
+          <div className="eyebrow">Setup</div>
+          <h2 className="s-h2">Running in five minutes flat.</h2>
+          <p className="s-p">
+            No configuration files. No external accounts to create. Works the first time you open
+            it.
+          </p>
+        </div>
+
+        <div className="steps-grid">
+          {steps.map(({ n, title, desc }) => (
+            <div key={n} className="step">
+              <div className="step-num">{n}</div>
+              <h3 className="step-h3">{title}</h3>
+              <p className="step-p">{desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── DOWNLOAD ─── */
+function DownloadSection() {
+  return (
+    <section className="dl-section" id="download">
+      <div className="dl-inner">
+        <div className="dl-platform-label">✦ Free & open source · MIT licence</div>
+
+        <h2 className="dl-h2">
+          Download and be ready
+          <br />
+          for <em>Sunday.</em>
+        </h2>
+        <p className="dl-sub">
+          Available for macOS and Windows. No account. No subscription. Requires macOS 12+ or
+          Windows 10+.
+        </p>
+
+        <div className="dl-btns">
+          <a
+            className="btn-dl"
+            href="https://github.com/Projea12/companion-bible/releases/latest/download/companion-bible-mac.dmg"
+            download="companion-bible-mac.dmg"
+            rel="noopener noreferrer"
+          >
+            <div className="btn-dl-icon">
+              <AppleIcon />
+            </div>
+            <div className="btn-dl-text">
+              <strong>Download for macOS</strong>
+              <span>macOS 12+ · Apple Silicon & Intel</span>
+            </div>
+          </a>
+
+          <a
+            className="btn-dl"
+            href="https://github.com/Projea12/companion-bible/releases/latest/download/companion-bible-windows.exe"
+            download="companion-bible-windows.exe"
+            rel="noopener noreferrer"
+          >
+            <div className="btn-dl-icon">
+              <WindowsIcon />
+            </div>
+            <div className="btn-dl-text">
+              <strong>Download for Windows</strong>
+              <span>Windows 10/11 · ~6 MB installer</span>
+            </div>
+          </a>
+        </div>
+
+        <p className="dl-note">
+          All releases on{' '}
+          <a href="https://github.com/Projea12/companion-bible/releases">GitHub Releases</a>. Source
+          code open under the MIT licence.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/* ─── FOOTER ─── */
+function Footer() {
+  return (
+    <footer className="footer">
+      <div className="footer-inner">
+        <div className="footer-logo">
+          <div className="logomark" style={{ width: 26, height: 26, borderRadius: 7 }}>
+            <BookOpen size={13} color="#fff" />
+          </div>
+          Companion Bible
+        </div>
+        <p className="footer-copy">© 2026 Companion Bible. Open source, free forever.</p>
+        <ul className="footer-links">
+          <li>
+            <a href="https://github.com/johnolugbemi/companion-bible">GitHub</a>
+          </li>
+          <li>
+            <a href="#features">Features</a>
+          </li>
+          <li>
+            <a href="#download">Download</a>
+          </li>
+        </ul>
+      </div>
+    </footer>
+  );
+}
+
+/* ─── ICONS ─── */
+function AppleIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 814 1000" fill="var(--gold)">
+      <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-57.8-155.5-127C46.7 790.7 0 663 0 541.8c0-207.5 135.4-317.3 268.3-317.3 99.6 0 182.4 65.7 244.8 65.7 60.1 0 154.5-69.7 268.1-69.7 43.4 0 150.4 4 214.3 107.4zm-261.3-189.5c59.1-70.4 101.2-168.3 101.2-266.2 0-13.5-1.3-27.1-3.9-38.3C542.8 5.7 418.3 74.1 348.7 151.5c-53.9 60.9-105.3 160.5-105.3 256.7 0 15.6 2.6 31.2 3.9 36.1 6.5 1.3 17.2 2.6 27.9 2.6 96.8 0 208.8-65.1 263-95.5z" />
+    </svg>
+  );
+}
+
+function WindowsIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 88 88" fill="var(--gold)">
+      <path d="M0 12.4 35.7 7.6l.1 34.4-35.7.2zm35.8 33.5.1 34.4-35.8-5v-29.2zm4.3-39.2 47.6-6.7v41.2l-47.6.4zm47.7 43.4-.1 40.8-47.6-6.6-.1-34.6z" />
+    </svg>
+  );
+}
